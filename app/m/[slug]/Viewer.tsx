@@ -48,10 +48,7 @@ export function Viewer({ document }: { document: StoredMapDocument }) {
         <ViewerCanvas map={map} document={document} />
       </div>
 
-      <PlaceStrip
-        places={document.places}
-        onFocus={(place) => focusPlaces(map, [place.location])}
-      />
+      <PlaceStrip stops={document.stops} onFocus={(location) => focusPlaces(map, [location])} />
 
       {/* 설계안 §7.4 — 뷰어에서 생성으로 유도하는 전환 지점 */}
       <Link
@@ -75,7 +72,7 @@ function ViewerCanvas({
   const { canvasRef } = useMapCanvas({
     map,
     scene: {
-      places: document.places,
+      stops: document.stops,
       strokes: document.strokes,
       labels: document.labels,
     },

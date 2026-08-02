@@ -24,7 +24,10 @@ export async function getOrCreateOgImage(document: StoredMapDocument): Promise<B
     bytes = await fetchStaticMap({
       center: document.center,
       level: document.zoomLevel,
-      markers: document.places.map((place) => place.location),
+      // 단계마다 대표 후보 하나만 찍는다. 정적 지도는 마커를 5개까지만 받는다.
+      markers: document.stops
+        .map((stop) => stop.candidates[0]?.location)
+        .filter((location): location is NonNullable<typeof location> => location !== undefined),
     });
   } catch (cause) {
     console.error('[ogImage] 정적 지도 생성 실패', cause);

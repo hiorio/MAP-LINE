@@ -101,7 +101,7 @@ function StrokeOptions() {
  */
 function ClearButton() {
   const clearAll = useMapStore((s) => s.clearAll);
-  const isEmpty = useMapStore((s) => s.places.length + s.strokes.length + s.labels.length === 0);
+  const isEmpty = useMapStore((s) => s.stops.length + s.strokes.length + s.labels.length === 0);
   const [armed, setArmed] = useArmedToggle();
 
   return (

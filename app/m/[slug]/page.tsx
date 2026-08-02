@@ -15,7 +15,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   if (!document) return { title: '지도를 찾을 수 없습니다 · MAP-LINE' };
 
   const title = document.title || '제목 없는 지도';
-  const places = document.places.map((place) => place.name).filter(Boolean);
+  const places = document.stops
+    .map((stop) => stop.candidates[0]?.name)
+    .filter((name): name is string => Boolean(name));
   const description =
     places.length > 0
       ? `${places.slice(0, 3).join(' → ')}${places.length > 3 ? ` 외 ${places.length - 3}곳` : ''}`

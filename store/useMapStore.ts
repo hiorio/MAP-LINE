@@ -11,8 +11,8 @@ import {
   type MapLabel,
   type Place,
   type PlaceCandidate,
+  type Stop,
   type Stroke,
-  type TravelMode,
 } from '@/lib/map/types';
 
 export type EditorMode = 'pan' | 'draw' | 'erase' | 'label' | 'place';
@@ -26,7 +26,7 @@ export type SaveState = 'idle' | 'dirty' | 'saving' | 'saved';
  * 메모리가 문제되지 않고, §6.1의 "지도 단위 전체 스냅샷" 저장 전략과도 결이 같다.
  */
 interface Snapshot {
-  places: Place[];
+  stops: Stop[];
   strokes: Stroke[];
   labels: MapLabel[];
 }
@@ -52,10 +52,14 @@ interface MapStore extends Snapshot {
   addLabel: (label: MapLabel) => void;
   removeLabel: (id: string) => void;
 
-  addPlace: (place: Place) => void;
-  removePlace: (id: string) => void;
-  updatePlace: (id: string, patch: Partial<Omit<Place, 'id'>>) => void;
-  movePlace: (from: number, to: number) => void;
+  /** 고른 장소들을 새 단계 하나로 담는다. 여러 개면 그 단계의 후보가 된다. */
+  addStop: (candidates: Place[]) => void;
+  /** 이미 있는 단계에 후보를 더한다. */
+  addCandidates: (stopId: string, candidates: Place[]) => void;
+  /** 후보 하나를 뺀다. 마지막 후보가 빠지면 단계도 사라진다. */
+  removeCandidate: (placeId: string) => void;
+  removeStop: (stopId: string) => void;
+  moveStop: (from: number, to: number) => void;
 
   undo: () => void;
   clearAll: () => void;
@@ -68,7 +72,7 @@ export const useMapStore = create<MapStore>((set, get) => ({
   color: STROKE_COLORS[0],
   width: STROKE_WIDTHS[0],
   saveState: 'idle',
-  places: [],
+  stops: [],
   strokes: [],
   labels: [],
   history: [],
@@ -90,27 +94,56 @@ export const useMapStore = create<MapStore>((set, get) => ({
   removeLabel: (id) =>
     set((s) => ({ ...commit(s), labels: s.labels.filter((x) => x.id !== id) })),
 
-  addPlace: (place) => set((s) => ({ ...commit(s), places: [...s.places, place] })),
+  addStop: (candidates) =>
+    set((s) =>
+      candidates.length === 0
+        ? s
+        : { ...commit(s), stops: [...s.stops, { id: createId(), candidates }] },
+    ),
 
-  removePlace: (id) =>
-    set((s) => ({ ...commit(s), places: s.places.filter((x) => x.id !== id) })),
+  addCandidates: (stopId, candidates) =>
+    set((s) =>
+      candidates.length === 0
+        ? s
+        : {
+            ...commit(s),
+            stops: s.stops.map((stop) =>
+              stop.id === stopId
+                ? { ...stop, candidates: [...stop.candidates, ...candidates] }
+                : stop,
+            ),
+          },
+    ),
 
-  updatePlace: (id, patch) =>
-    set((s) => ({
-      ...commit(s),
-      places: s.places.map((x) => (x.id === id ? { ...x, ...patch } : x)),
-    })),
-
-  /** 순서가 곧 핀 번호이자 연결선의 방향이다. 배열 순서를 유일한 근거로 둔다. */
-  movePlace: (from, to) =>
+  removeCandidate: (placeId) =>
     set((s) => {
-      if (from === to || from < 0 || to < 0 || from >= s.places.length || to >= s.places.length) {
+      const stops = s.stops
+        .map((stop) => ({
+          ...stop,
+          candidates: stop.candidates.filter((place) => place.id !== placeId),
+        }))
+        // 후보가 하나도 없는 단계는 존재할 이유가 없다. 번호만 비어 보인다.
+        .filter((stop) => stop.candidates.length > 0);
+
+      return stops.length === s.stops.length &&
+        stops.every((stop, i) => stop.candidates.length === s.stops[i]!.candidates.length)
+        ? s
+        : { ...commit(s), stops };
+    }),
+
+  removeStop: (stopId) =>
+    set((s) => ({ ...commit(s), stops: s.stops.filter((stop) => stop.id !== stopId) })),
+
+  /** 배열 순서가 곧 단계 번호다. 이 배열을 유일한 근거로 둔다. */
+  moveStop: (from, to) =>
+    set((s) => {
+      if (from === to || from < 0 || to < 0 || from >= s.stops.length || to >= s.stops.length) {
         return s;
       }
-      const next = [...s.places];
+      const next = [...s.stops];
       const [moved] = next.splice(from, 1);
       next.splice(to, 0, moved!);
-      return { ...commit(s), places: next };
+      return { ...commit(s), stops: next };
     }),
 
   undo: () => {
@@ -118,7 +151,7 @@ export const useMapStore = create<MapStore>((set, get) => ({
     const previous = history.at(-1);
     if (!previous) return;
     set({
-      places: previous.places,
+      stops: previous.stops,
       strokes: previous.strokes,
       labels: previous.labels,
       history: history.slice(0, -1),
@@ -127,14 +160,14 @@ export const useMapStore = create<MapStore>((set, get) => ({
   },
 
   clearAll: () =>
-    set((s) => (s.places.length + s.strokes.length + s.labels.length === 0
+    set((s) => (s.stops.length + s.strokes.length + s.labels.length === 0
       ? s
-      : { ...commit(s), places: [], strokes: [], labels: [] })),
+      : { ...commit(s), stops: [], strokes: [], labels: [] })),
 
   hydrate: (document) =>
     set({
       title: document.title ?? '',
-      places: document.places ?? [],
+      stops: document.stops ?? [],
       strokes: document.strokes ?? [],
       labels: document.labels ?? [],
       history: [],
@@ -145,7 +178,7 @@ export const useMapStore = create<MapStore>((set, get) => ({
 /** 변경 직전 상태를 히스토리에 밀어 넣고 저장 상태를 dirty로 돌린다. */
 function commit(state: Snapshot & { history: Snapshot[] }) {
   const snapshot: Snapshot = {
-    places: state.places,
+    stops: state.stops,
     strokes: state.strokes,
     labels: state.labels,
   };
@@ -167,7 +200,6 @@ export function createPlace(
     ...(source?.kakaoPlaceId ? { kakaoPlaceId: source.kakaoPlaceId } : {}),
     location,
     pinColor: PIN_COLOR,
-    modeToNext: 'walk' satisfies TravelMode,
   };
 }
 

@@ -20,6 +20,8 @@ export function Editor({ slug }: { slug: string }) {
   const [map, setMap] = useState<kakao.maps.Map | null>(null);
   const [initial, setInitial] = useState<{ center: LatLng; level: number } | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
+  /** 검색 결과를 새 단계가 아니라 이 단계의 후보로 담을 때 쓴다. */
+  const [targetStopId, setTargetStopId] = useState<string | null>(null);
 
   const [saveMode, setSaveMode] = useState<SaveMode>('local');
   const updatedAtRef = useRef<string | undefined>(undefined);
@@ -56,7 +58,21 @@ export function Editor({ slug }: { slug: string }) {
           </>
         )}
         {!searchOpen && <SearchBar onOpen={() => setSearchOpen(true)} />}
-        {searchOpen && <PlacePanel map={map} onClose={() => setSearchOpen(false)} />}
+        {searchOpen && (
+          <PlacePanel
+            map={map}
+            targetStopId={targetStopId}
+            onTargetStopChange={(stopId) => {
+              setTargetStopId(stopId);
+              // 단계 목록에서 "후보 추가"를 누른 경우다. 검색창으로 시선을 되돌린다.
+              if (stopId) setSearchOpen(true);
+            }}
+            onClose={() => {
+              setSearchOpen(false);
+              setTargetStopId(null);
+            }}
+          />
+        )}
       </div>
       {!searchOpen && <EditorPlaceStrip map={map} onOpenList={() => setSearchOpen(true)} />}
       <EditorToolbar />
@@ -75,19 +91,19 @@ function EditorPlaceStrip({
   map: kakao.maps.Map | null;
   onOpenList: () => void;
 }) {
-  const places = useMapStore((s) => s.places);
+  const stops = useMapStore((s) => s.stops);
 
   return (
     <PlaceStrip
-      places={places}
-      onFocus={(place) => focusPlaces(map, [place.location])}
+      stops={stops}
+      onFocus={(location) => focusPlaces(map, [location])}
       trailing={
         <button
           type="button"
           onClick={onOpenList}
           className="h-9 shrink-0 rounded-lg border border-hairline px-3 text-sm"
         >
-          순서 편집
+          단계 편집
         </button>
       }
     />
@@ -177,7 +193,7 @@ function useAutosave(
   updatedAtRef: React.RefObject<string | undefined>,
   setSaveMode: (mode: SaveMode) => void,
 ) {
-  const places = useMapStore((s) => s.places);
+  const stops = useMapStore((s) => s.stops);
   const strokes = useMapStore((s) => s.strokes);
   const labels = useMapStore((s) => s.labels);
   const title = useMapStore((s) => s.title);
@@ -198,7 +214,7 @@ function useAutosave(
         title: state.title,
         center: center ? { lat: center.getLat(), lng: center.getLng() } : DEFAULT_CENTER,
         zoomLevel: map?.getLevel() ?? DEFAULT_LEVEL,
-        places: state.places,
+        stops: state.stops,
         strokes: state.strokes,
         labels: state.labels,
       },
@@ -222,7 +238,7 @@ function useAutosave(
 
     const timer = setTimeout(flush, delay);
     return () => clearTimeout(timer);
-  }, [places, strokes, labels, title, flush]);
+  }, [stops, strokes, labels, title, flush]);
 
   useEffect(() => {
     // 탭을 닫거나 백그라운드로 보낼 때의 마지막 기회.

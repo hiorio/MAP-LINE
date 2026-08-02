@@ -9,7 +9,7 @@ import { useMapStore } from '@/store/useMapStore';
  * 아니라 별개의 동작이고, 지도 앱을 써 본 사람은 검색창을 화면 위쪽에서 찾는다.
  */
 export function SearchBar({ onOpen }: { onOpen: () => void }) {
-  const count = useMapStore((s) => s.places.length);
+  const count = useMapStore((s) => s.stops.length);
 
   return (
     <button
@@ -21,7 +21,7 @@ export function SearchBar({ onOpen }: { onOpen: () => void }) {
       <span className="flex-1 truncate text-sm text-ink/45">장소 검색 또는 붙여넣기</span>
       {count > 0 && (
         <span className="shrink-0 rounded-full bg-ink/10 px-2 py-0.5 text-xs tabular-nums text-ink/55">
-          {count}곳
+          {count}단계
         </span>
       )}
     </button>

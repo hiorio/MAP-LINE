@@ -20,7 +20,7 @@ const initial = useMapStore.getState();
 beforeEach(() => {
   useMapStore.setState({
     ...initial,
-    places: [],
+    stops: [],
     strokes: [],
     labels: [],
     history: [],
@@ -112,53 +112,98 @@ describe('전체 지우기', () => {
   });
 });
 
-describe('장소와 순서', () => {
+describe('단계와 후보', () => {
   const at = (n: number) => ({ lat: 37.5 + n / 1000, lng: 127 + n / 1000 });
 
-  function seed(names: string[]) {
-    names.forEach((name, i) => useMapStore.getState().addPlace(createPlace(at(i), name)));
+  function seedStops(names: string[]) {
+    names.forEach((name, i) => useMapStore.getState().addStop([createPlace(at(i), name)]));
   }
 
-  it('담은 순서가 곧 핀 번호다', () => {
-    seed(['A', 'B', 'C']);
-    expect(useMapStore.getState().places.map((p) => p.name)).toEqual(['A', 'B', 'C']);
+  it('담은 순서가 곧 단계 번호다', () => {
+    seedStops(['A', 'B', 'C']);
+    expect(useMapStore.getState().stops.map((s) => s.candidates[0]!.name)).toEqual(['A', 'B', 'C']);
   });
 
-  it('위아래로 옮기면 배열 순서가 바뀐다', () => {
-    seed(['A', 'B', 'C']);
-    useMapStore.getState().movePlace(2, 0);
-    expect(useMapStore.getState().places.map((p) => p.name)).toEqual(['C', 'A', 'B']);
+  it('여러 장소를 한 단계의 후보로 담는다', () => {
+    // "2번은 점심인데 어디로 갈지 아직 안 정했다"를 담는 구조다.
+    useMapStore.getState().addStop([
+      createPlace(at(0), '국밥집'),
+      createPlace(at(1), '칼국수집'),
+      createPlace(at(2), '냉면집'),
+    ]);
 
-    useMapStore.getState().movePlace(0, 1);
-    expect(useMapStore.getState().places.map((p) => p.name)).toEqual(['A', 'C', 'B']);
+    const stops = useMapStore.getState().stops;
+    expect(stops).toHaveLength(1);
+    expect(stops[0]!.candidates.map((p) => p.name)).toEqual(['국밥집', '칼국수집', '냉면집']);
+  });
+
+  it('빈 배열로는 단계를 만들지 않는다', () => {
+    useMapStore.getState().addStop([]);
+    expect(useMapStore.getState().stops).toEqual([]);
+  });
+
+  it('이미 있는 단계에 후보를 더한다', () => {
+    seedStops(['A']);
+    const stopId = useMapStore.getState().stops[0]!.id;
+
+    useMapStore.getState().addCandidates(stopId, [createPlace(at(5), '후보2')]);
+    expect(useMapStore.getState().stops).toHaveLength(1);
+    expect(useMapStore.getState().stops[0]!.candidates.map((p) => p.name)).toEqual(['A', '후보2']);
+  });
+
+  it('후보 하나만 빼면 단계는 남는다', () => {
+    useMapStore.getState().addStop([createPlace(at(0), 'A'), createPlace(at(1), 'B')]);
+    const second = useMapStore.getState().stops[0]!.candidates[1]!;
+
+    useMapStore.getState().removeCandidate(second.id);
+    expect(useMapStore.getState().stops[0]!.candidates.map((p) => p.name)).toEqual(['A']);
+  });
+
+  it('마지막 후보가 빠지면 단계도 사라진다', () => {
+    // 후보가 없는 단계는 번호만 비어 보인다.
+    seedStops(['A', 'B']);
+    const onlyCandidate = useMapStore.getState().stops[0]!.candidates[0]!;
+
+    useMapStore.getState().removeCandidate(onlyCandidate.id);
+    expect(useMapStore.getState().stops).toHaveLength(1);
+    expect(useMapStore.getState().stops[0]!.candidates[0]!.name).toBe('B');
+  });
+
+  it('없는 후보를 빼려 하면 아무 일도 없다', () => {
+    seedStops(['A']);
+    const before = useMapStore.getState().stops;
+    useMapStore.getState().removeCandidate('없는-id');
+    expect(useMapStore.getState().stops).toBe(before);
+  });
+
+  it('단계를 통째로 지운다', () => {
+    seedStops(['A', 'B']);
+    useMapStore.getState().removeStop(useMapStore.getState().stops[0]!.id);
+    expect(useMapStore.getState().stops.map((s) => s.candidates[0]!.name)).toEqual(['B']);
+  });
+
+  it('단계 순서를 바꾼다', () => {
+    seedStops(['A', 'B', 'C']);
+    useMapStore.getState().moveStop(2, 0);
+    expect(useMapStore.getState().stops.map((s) => s.candidates[0]!.name)).toEqual(['C', 'A', 'B']);
   });
 
   it('범위를 벗어난 이동은 무시한다', () => {
-    seed(['A', 'B']);
-    const before = useMapStore.getState().places;
-    useMapStore.getState().movePlace(0, 5);
-    useMapStore.getState().movePlace(-1, 0);
-    useMapStore.getState().movePlace(1, 1);
-    expect(useMapStore.getState().places).toBe(before);
+    seedStops(['A', 'B']);
+    const before = useMapStore.getState().stops;
+    useMapStore.getState().moveStop(0, 5);
+    useMapStore.getState().moveStop(-1, 0);
+    useMapStore.getState().moveStop(1, 1);
+    expect(useMapStore.getState().stops).toBe(before);
   });
 
   it('순서 변경도 되돌릴 수 있다', () => {
-    seed(['A', 'B', 'C']);
-    useMapStore.getState().movePlace(0, 2);
-    expect(useMapStore.getState().places.map((p) => p.name)).toEqual(['B', 'C', 'A']);
+    seedStops(['A', 'B', 'C']);
+    useMapStore.getState().moveStop(0, 2);
+    expect(useMapStore.getState().stops.map((s) => s.candidates[0]!.name)).toEqual(['B', 'C', 'A']);
 
     useMapStore.getState().undo();
-    expect(useMapStore.getState().places.map((p) => p.name)).toEqual(['A', 'B', 'C']);
-  });
-
-  it('이동수단은 핀별로 바꾼다', () => {
-    seed(['A', 'B']);
-    const first = useMapStore.getState().places[0]!;
-    expect(first.modeToNext).toBe('walk');
-
-    useMapStore.getState().updatePlace(first.id, { modeToNext: 'transit' });
-    expect(useMapStore.getState().places[0]!.modeToNext).toBe('transit');
-    expect(useMapStore.getState().places[1]!.modeToNext).toBe('walk');
+    expect(useMapStore.getState().stops.map((s) => s.candidates[0]!.name)).toEqual(['A', 'B', 'C']);
   });
 
   it('지도에서 직접 찍은 핀에는 kakaoPlaceId가 없다', () => {
@@ -177,14 +222,13 @@ describe('장소와 순서', () => {
     });
     expect(place.kakaoPlaceId).toBe('123');
     expect(place.address).toBe('서울 강남구 강남대로 390');
-    expect(place.location).toEqual({ lat: 37.4979, lng: 127.0276 });
   });
 });
 
 describe('hydrate', () => {
   it('불러온 직후에는 idle이고 히스토리가 비어 있다', () => {
     useMapStore.getState().addStroke(stroke('a'));
-    useMapStore.getState().hydrate({ title: '홍대 코스', strokes: [stroke('x')], labels: [] });
+    useMapStore.getState().hydrate({ title: '홍대 코스', strokes: [stroke('x')], labels: [], stops: [] });
 
     const state = useMapStore.getState();
     expect(state.title).toBe('홍대 코스');

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { focusPlaces } from '@/lib/map/focusPlaces';
-import { TRAVEL_MODES, formatDistance, type PlaceCandidate, type TravelMode } from '@/lib/map/types';
+import { formatDistance, type PlaceCandidate } from '@/lib/map/types';
 import { placeFromCandidate, useMapStore } from '@/store/useMapStore';
 
 type Status = { kind: 'idle' } | { kind: 'loading' } | { kind: 'error'; message: string };
@@ -10,9 +10,14 @@ type Status = { kind: 'idle' } | { kind: 'loading' } | { kind: 'error'; message:
 export function PlacePanel({
   onClose,
   map,
+  /** 값이 있으면 고른 장소를 새 단계가 아니라 이 단계의 후보로 더한다. */
+  targetStopId,
+  onTargetStopChange,
 }: {
   onClose: () => void;
   map: kakao.maps.Map | null;
+  targetStopId: string | null;
+  onTargetStopChange: (stopId: string | null) => void;
 }) {
   const [query, setQuery] = useState('');
   const [candidates, setCandidates] = useState<PlaceCandidate[]>([]);
@@ -21,8 +26,11 @@ export function PlacePanel({
   /** 검색 결과에서 고른 것들. 한 번에 여러 곳을 담기 위한 것이다. */
   const [selected, setSelected] = useState<PlaceCandidate[]>([]);
 
-  const places = useMapStore((s) => s.places);
-  const addPlace = useMapStore((s) => s.addPlace);
+  const stops = useMapStore((s) => s.stops);
+  const addStop = useMapStore((s) => s.addStop);
+  const addCandidates = useMapStore((s) => s.addCandidates);
+
+  const targetIndex = stops.findIndex((stop) => stop.id === targetStopId);
 
   const isSelected = (candidate: PlaceCandidate) =>
     selected.some((s) => s.kakaoPlaceId === candidate.kakaoPlaceId && s.name === candidate.name);
@@ -35,14 +43,22 @@ export function PlacePanel({
     );
   };
 
-  /** 고른 곳을 순서대로 담고, 전부 보이는 화면으로 옮긴 뒤 패널을 닫는다. */
+  /**
+   * 고른 곳을 담는다. 대상 단계가 지정돼 있으면 그 단계의 후보로 더하고,
+   * 아니면 고른 것들을 묶어 새 단계 하나를 만든다.
+   */
   const commitSelection = () => {
     if (selected.length === 0) return;
-    for (const candidate of selected) addPlace(placeFromCandidate(candidate));
-    focusPlaces(map, selected.map((candidate) => candidate.location));
+    const places = selected.map(placeFromCandidate);
+
+    if (targetStopId) addCandidates(targetStopId, places);
+    else addStop(places);
+
+    focusPlaces(map, places.map((place) => place.location));
     setSelected([]);
     setCandidates([]);
     setQuery('');
+    onTargetStopChange(null);
     onClose();
   };
 
@@ -136,6 +152,22 @@ export function PlacePanel({
         </button>
       </div>
 
+      {targetIndex >= 0 && (
+        <div className="flex items-center gap-2 border-b border-hairline bg-coral/5 px-4 py-2 text-xs">
+          <span className="grid size-5 shrink-0 place-items-center rounded-full bg-coral font-semibold text-white">
+            {targetIndex + 1}
+          </span>
+          <span className="flex-1 text-ink/60">이 단계의 후보로 담습니다</span>
+          <button
+            type="button"
+            onClick={() => onTargetStopChange(null)}
+            className="shrink-0 rounded border border-hairline px-2 py-0.5"
+          >
+            새 단계로
+          </button>
+        </div>
+      )}
+
       {status.kind === 'loading' && <p className="px-4 py-3 text-sm text-ink/50">찾는 중…</p>}
       {status.kind === 'error' && (
         <p className="px-4 py-3 text-sm text-coral">{status.message}</p>
@@ -185,11 +217,18 @@ export function PlacePanel({
         </ul>
       )}
 
-      {places.length > 0 && <PlaceList onFocus={(location) => focusPlaces(map, [location])} />}
+      {stops.length > 0 && (
+        <StopList
+          onFocus={(location) => focusPlaces(map, [location])}
+          onAddCandidates={onTargetStopChange}
+        />
+      )}
 
-      {places.length === 0 && candidates.length === 0 && status.kind === 'idle' && (
+      {stops.length === 0 && candidates.length === 0 && status.kind === 'idle' && (
         <p className="px-4 py-6 text-sm leading-relaxed text-ink/50">
           장소를 검색하거나, 카카오맵·네이버지도의 공유 텍스트를 그대로 붙여넣으세요.
+          <br />
+          여러 곳을 고르면 한 단계의 <b>후보</b>로 함께 담깁니다.
           <br />
           지도에서 직접 찍으려면 <b>📍 핀</b> 모드로 원하는 지점을 탭하세요.
         </p>
@@ -203,7 +242,9 @@ export function PlacePanel({
             onClick={commitSelection}
             className="flex h-11 w-full items-center justify-center rounded-xl bg-ink text-sm font-medium text-white"
           >
-            {selected.length}곳 담기
+            {targetIndex >= 0
+              ? `${targetIndex + 1}번 후보로 ${selected.length}곳 추가`
+              : `새 단계로 ${selected.length}곳 담기`}
           </button>
         </div>
       )}
@@ -211,80 +252,96 @@ export function PlacePanel({
   );
 }
 
-/** 배열 순서가 곧 핀 번호이자 연결선의 방향이다. */
-function PlaceList({ onFocus }: { onFocus: (location: { lat: number; lng: number }) => void }) {
-  const places = useMapStore((s) => s.places);
-  const movePlace = useMapStore((s) => s.movePlace);
-  const removePlace = useMapStore((s) => s.removePlace);
-  const updatePlace = useMapStore((s) => s.updatePlace);
+/**
+ * 담은 단계와 그 후보들.
+ *
+ * 번호 하나가 코스의 한 단계이고, 그 안에 후보가 여러 개 들어간다.
+ * "2번은 점심인데 어디로 갈지는 아직 안 정했다"를 그대로 담기 위한 구조다.
+ */
+function StopList({
+  onFocus,
+  onAddCandidates,
+}: {
+  onFocus: (location: { lat: number; lng: number }) => void;
+  onAddCandidates: (stopId: string) => void;
+}) {
+  const stops = useMapStore((s) => s.stops);
+  const moveStop = useMapStore((s) => s.moveStop);
+  const removeStop = useMapStore((s) => s.removeStop);
+  const removeCandidate = useMapStore((s) => s.removeCandidate);
 
   return (
     <div className="border-t border-hairline">
       <h2 className="px-4 pt-3 text-xs font-semibold tracking-wide text-ink/40">
-        담은 장소 {places.length}곳
+        담은 단계 {stops.length}개
       </h2>
       <ol className="divide-y divide-hairline">
-        {places.map((place, index) => (
-          <li key={place.id} className="px-4 py-3">
+        {stops.map((stop, index) => (
+          <li key={stop.id} className="px-4 py-3">
             <div className="flex items-center gap-2">
               <span className="grid size-6 shrink-0 place-items-center rounded-full bg-coral text-xs font-semibold text-white">
                 {index + 1}
               </span>
-              <button
-                type="button"
-                onClick={() => onFocus(place.location)}
-                className="min-w-0 flex-1 truncate text-left text-sm"
-              >
-                {place.name}
-              </button>
+              <span className="min-w-0 flex-1 text-sm text-ink/55">
+                후보 {stop.candidates.length}곳
+              </span>
               <button
                 type="button"
                 aria-label="위로"
                 disabled={index === 0}
-                onClick={() => movePlace(index, index - 1)}
+                onClick={() => moveStop(index, index - 1)}
                 className="size-7 rounded border border-hairline text-xs disabled:opacity-30"
               >
-                ▲
+                &#9650;
               </button>
               <button
                 type="button"
                 aria-label="아래로"
-                disabled={index === places.length - 1}
-                onClick={() => movePlace(index, index + 1)}
+                disabled={index === stops.length - 1}
+                onClick={() => moveStop(index, index + 1)}
                 className="size-7 rounded border border-hairline text-xs disabled:opacity-30"
               >
-                ▼
+                &#9660;
               </button>
               <button
                 type="button"
-                aria-label="삭제"
-                onClick={() => removePlace(place.id)}
+                aria-label="단계 삭제"
+                onClick={() => removeStop(stop.id)}
                 className="size-7 rounded border border-hairline text-xs"
               >
-                ✕
+                &#10005;
               </button>
             </div>
 
-            {index < places.length - 1 && (
-              <div className="mt-2 flex items-center gap-1 pl-8">
-                <span className="text-xs text-ink/35">다음까지</span>
-                {TRAVEL_MODES.map(({ id, label }) => (
+            <ul className="mt-2 space-y-1 pl-8">
+              {stop.candidates.map((place) => (
+                <li key={place.id} className="flex items-center gap-2">
                   <button
-                    key={id}
                     type="button"
-                    aria-pressed={place.modeToNext === id}
-                    onClick={() => updatePlace(place.id, { modeToNext: id satisfies TravelMode })}
-                    className={`h-7 rounded-full border px-2.5 text-xs ${
-                      place.modeToNext === id
-                        ? 'border-ink bg-ink text-white'
-                        : 'border-hairline text-ink/60'
-                    }`}
+                    onClick={() => onFocus(place.location)}
+                    className="min-w-0 flex-1 truncate text-left text-sm"
                   >
-                    {label}
+                    {place.name}
                   </button>
-                ))}
-              </div>
-            )}
+                  <button
+                    type="button"
+                    aria-label={`${place.name} 후보에서 빼기`}
+                    onClick={() => removeCandidate(place.id)}
+                    className="size-6 shrink-0 rounded border border-hairline text-[11px] text-ink/50"
+                  >
+                    &#10005;
+                  </button>
+                </li>
+              ))}
+            </ul>
+
+            <button
+              type="button"
+              onClick={() => onAddCandidates(stop.id)}
+              className="mt-2 ml-8 h-8 rounded-lg border border-hairline px-3 text-xs"
+            >
+              + 이 단계에 후보 추가
+            </button>
           </li>
         ))}
       </ol>

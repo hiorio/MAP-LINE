@@ -66,6 +66,8 @@ function read(slug: string) {
  */
 function makeSample() {
   const ids = {
+    stopA: randomUUID(),
+    stopB: randomUUID(),
     placeA: randomUUID(),
     placeB: randomUUID(),
     placeC: randomUUID(),
@@ -77,29 +79,37 @@ function makeSample() {
     title: '강남 저녁 코스',
     center: { lat: 37.4979, lng: 127.0276 },
     zoomLevel: 4,
-    places: [
+    stops: [
       {
-        id: ids.placeA,
-        name: '만남의 광장',
-        location: { lat: 37.4979, lng: 127.0276 },
-        pinColor: '#E24B4A',
-        modeToNext: 'transit',
+        id: ids.stopA,
+        candidates: [
+          {
+            id: ids.placeA,
+            name: '만남의 광장',
+            location: { lat: 37.4979, lng: 127.0276 },
+            pinColor: '#E24B4A',
+          },
+        ],
       },
       {
-        id: ids.placeB,
-        name: '점심 국밥',
-        address: '서울 강남구 강남대로 390',
-        kakaoPlaceId: '12345',
-        location: { lat: 37.499, lng: 127.029 },
-        pinColor: '#E24B4A',
-        modeToNext: 'walk',
-      },
-      {
-        id: ids.placeC,
-        name: '2차 카페',
-        location: { lat: 37.5005, lng: 127.0311 },
-        pinColor: '#E24B4A',
-        modeToNext: 'car',
+        // 후보가 여러 개인 단계. 어디로 갈지 아직 안 정한 상태를 담는다.
+        id: ids.stopB,
+        candidates: [
+          {
+            id: ids.placeB,
+            name: '점심 국밥',
+            address: '서울 강남구 강남대로 390',
+            kakaoPlaceId: '12345',
+            location: { lat: 37.499, lng: 127.029 },
+            pinColor: '#E24B4A',
+          },
+          {
+            id: ids.placeC,
+            name: '2차 카페',
+            location: { lat: 37.5005, lng: 127.0311 },
+            pinColor: '#E24B4A',
+          },
+        ],
       },
     ],
     strokes: [
@@ -147,7 +157,7 @@ describeIfConfigured('save_map_document / get_map_document 왕복', () => {
     const { data, error } = await read(slug);
 
     expect(error).toBeNull();
-    expect(data).toMatchObject({ slug, places: [], strokes: [], labels: [] });
+    expect(data).toMatchObject({ slug, stops: [], strokes: [], labels: [] });
   });
 
   it('없는 슬러그는 null을 돌려준다', async () => {
@@ -175,34 +185,45 @@ describeIfConfigured('save_map_document / get_map_document 왕복', () => {
     expect(data.center.lng).toBeCloseTo(127.0276, 6);
   });
 
-  it('핀의 순서를 배열 순서 그대로 보존한다', async () => {
-    // 순서가 곧 핀 번호이자 연결선 방향이다. 뒤집히면 지도가 다른 뜻이 된다.
+  it('단계 순서와 단계 안의 후보 순서를 모두 보존한다', async () => {
+    // 단계 순서가 곧 핀 번호다. 뒤집히면 지도가 다른 뜻이 된다.
     const { slug, editToken } = await createMap();
     const { document } = makeSample();
     await save(slug, editToken, document);
     const { data } = await read(slug);
 
-    expect(data.places.map((p: { name: string }) => p.name)).toEqual([
-      '만남의 광장',
+    expect(data.stops).toHaveLength(2);
+    expect(data.stops[0].candidates.map((p: { name: string }) => p.name)).toEqual(['만남의 광장']);
+    expect(data.stops[1].candidates.map((p: { name: string }) => p.name)).toEqual([
       '점심 국밥',
       '2차 카페',
     ]);
   });
 
-  it('핀의 좌표와 부가 정보를 보존한다', async () => {
+  it('한 단계에 후보를 여러 개 담을 수 있다', async () => {
+    // 이 구조가 없으면 "2번은 점심인데 어디로 갈지 아직 안 정했다"를 표현할 수 없다.
     const { slug, editToken } = await createMap();
     const { document } = makeSample();
     await save(slug, editToken, document);
     const { data } = await read(slug);
 
-    const [first, second] = data.places;
+    expect(data.stops[1].candidates).toHaveLength(2);
+  });
+
+  it('후보의 좌표와 부가 정보를 보존한다', async () => {
+    const { slug, editToken } = await createMap();
+    const { document } = makeSample();
+    await save(slug, editToken, document);
+    const { data } = await read(slug);
+
+    const first = data.stops[0].candidates[0];
     expect(first.location.lat).toBeCloseTo(37.4979, 6);
     expect(first.location.lng).toBeCloseTo(127.0276, 6);
-    expect(first.modeToNext).toBe('transit');
     // 지도에서 직접 찍은 핀에는 주소·kakaoPlaceId가 없다. null 키가 섞이면 안 된다.
     expect(first).not.toHaveProperty('address');
     expect(first).not.toHaveProperty('kakaoPlaceId');
 
+    const second = data.stops[1].candidates[0];
     expect(second.address).toBe('서울 강남구 강남대로 390');
     expect(second.kakaoPlaceId).toBe('12345');
   });
@@ -254,10 +275,10 @@ describeIfConfigured('save_map_document / get_map_document 왕복', () => {
     const { slug, editToken } = await createMap();
     const { document } = makeSample();
     await save(slug, editToken, document);
-    await save(slug, editToken, { ...document, places: [], strokes: [], labels: [] });
+    await save(slug, editToken, { ...document, stops: [], strokes: [], labels: [] });
 
     const { data } = await read(slug);
-    expect(data.places).toEqual([]);
+    expect(data.stops).toEqual([]);
     expect(data.strokes).toEqual([]);
     expect(data.labels).toEqual([]);
   });
@@ -265,15 +286,15 @@ describeIfConfigured('save_map_document / get_map_document 왕복', () => {
 
 describeIfConfigured('식별자 보존', () => {
   it('클라이언트가 만든 id를 그대로 쓴다', async () => {
-    // 서버가 새 id를 발급하면 저장할 때마다 같은 핀의 id가 바뀐다. 그러면 특정 핀이나
-    // 획을 참조하는 기능(댓글, 협업 편집)을 이 위에 올릴 수 없다.
+    // 서버가 새 id를 발급하면 저장할 때마다 같은 핀의 id가 바뀐다. 그러면 특정 후보를
+    // 참조하는 기능(댓글, 협업 편집)을 이 위에 올릴 수 없다.
     const { slug, editToken } = await createMap();
     const { ids, document } = makeSample();
     await save(slug, editToken, document);
     const { data } = await read(slug);
 
-    expect(data.places.map((p: { id: string }) => p.id)).toEqual([
-      ids.placeA,
+    expect(data.stops[0].candidates[0].id).toBe(ids.placeA);
+    expect(data.stops[1].candidates.map((p: { id: string }) => p.id)).toEqual([
       ids.placeB,
       ids.placeC,
     ]);
@@ -290,8 +311,8 @@ describeIfConfigured('식별자 보존', () => {
     await save(slug, editToken, { ...document, title: '두 번째 저장' });
     const { data: second } = await read(slug);
 
-    expect(second.places.map((p: { id: string }) => p.id)).toEqual(
-      first.places.map((p: { id: string }) => p.id),
+    expect(second.stops[1].candidates.map((p: { id: string }) => p.id)).toEqual(
+      first.stops[1].candidates.map((p: { id: string }) => p.id),
     );
     expect(second.strokes[0].id).toBe(first.strokes[0].id);
   });
@@ -303,61 +324,65 @@ describeIfConfigured('식별자 보존', () => {
     const { document } = makeSample();
     const { error } = await save(slug, editToken, {
       ...document,
-      places: [
+      stops: [
         {
           id: 'acb5e6900445621ff5dd4f6b8a870983',
-          name: '옛 초안 핀',
-          location: { lat: 37.5, lng: 127 },
-          pinColor: '#E24B4A',
-          modeToNext: 'walk',
+          candidates: [
+            {
+              id: 'acb5e6900445621ff5dd4f6b8a870984',
+              name: '옛 초안 핀',
+              location: { lat: 37.5, lng: 127 },
+              pinColor: '#E24B4A',
+            },
+          ],
         },
       ],
     });
 
     expect(error).toBeNull();
     const { data } = await read(slug);
-    expect(data.places).toHaveLength(1);
-    expect(isUuid(data.places[0].id)).toBe(true);
+    expect(data.stops).toHaveLength(1);
+    expect(isUuid(data.stops[0].candidates[0].id)).toBe(true);
   });
 
-  it('핀을 지우면 그 행만 사라지고 나머지 id는 유지된다', async () => {
+  it('후보 하나를 빼면 그 후보만 사라지고 나머지 id는 유지된다', async () => {
     const { slug, editToken } = await createMap();
     const { ids, document } = makeSample();
     await save(slug, editToken, document);
 
-    // 가운데 핀만 제거
     await save(slug, editToken, {
       ...document,
-      places: document.places.filter((place) => place.id !== ids.placeB),
+      stops: document.stops.map((stop) => ({
+        ...stop,
+        candidates: stop.candidates.filter((place) => place.id !== ids.placeB),
+      })),
     });
 
     const { data } = await read(slug);
-    expect(data.places.map((p: { id: string }) => p.id)).toEqual([ids.placeA, ids.placeC]);
-    // 순번은 다시 매겨져야 한다 — 순서가 곧 핀 번호다.
-    expect(data.places.map((p: { name: string }) => p.name)).toEqual(['만남의 광장', '2차 카페']);
+    expect(data.stops[1].candidates.map((p: { id: string }) => p.id)).toEqual([ids.placeC]);
+    expect(data.stops[0].candidates[0].id).toBe(ids.placeA);
   });
 
-  it('순서를 바꿔도 id는 그대로고 번호만 재계산된다', async () => {
+  it('단계 순서를 바꿔도 id는 그대로고 번호만 재계산된다', async () => {
     const { slug, editToken } = await createMap();
     const { ids, document } = makeSample();
     await save(slug, editToken, document);
 
-    const reversed = [...document.places].reverse();
-    await save(slug, editToken, { ...document, places: reversed });
+    const reversed = [...document.stops].reverse();
+    await save(slug, editToken, { ...document, stops: reversed });
 
     const { data } = await read(slug);
-    expect(data.places.map((p: { id: string }) => p.id)).toEqual([
-      ids.placeC,
+    expect(data.stops[0].candidates.map((p: { id: string }) => p.id)).toEqual([
       ids.placeB,
-      ids.placeA,
+      ids.placeC,
     ]);
+    expect(data.stops[1].candidates[0].id).toBe(ids.placeA);
   });
 });
 
 describeIfConfigured('교차 지도 방어', () => {
   it('다른 지도에 속한 id를 보내도 그 행을 끌어오지 못한다', async () => {
     // uuid 충돌은 사실상 없지만 일부러 남의 지도 행 id를 보낼 수는 있다.
-    // 그때 그 행이 내 지도로 옮겨 오면 남의 지도가 망가진다.
     const victim = await createMap();
     const { ids, document } = makeSample();
     await save(victim.slug, victim.editToken, document);
@@ -366,27 +391,29 @@ describeIfConfigured('교차 지도 방어', () => {
     const { document: attackerDoc } = makeSample();
     await save(attacker.slug, attacker.editToken, {
       ...attackerDoc,
-      places: [
+      stops: [
         {
-          id: ids.placeA, // 피해자 지도의 핀 id
-          name: '가로챈 핀',
-          location: { lat: 37.6, lng: 127.1 },
-          pinColor: '#E24B4A',
-          modeToNext: 'walk',
+          id: randomUUID(),
+          candidates: [
+            {
+              id: ids.placeA, // 피해자 지도의 후보 id
+              name: '가로챈 핀',
+              location: { lat: 37.6, lng: 127.1 },
+              pinColor: '#E24B4A',
+            },
+          ],
         },
       ],
     });
 
     // 피해자 지도는 그대로여야 한다.
     const { data: victimData } = await read(victim.slug);
-    expect(victimData.places.map((p: { id: string }) => p.id)).toContain(ids.placeA);
-    expect(victimData.places.find((p: { id: string }) => p.id === ids.placeA).name).toBe(
-      '만남의 광장',
-    );
+    expect(victimData.stops[0].candidates[0].id).toBe(ids.placeA);
+    expect(victimData.stops[0].candidates[0].name).toBe('만남의 광장');
 
-    // 공격자 지도에는 그 핀이 들어가지 않는다.
+    // 공격자 지도에는 그 후보가 들어가지 않는다.
     const { data: attackerData } = await read(attacker.slug);
-    expect(attackerData.places).toEqual([]);
+    expect(attackerData.stops).toEqual([]);
   });
 });
 

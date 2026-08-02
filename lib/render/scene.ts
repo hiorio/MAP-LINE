@@ -1,16 +1,19 @@
 import { strokeRenderAlpha, strokeRenderWidth } from '@/lib/geo/projection';
 import type { Point } from '@/lib/geo/rdp';
-import type { LatLng, MapLabel, Place, Stroke, TravelMode } from '@/lib/map/types';
+import { flattenStops, type LatLng, type MapLabel, type Place, type Stop, type Stroke } from '@/lib/map/types';
 
 /**
- * 오버레이 한 장에 연결선 → 획 → 핀 → 라벨 순으로 그린다.
+ * 오버레이 한 장에 획 → 핀 → 라벨 순으로 그린다.
  *
  * 설계안 §12.2는 PinLayer/SegmentLayer를 별도 컴포넌트로 두지만, 레이어마다 캔버스를
  * 나누면 팬·줌 동기화와 좌표 재투영을 그 수만큼 반복해야 한다. 캔버스는 하나로 두고
  * 그리는 함수만 분리하는 편이 비용과 코드 양 모두 유리하다.
+ *
+ * 단계 사이를 잇는 자동 연결선은 그리지 않는다. 한 단계에 후보가 여러 개이면 선이
+ * 어느 후보를 가리키는지 알 수 없어 오히려 잘못된 정보를 준다. 동선은 손그림으로 그린다.
  */
 export interface Scene {
-  places: readonly Place[];
+  stops: readonly Stop[];
   strokes: readonly Stroke[];
   labels: readonly MapLabel[];
 }
@@ -31,8 +34,6 @@ export function drawScene(
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
-  drawSegments(ctx, scene.places, project);
-
   for (const stroke of scene.strokes) {
     const points = stroke.path.map(project);
     if (points.length < 2) continue;
@@ -44,57 +45,11 @@ export function drawScene(
   }
   ctx.globalAlpha = 1;
 
-  scene.places.forEach((place, index) => drawPin(ctx, place, index + 1, project(place.location)));
-  for (const label of scene.labels) drawLabel(ctx, label, project(label.location));
-}
-
-/* ------------------------------------------------------------------ 연결선 */
-
-/**
- * 이동수단별 선 스타일. 지금은 핀 사이를 직선으로 잇는다.
- * 실제 경로 좌표는 `/api/route`(T11 후반)가 붙은 뒤 이 함수의 입력으로 들어온다.
- */
-const SEGMENT_STYLE: Record<TravelMode, { dash: number[]; width: number; color: string }> = {
-  walk: { dash: [2, 7], width: 3, color: '#6B6B66' },
-  car: { dash: [], width: 3, color: '#6B6B66' },
-  transit: { dash: [12, 6], width: 4, color: '#2D6BE4' },
-};
-
-function drawSegments(ctx: CanvasRenderingContext2D, places: readonly Place[], project: Projector) {
-  for (let i = 1; i < places.length; i++) {
-    const from = places[i - 1]!;
-    const to = places[i]!;
-    const style = SEGMENT_STYLE[from.modeToNext];
-
-    const a = project(from.location);
-    const b = project(to.location);
-    // 핀 원 안쪽에서 선이 시작·끝나면 지저분하다. 반지름만큼 물려 놓는다.
-    const [start, end] = trimToPins(a, b);
-
-    ctx.save();
-    ctx.setLineDash(style.dash);
-    ctx.strokeStyle = style.color;
-    ctx.lineWidth = style.width;
-    ctx.beginPath();
-    ctx.moveTo(start.x, start.y);
-    ctx.lineTo(end.x, end.y);
-    ctx.stroke();
-    ctx.restore();
+  // 같은 단계의 후보는 모두 같은 번호를 달고 같은 모양으로 찍힌다.
+  for (const { place, stopNumber } of flattenStops(scene.stops)) {
+    drawPin(ctx, place, stopNumber, project(place.location));
   }
-}
-
-function trimToPins(a: Point, b: Point): [Point, Point] {
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  const length = Math.hypot(dx, dy);
-  if (length <= PIN_RADIUS * 2) return [a, b];
-
-  const ux = dx / length;
-  const uy = dy / length;
-  return [
-    { x: a.x + ux * PIN_RADIUS, y: a.y + uy * PIN_RADIUS },
-    { x: b.x - ux * PIN_RADIUS, y: b.y - uy * PIN_RADIUS },
-  ];
+  for (const label of scene.labels) drawLabel(ctx, label, project(label.location));
 }
 
 /* ---------------------------------------------------------------------- 핀 */

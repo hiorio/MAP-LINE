@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createId } from '@/lib/id';
 import { distanceToPolyline, simplify, type Point } from '@/lib/geo/rdp';
 import { hitsLabel, hitsPin } from '@/lib/render/scene';
-import type { LatLng, Stroke } from '@/lib/map/types';
+import { flattenStops, type LatLng, type Stroke } from '@/lib/map/types';
 import { createLabel, createPlace, useMapStore } from '@/store/useMapStore';
 import { useMapCanvas } from './useMapCanvas';
 
@@ -29,14 +29,14 @@ export function MapOverlay({ map }: { map: kakao.maps.Map | null }) {
   const liveRef = useRef<LiveStroke | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
 
-  const places = useMapStore((s) => s.places);
+  const stops = useMapStore((s) => s.stops);
   const strokes = useMapStore((s) => s.strokes);
   const labels = useMapStore((s) => s.labels);
   const mode = useMapStore((s) => s.mode);
 
   const { canvasRef, toScreen, toCoord, redraw } = useMapCanvas({
     map,
-    scene: { places, strokes, labels },
+    scene: { stops, strokes, labels },
     // 그리는 중인 획은 스토어에 들어가기 전이므로 장면 뒤에 덧그린다.
     afterDraw: (ctx) => {
       const live = liveRef.current;
@@ -134,9 +134,11 @@ export function MapOverlay({ map }: { map: kakao.maps.Map | null }) {
       const label = state.labels[i]!;
       if (hitsLabel(point, label, toScreen(label.location))) return state.removeLabel(label.id);
     }
-    for (let i = state.places.length - 1; i >= 0; i--) {
-      const place = state.places[i]!;
-      if (hitsPin(point, toScreen(place.location))) return state.removePlace(place.id);
+    // 후보 하나만 지운다. 그 단계의 마지막 후보였다면 단계도 함께 사라진다.
+    const pins = flattenStops(state.stops);
+    for (let i = pins.length - 1; i >= 0; i--) {
+      const { place } = pins[i]!;
+      if (hitsPin(point, toScreen(place.location))) return state.removeCandidate(place.id);
     }
     for (let i = state.strokes.length - 1; i >= 0; i--) {
       const stroke = state.strokes[i]!;
@@ -170,7 +172,7 @@ export function MapOverlay({ map }: { map: kakao.maps.Map | null }) {
           onCancel={() => setDraft(null)}
           onCommit={(text) => {
             const store = useMapStore.getState();
-            if (draft.kind === 'place') store.addPlace(createPlace(draft.coord, text));
+            if (draft.kind === 'place') store.addStop([createPlace(draft.coord, text)]);
             else store.addLabel(createLabel(draft.coord, text));
             setDraft(null);
           }}

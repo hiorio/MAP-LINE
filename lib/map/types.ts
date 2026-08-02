@@ -19,13 +19,19 @@ export interface MapLabel {
   color: string;
 }
 
-export type TravelMode = 'walk' | 'car' | 'transit';
-
-export const TRAVEL_MODES: { id: TravelMode; label: string }[] = [
-  { id: 'walk', label: '도보' },
-  { id: 'car', label: '자동차' },
-  { id: 'transit', label: '대중교통' },
-];
+/**
+ * 코스의 한 단계. 지도 위 번호 하나에 대응한다.
+ *
+ * 후보를 여러 개 담을 수 있는 이유: 모임을 짤 때 "2번은 점심인데 어디로 갈지는
+ * 아직 안 정했다"가 흔하다. 후보를 함께 공유해서 같이 고르는 것이 이 제품의 쓰임새다.
+ *
+ * 단계 자체에는 속성이 없다. 후보 목록이 곧 단계이므로 별도 식별자를 서버에 저장하지
+ * 않고, 불러올 때 순번으로 묶어 다시 만든다.
+ */
+export interface Stop {
+  id: string;
+  candidates: Place[];
+}
 
 /** 검색 결과. 아직 지도에 담기지 않은 후보다. */
 export interface PlaceCandidate {
@@ -52,23 +58,28 @@ export interface Place {
   address?: string;
   /**
    * 재조회용 식별자. 설계안 §10에 따라 영구 저장 대상은 이 값과 사용자가 입력한 메모뿐이고
-   * 상호명·좌표는 캐시로 취급한다. 지도 롱프레스로 찍은 임의 지점에는 없다.
+   * 상호명·좌표는 캐시로 취급한다. 지도를 직접 찍어 만든 지점에는 없다.
    */
   kakaoPlaceId?: string;
   location: LatLng;
   memo?: string;
   pinColor: string;
-  /** 다음 순번의 핀까지 어떻게 이동하는지. 연결선 스타일을 결정한다. */
-  modeToNext: TravelMode;
 }
 
 export interface MapDocument {
   title: string;
   center: LatLng;
   zoomLevel: number;
-  places: Place[];
+  stops: Stop[];
   strokes: Stroke[];
   labels: MapLabel[];
+}
+
+/** 지도에 찍힌 모든 후보를 단계 번호와 함께 펼친다. 렌더와 히트 테스트가 쓴다. */
+export function flattenStops(stops: readonly Stop[]): { place: Place; stopNumber: number }[] {
+  return stops.flatMap((stop, index) =>
+    stop.candidates.map((place) => ({ place, stopNumber: index + 1 })),
+  );
 }
 
 export const PIN_COLOR = '#E24B4A';
