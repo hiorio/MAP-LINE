@@ -8,7 +8,9 @@
 
 ## 지금 상태를 한 줄로
 
-**편집기의 드로잉·라벨·핀·순서·검색 API까지 코드는 다 있고 로컬에서 검증됐지만, 저장은 로컬뿐이고 서버(Supabase)는 아직 하나도 없습니다.** 뷰어·공유 링크는 없습니다. git 저장소도 아직 안 만들었습니다.
+**편집기의 드로잉·라벨·핀·순서·연결선·검색 API까지 실제 카카오 지도 위에서 전부 검증 완료했지만, 저장은 로컬뿐이고 서버(Supabase)는 아직 하나도 없습니다.** 뷰어·공유 링크는 없습니다.
+
+저장소: https://github.com/hiorio/MAP-LINE (초기 커밋 `a84aed8` push 완료, `main` 브랜치)
 
 ## 실행
 
@@ -61,7 +63,7 @@ npx kill-port 3000 && rm -rf .next && npm run dev
 | RDP 단순화·좌표 투영·줌 보정 | `lib/geo/rdp.ts`, `lib/geo/projection.ts` | `npm test` |
 | 카카오 SDK 로더 | `lib/kakao/loadSdk.ts` | 실제 지도 뜨는 것으로 확인 |
 | 지도 컴포넌트 | `components/map/KakaoMap.tsx` | 〃 |
-| 드로잉+핀+연결선+라벨 통합 오버레이 | `components/map/MapOverlay.tsx`, `lib/render/scene.ts` | 브라우저에서 손그림·라벨 동작 확인. **핀·연결선은 코드 작성 후 실제 지도 위에서 미검증** (아래 "다음 세션이 제일 먼저 할 일" 참고) |
+| 드로잉+핀+연결선+라벨 통합 오버레이 | `components/map/MapOverlay.tsx`, `lib/render/scene.ts` | ✅ 실제 카카오 지도 위에서 검증 완료: 핀 3개 찍기(번호·이름), 순서 변경(▲▼, 지도 번호도 즉시 반영), 이동수단 변경(연결선 스타일 즉시 반영 — 도보=회색 점선, 대중교통=파란 굵은 점선), 지우개로 핀 삭제 시 연결선도 함께 제거, 새로고침 후 전부 복원 |
 | 편집기 상태(Zustand) | `store/useMapStore.ts` | `npm test` (18개 테스트, 되돌리기·순서변경·전체지우기 포함) |
 | 공유 텍스트 파서 | `lib/kakao/parseShareText.ts` | `npm test` (12개), 브라우저에서 API 경유 확인 |
 | Kakao Local 검색 래퍼 | `lib/kakao/localSearch.ts` | `npm test` (6개, x/y↔lat/lng 매핑 포함) |
@@ -86,21 +88,11 @@ npx kill-port 3000 && rm -rf .next && npm run dev
 
 ## 다음 세션이 제일 먼저 할 일
 
-작업이 중단된 시점에 하려던 것: **핀·연결선이 실제 카카오 지도 위에서 정상 렌더링되는지 브라우저로 검증**하는 중이었습니다(자동화 스크립트로 핀 3개를 찍고 캔버스에 그려지는지, `localStorage` 초안에 순서·이동수단이 맞게 저장되는지 확인하려던 것). 이 확인이 끝나지 않은 상태입니다.
+핀·연결선의 실제 지도 위 렌더링 검증은 끝났습니다(위 표 참고). 이제 순서대로:
 
-권장 순서:
+1. **REST 키 교체를 사용자에게 확인**하세요 (위 "먼저 처리해야 할 것" 참고). 교체된 키를 `.env.local`에 넣게 한 뒤 `/api/search`, `/api/parse-share`가 실제 카카오 응답을 정상적으로 돌려주는지 확인합니다. 지금까지는 REST 키가 없어 503 응답 경로만 확인된 상태입니다.
 
-1. **핀/연결선 시각 검증부터 마무리하세요.** `npm run dev` 후 브라우저에서 편집기를 열고:
-   - `📍 핀` 모드로 지도를 3곳 탭 → 이름 입력 → 3개 핀이 번호(①②③)와 함께 그려지는지
-   - 핀 사이에 이동수단별 스타일(도보=점선, 자동차=실선, 대중교통=굵은 파란 점선)로 연결선이 그려지는지 — `lib/render/scene.ts`의 `SEGMENT_STYLE`
-   - `PlacePanel`의 장소 목록에서 ▲▼로 순서를 바꾸면 지도 위 번호와 연결선도 같이 바뀌는지
-   - 지우개로 핀을 지우면 연결선도 같이 사라지는지
-   - 새로고침 후 핀·순서·이동수단이 복원되는지
-   - 문제 있으면 `components/map/MapOverlay.tsx`의 `eraseAt`(라벨→핀→획 순서로 히트테스트)과 `lib/render/scene.ts`의 `drawScene`(연결선→획→핀→라벨 순으로 그림)을 먼저 보세요.
-
-2. **REST 키 교체를 사용자에게 확인**하세요 (위 "먼저 처리해야 할 것" 참고). 교체된 키를 `.env.local`에 넣게 한 뒤 `/api/search`, `/api/parse-share`가 실제 카카오 응답을 정상적으로 돌려주는지 확인합니다.
-
-3. 그다음 T12(서버 저장)로 넘어가면 됩니다. Supabase 프로젝트가 아직 없으니:
+2. 그다음 T12(서버 저장)로 넘어가면 됩니다. Supabase 프로젝트가 아직 없으니:
    - Supabase 프로젝트 생성
    - `supabase/migrations/0001_init.sql`을 SQL Editor에 적용 (PostGIS, RLS, `maps_public` 뷰 포함 — 뷰를 만든 이유는 파일 안 주석 참고. `edit_token`을 공개 읽기에서 빼기 위함)
    - `.env.local`의 Supabase 3개 변수 채우기
@@ -109,9 +101,9 @@ npx kill-port 3000 && rm -rf .next && npm run dev
    - `app/api/maps/[slug]/route.ts` (GET/PATCH/DELETE, `X-Edit-Token` 헤더 검증, `updated_at` 기반 낙관적 잠금)
    - `Editor.tsx`의 `useAutosave` 안 `saveDraft` 호출을 위 PATCH 호출로 교체 (debounce/flush 구조는 이미 그 형태로 맞춰둠 — 함수 내용만 바꾸면 됨)
 
-4. T13 뷰어(`/m/[slug]`), T14 OG 썸네일, F7 공유 링크 활성화는 T12 이후 순서대로.
+3. T13 뷰어(`/m/[slug]`), T14 OG 썸네일, F7 공유 링크 활성화는 T12 이후 순서대로.
 
-5. **git 저장소가 아직 없습니다.** 적당한 시점에 `git init` + 최초 커밋을 사용자와 상의하세요. `.gitignore`는 이미 있습니다.
+작업 커밋은 의미 있는 단위로 나눠서 하세요 (예: "T8 검색/파싱 API", "T12 서버 저장" 등). `.env.local`은 `.gitignore`에 걸려 있어 커밋되지 않지만, 새 파일을 추가하기 전에 `git status`로 한 번 확인하는 습관을 들이면 안전합니다.
 
 ## 코드에 이미 반영된, 다시 겪지 않아도 될 문제들
 
