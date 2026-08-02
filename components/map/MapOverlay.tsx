@@ -3,9 +3,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { createId } from '@/lib/id';
 import { distanceToPolyline, simplify, type Point } from '@/lib/geo/rdp';
-import { hitsLabel, hitsPin } from '@/lib/render/scene';
+import { hitsLabel, hitsPin, hitsSavedMarker } from '@/lib/render/scene';
 import { flattenStops, type LatLng, type Stroke } from '@/lib/map/types';
 import { createLabel, createPlace, useMapStore } from '@/store/useMapStore';
+import { useSavedPlacesStore } from '@/store/useSavedPlacesStore';
 import { useMapCanvas } from './useMapCanvas';
 
 /* W0에서 실제로 만져 보고 확정한 값들. 근거는 README의 검증 체크리스트 참고. */
@@ -48,6 +49,10 @@ export function MapOverlay({ map }: { map: kakao.maps.Map | null }) {
   const labels = useMapStore((s) => s.labels);
   const mode = useMapStore((s) => s.mode);
 
+  const savedPlaces = useSavedPlacesStore((s) => s.places);
+  const savedVisible = useSavedPlacesStore((s) => s.visible);
+  const visibleSaved = savedVisible ? savedPlaces : [];
+
   // 끄는 동안에는 확정 전 위치로 그린다.
   const renderedLabels = draggedLabel
     ? labels.map((label) =>
@@ -57,7 +62,7 @@ export function MapOverlay({ map }: { map: kakao.maps.Map | null }) {
 
   const { canvasRef, toScreen, toCoord, redraw } = useMapCanvas({
     map,
-    scene: { stops, strokes, labels: renderedLabels },
+    scene: { stops, strokes, labels: renderedLabels, saved: visibleSaved },
     // 그리는 중인 획은 스토어에 들어가기 전이므로 장면 뒤에 덧그린다.
     afterDraw: (ctx) => {
       const live = liveRef.current;
@@ -109,7 +114,22 @@ export function MapOverlay({ map }: { map: kakao.maps.Map | null }) {
       return setDraft({ kind: 'label', point, coord: toCoord(point) });
     }
 
-    if (mode === 'place') return setDraft({ kind: 'place', point, coord: toCoord(point) });
+    if (mode === 'place') {
+      // 보관함 마커를 짚었으면 이름을 다시 칠 이유가 없다. 바로 새 단계로 담는다.
+      const saved = savedAt(point);
+      if (saved) {
+        useMapStore
+          .getState()
+          .addStop([
+            createPlace(saved.location, saved.name, {
+              ...(saved.address ? { address: saved.address } : {}),
+              ...(saved.kakaoPlaceId ? { kakaoPlaceId: saved.kakaoPlaceId } : {}),
+            }),
+          ]);
+        return;
+      }
+      return setDraft({ kind: 'place', point, coord: toCoord(point) });
+    }
     if (mode !== 'draw') return;
 
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -191,6 +211,16 @@ export function MapOverlay({ map }: { map: kakao.maps.Map | null }) {
       zoomCreated: map.getLevel(),
     };
     useMapStore.getState().addStroke(stroke);
+  };
+
+  const savedAt = (point: Point) => {
+    if (!savedVisible) return null;
+    const { places } = useSavedPlacesStore.getState();
+    for (let i = places.length - 1; i >= 0; i--) {
+      const place = places[i]!;
+      if (hitsSavedMarker(point, toScreen(place.location))) return place;
+    }
+    return null;
   };
 
   const labelAt = (point: Point) => {

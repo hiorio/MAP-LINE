@@ -2,8 +2,10 @@
 
 import { useState } from 'react';
 import { focusPlaces } from '@/lib/map/focusPlaces';
-import { formatDistance, type PlaceCandidate } from '@/lib/map/types';
-import { placeFromCandidate, useMapStore } from '@/store/useMapStore';
+import { isSamePlace } from '@/lib/map/savedPlaces';
+import { formatDistance, type LatLng, type PlaceCandidate } from '@/lib/map/types';
+import { createPlace, placeFromCandidate, useMapStore } from '@/store/useMapStore';
+import { useSavedPlacesStore } from '@/store/useSavedPlacesStore';
 
 type Status = { kind: 'idle' } | { kind: 'loading' } | { kind: 'error'; message: string };
 
@@ -31,6 +33,7 @@ export function PlacePanel({
   const addCandidates = useMapStore((s) => s.addCandidates);
 
   const targetIndex = stops.findIndex((stop) => stop.id === targetStopId);
+  const savedPlaces = useSavedPlacesStore((s) => s.places);
 
   const isSelected = (candidate: PlaceCandidate) =>
     selected.some((s) => s.kakaoPlaceId === candidate.kakaoPlaceId && s.name === candidate.name);
@@ -176,7 +179,7 @@ export function PlacePanel({
       {candidates.length > 0 && (
         <ul className="divide-y divide-hairline">
           {candidates.map((candidate) => (
-            <li key={`${candidate.kakaoPlaceId}-${candidate.name}`}>
+            <li key={`${candidate.kakaoPlaceId}-${candidate.name}`} className="flex items-start">
               <button
                 type="button"
                 onClick={() => toggle(candidate)}
@@ -212,10 +215,13 @@ export function PlacePanel({
                 </span>
                 </span>
               </button>
+              <SaveToggle candidate={candidate} />
             </li>
           ))}
         </ul>
       )}
+
+      {savedPlaces.length > 0 && <SavedList onFocus={(location) => focusPlaces(map, [location])} />}
 
       {stops.length > 0 && (
         <StopList
@@ -345,6 +351,118 @@ function StopList({
           </li>
         ))}
       </ol>
+    </div>
+  );
+}
+
+/**
+ * 검색 결과를 보관함에 넣고 빼는 별.
+ *
+ * 코스에 담는 것(체크)과 보관함에 저장하는 것(별)은 다른 동작이다.
+ * 체크는 이 지도의 단계가 되고, 별은 다음에 다른 지도를 만들 때도 남는다.
+ */
+function SaveToggle({ candidate }: { candidate: PlaceCandidate }) {
+  const places = useSavedPlacesStore((s) => s.places);
+  const toggle = useSavedPlacesStore((s) => s.toggle);
+
+  const input = toSavedInput(candidate);
+  const saved = places.some((place) => isSamePlace(input, place));
+
+  return (
+    <button
+      type="button"
+      onClick={() => toggle(input)}
+      aria-pressed={saved}
+      aria-label={saved ? `${candidate.name} 보관함에서 빼기` : `${candidate.name} 보관함에 저장`}
+      title={saved ? '보관함에서 빼기' : '보관함에 저장'}
+      className={`mr-3 mt-3 size-8 shrink-0 rounded-lg border text-sm ${
+        saved ? 'border-ink bg-ink text-white' : 'border-hairline text-ink/35'
+      }`}
+    >
+      {saved ? '★' : '☆'}
+    </button>
+  );
+}
+
+function toSavedInput(candidate: PlaceCandidate) {
+  return {
+    name: candidate.name,
+    ...(candidate.roadAddress ?? candidate.address
+      ? { address: candidate.roadAddress ?? candidate.address }
+      : {}),
+    ...(candidate.kakaoPlaceId ? { kakaoPlaceId: candidate.kakaoPlaceId } : {}),
+    location: candidate.location,
+  };
+}
+
+/**
+ * 보관함. 지도가 바뀌어도 남는 개인 목록이라 공유되는 문서에는 들어가지 않는다.
+ */
+function SavedList({ onFocus }: { onFocus: (location: LatLng) => void }) {
+  const places = useSavedPlacesStore((s) => s.places);
+  const remove = useSavedPlacesStore((s) => s.remove);
+  const visible = useSavedPlacesStore((s) => s.visible);
+  const setVisible = useSavedPlacesStore((s) => s.setVisible);
+  const addStop = useMapStore((s) => s.addStop);
+
+  return (
+    <div className="border-t border-hairline">
+      <div className="flex items-center gap-2 px-4 pt-3">
+        <h2 className="flex-1 text-xs font-semibold tracking-wide text-ink/40">
+          보관함 {places.length}곳
+        </h2>
+        <button
+          type="button"
+          onClick={() => setVisible(!visible)}
+          aria-pressed={visible}
+          className={`h-7 rounded-full border px-2.5 text-xs ${
+            visible ? 'border-ink bg-ink text-white' : 'border-hairline text-ink/60'
+          }`}
+        >
+          지도에 표시
+        </button>
+      </div>
+      <p className="px-4 pt-1 text-[11px] leading-relaxed text-ink/35">
+        이 브라우저에만 저장됩니다. 공유 링크에는 담지 않은 장소가 보이지 않습니다.
+      </p>
+      <ul className="mt-2 divide-y divide-hairline">
+        {places.map((place) => (
+          <li key={place.id} className="flex items-center gap-2 px-4 py-2.5">
+            <button
+              type="button"
+              onClick={() => onFocus(place.location)}
+              className="min-w-0 flex-1 truncate text-left text-sm"
+            >
+              {place.name}
+              {place.address && (
+                <span className="mt-0.5 block truncate text-xs text-ink/45">{place.address}</span>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                addStop([
+                  createPlace(place.location, place.name, {
+                    ...(place.address ? { address: place.address } : {}),
+                    ...(place.kakaoPlaceId ? { kakaoPlaceId: place.kakaoPlaceId } : {}),
+                  }),
+                ])
+              }
+              className="h-8 shrink-0 rounded-lg border border-hairline px-2.5 text-xs"
+            >
+              단계로 담기
+            </button>
+            <button
+              type="button"
+              aria-label={`${place.name} 보관함에서 빼기`}
+              onClick={() => remove(place.id)}
+              className="size-8 shrink-0 rounded-lg border border-hairline text-xs text-ink/50"
+            >
+              &#10005;
+            </button>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

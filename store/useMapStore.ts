@@ -203,7 +203,7 @@ function commit(state: Snapshot & { history: Snapshot[] }) {
 export function createPlace(
   location: LatLng,
   name: string,
-  source?: Pick<PlaceCandidate, 'address' | 'kakaoPlaceId'>,
+  source?: { address?: string | undefined; kakaoPlaceId?: string | undefined },
 ): Place {
   return {
     id: createId(),

@@ -11,6 +11,7 @@ import { SearchBar } from '@/components/toolbar/SearchBar';
 import { loadDocument, saveDocument, type SaveMode } from '@/lib/map/persistence';
 import { DEFAULT_CENTER, DEFAULT_LEVEL, type LatLng } from '@/lib/map/types';
 import { useMapStore } from '@/store/useMapStore';
+import { useSavedPlacesStore } from '@/store/useSavedPlacesStore';
 
 /* §6.1 저장 전략. 획 하나마다 저장하면 요청이 폭증한다. */
 const DEBOUNCE_MS = 2_000;
@@ -26,6 +27,10 @@ export function Editor({ slug }: { slug: string }) {
   const [saveMode, setSaveMode] = useState<SaveMode>('local');
   const updatedAtRef = useRef<string | undefined>(undefined);
   const hydrate = useMapStore((s) => s.hydrate);
+  const hydrateSaved = useSavedPlacesStore((s) => s.hydrate);
+
+  // 보관함은 localStorage에 있으므로 서버 렌더 결과와 어긋나지 않도록 마운트 후에 읽는다.
+  useEffect(() => hydrateSaved(), [hydrateSaved]);
 
   // 저장된 내용을 먼저 읽어야 지도 초기 중심을 그 값으로 띄울 수 있다.
   useEffect(() => {

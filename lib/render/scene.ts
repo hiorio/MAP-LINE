@@ -16,6 +16,11 @@ export interface Scene {
   stops: readonly Stop[];
   strokes: readonly Stroke[];
   labels: readonly MapLabel[];
+  /**
+   * 보관함에 담아 둔 장소. 편집기에서만 겹쳐 보이고 공유되는 지도에는 없다.
+   * 코스에 올린 핀과 헷갈리면 안 되므로 번호 없이 다른 모양으로 그린다.
+   */
+  saved?: readonly { id: string; name: string; location: LatLng }[];
 }
 
 export type Projector = (coord: LatLng) => Point;
@@ -44,6 +49,11 @@ export function drawScene(
     ctx.stroke();
   }
   ctx.globalAlpha = 1;
+
+  // 보관함은 코스 핀보다 아래에 깔아 둔다. 코스가 주인공이다.
+  for (const saved of scene.saved ?? []) {
+    drawSavedMarker(ctx, saved.name, project(saved.location));
+  }
 
   // 같은 단계의 후보는 모두 같은 번호를 달고 같은 모양으로 찍힌다.
   for (const { place, stopNumber } of flattenStops(scene.stops)) {
@@ -87,6 +97,45 @@ export function drawPin(
 
 export function hitsPin(point: Point, at: Point): boolean {
   return Math.hypot(point.x - at.x, point.y - at.y) <= PIN_RADIUS + 4;
+}
+
+/* ------------------------------------------------------------------ 보관함 */
+
+export const SAVED_RADIUS = 8;
+
+/**
+ * 보관함 표시. 속이 빈 작은 원에 별을 얹는다.
+ *
+ * 코스 핀(꽉 찬 코랄색 원 + 번호)과 한눈에 구분돼야 한다. 둘이 비슷해 보이면
+ * "이건 코스에 넣은 건가 그냥 저장만 한 건가"를 매번 헷갈리게 된다.
+ */
+export function drawSavedMarker(ctx: CanvasRenderingContext2D, name: string, at: Point) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(at.x, at.y, SAVED_RADIUS, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+  ctx.fill();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = '#6B6B66';
+  ctx.stroke();
+
+  ctx.fillStyle = '#6B6B66';
+  ctx.font = `10px ${LABEL_FONT}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('★', at.x, at.y + 0.5);
+
+  ctx.font = `11px ${LABEL_FONT}`;
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+  ctx.strokeText(name, at.x, at.y + SAVED_RADIUS + 8);
+  ctx.fillStyle = '#6B6B66';
+  ctx.fillText(name, at.x, at.y + SAVED_RADIUS + 8);
+  ctx.restore();
+}
+
+export function hitsSavedMarker(point: Point, at: Point): boolean {
+  return Math.hypot(point.x - at.x, point.y - at.y) <= SAVED_RADIUS + 5;
 }
 
 /* -------------------------------------------------------------------- 라벨 */
