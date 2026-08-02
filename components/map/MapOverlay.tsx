@@ -7,7 +7,9 @@ import { hitsLabel, hitsPin, hitsSavedMarker } from '@/lib/render/scene';
 import { flattenStops, type LatLng, type PlaceCandidate, type Stroke } from '@/lib/map/types';
 import { createLabel, createPlace, useMapStore } from '@/store/useMapStore';
 import { useSavedPlacesStore } from '@/store/useSavedPlacesStore';
+import type { SavedPlace } from '@/lib/map/savedPlaces';
 import { LongPressMenu } from './LongPressMenu';
+import { SavedMarkerMenu } from './SavedMarkerMenu';
 import { useLongPress } from './useLongPress';
 import { useMapCanvas } from './useMapCanvas';
 
@@ -33,12 +35,15 @@ interface Draft {
   initialText?: string;
 }
 
-/** 끌고 있는 라벨. 스토어에 넣으면 되돌리기 기록이 프레임마다 쌓인다. */
-interface LabelDrag {
-  id: string;
-  start: Point;
-  moved: boolean;
-}
+/**
+ * 이동 모드에서 지도 대신 우리가 처리하기로 한 입력.
+ *
+ * 라벨은 끌어서 옮기고 탭하면 고친다. 보관함 마커는 위치가 카카오에서 온 값이라
+ * 옮길 이유가 없고, 탭했을 때 무엇을 할지만 고르게 한다.
+ */
+type Capture =
+  | { kind: 'label'; id: string; start: Point; moved: boolean }
+  | { kind: 'saved'; id: string; start: Point };
 
 export function MapOverlay({
   map,
@@ -48,10 +53,11 @@ export function MapOverlay({
   container: HTMLElement | null;
 }) {
   const liveRef = useRef<LiveStroke | null>(null);
-  const labelDragRef = useRef<LabelDrag | null>(null);
+  const captureRef = useRef<Capture | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [draggedLabel, setDraggedLabel] = useState<{ id: string; coord: LatLng } | null>(null);
   const [menu, setMenu] = useState<{ point: Point; coord: LatLng } | null>(null);
+  const [savedMenu, setSavedMenu] = useState<{ point: Point; place: SavedPlace } | null>(null);
 
   const stops = useMapStore((s) => s.stops);
   const strokes = useMapStore((s) => s.strokes);
@@ -103,16 +109,28 @@ export function MapOverlay({
     map.setZoomable(!drawing);
     setDraft(null);
     setMenu(null);
+    setSavedMenu(null);
   }, [map, mode]);
 
   /* ---------------------------------------------------------------- 이동 모드
      기본은 지도 이동이다. 꾹 누르면 무엇을 놓을지 고르는 메뉴가 뜨고,
      이미 놓인 라벨을 짚으면 그것만 가로채 수정·이동한다. */
   const labelAt = (point: Point) => {
+    if (!map) return null;
     const { labels: current } = useMapStore.getState();
     for (let i = current.length - 1; i >= 0; i--) {
       const label = current[i]!;
-      if (map && hitsLabel(point, label, toScreen(label.location))) return label;
+      if (hitsLabel(point, label, toScreen(label.location))) return label;
+    }
+    return null;
+  };
+
+  const savedAt = (point: Point) => {
+    if (!map || !savedVisible) return null;
+    const { places } = useSavedPlacesStore.getState();
+    for (let i = places.length - 1; i >= 0; i--) {
+      const place = places[i]!;
+      if (hitsSavedMarker(point, toScreen(place.location))) return place;
     }
     return null;
   };
@@ -123,36 +141,54 @@ export function MapOverlay({
       if (!map) return;
       setMenu({ point, coord: toCoord(point) });
     },
-    shouldCapture: (point) => Boolean(map) && labelAt(point) !== null,
+    // 라벨이 위에 그려지므로 먼저 본다.
+    shouldCapture: (point) => labelAt(point) !== null || savedAt(point) !== null,
     onCapturedDown: (point) => {
       const label = labelAt(point);
-      if (label) labelDragRef.current = { id: label.id, start: point, moved: false };
-    },
-    onCapturedMove: (point) => {
-      const drag = labelDragRef.current;
-      if (!drag) return;
-      if (!drag.moved && Math.hypot(point.x - drag.start.x, point.y - drag.start.y) < LABEL_DRAG_PX) {
+      if (label) {
+        captureRef.current = { kind: 'label', id: label.id, start: point, moved: false };
         return;
       }
-      drag.moved = true;
-      setDraggedLabel({ id: drag.id, coord: toCoord(point) });
+      const saved = savedAt(point);
+      if (saved) captureRef.current = { kind: 'saved', id: saved.id, start: point };
     },
-    onCapturedUp: () => finishLabelGesture(),
+    onCapturedMove: (point) => {
+      const capture = captureRef.current;
+      // 보관함 마커의 좌표는 카카오에서 온 값이다. 끌어서 옮길 이유가 없다.
+      if (capture?.kind !== 'label') return;
+      if (
+        !capture.moved &&
+        Math.hypot(point.x - capture.start.x, point.y - capture.start.y) < LABEL_DRAG_PX
+      ) {
+        return;
+      }
+      capture.moved = true;
+      setDraggedLabel({ id: capture.id, coord: toCoord(point) });
+    },
+    onCapturedUp: () => finishCapture(),
   });
 
-  const finishLabelGesture = () => {
-    const drag = labelDragRef.current;
-    if (!drag) return;
-    labelDragRef.current = null;
+  const finishCapture = () => {
+    const capture = captureRef.current;
+    if (!capture) return;
+    captureRef.current = null;
 
-    const label = useMapStore.getState().labels.find((item) => item.id === drag.id);
-    if (drag.moved) {
+    if (capture.kind === 'saved') {
+      const place = useSavedPlacesStore.getState().places.find((item) => item.id === capture.id);
+      if (place) setSavedMenu({ point: capture.start, place });
+      return;
+    }
+
+    const label = useMapStore.getState().labels.find((item) => item.id === capture.id);
+    if (capture.moved) {
       // 끄는 동안에는 화면에만 그렸다. 손을 뗄 때 한 번만 기록한다.
-      if (draggedLabel) useMapStore.getState().updateLabel(drag.id, { location: draggedLabel.coord });
+      if (draggedLabel) {
+        useMapStore.getState().updateLabel(capture.id, { location: draggedLabel.coord });
+      }
     } else if (label) {
       setDraft({
         kind: 'label',
-        point: drag.start,
+        point: capture.start,
         coord: label.location,
         editingLabelId: label.id,
         initialText: label.text,
@@ -160,6 +196,13 @@ export function MapOverlay({
     }
     setDraggedLabel(null);
   };
+
+  /** 보관함 장소를 코스에 담을 때 쓸 형태로 바꾼다. */
+  const placeFromSaved = (place: SavedPlace) =>
+    createPlace(place.location, place.name, {
+      ...(place.address ? { address: place.address } : {}),
+      ...(place.kakaoPlaceId ? { kakaoPlaceId: place.kakaoPlaceId } : {}),
+    });
 
   /* ------------------------------------------------- 그리기·지우개 모드 입력 */
   const eventPoint = (event: React.PointerEvent<HTMLCanvasElement>): Point => {
@@ -237,13 +280,8 @@ export function MapOverlay({
       const { place } = pins[i]!;
       if (hitsPin(point, toScreen(place.location))) return state.removeCandidate(place.id);
     }
-    const saved = useSavedPlacesStore.getState();
-    if (savedVisible) {
-      for (let i = saved.places.length - 1; i >= 0; i--) {
-        const place = saved.places[i]!;
-        if (hitsSavedMarker(point, toScreen(place.location))) return saved.remove(place.id);
-      }
-    }
+    const saved = savedAt(point);
+    if (saved) return useSavedPlacesStore.getState().remove(saved.id);
     for (let i = state.strokes.length - 1; i >= 0; i--) {
       const stroke = state.strokes[i]!;
       if (distanceToPolyline(point, stroke.path.map(toScreen)) < ERASE_HIT_PX) {
@@ -293,6 +331,27 @@ export function MapOverlay({
           onAddLabel={() => {
             setDraft({ kind: 'label', point: menu.point, coord: menu.coord });
             setMenu(null);
+          }}
+        />
+      )}
+
+      {savedMenu && (
+        <SavedMarkerMenu
+          point={savedMenu.point}
+          place={savedMenu.place}
+          stops={stops}
+          onClose={() => setSavedMenu(null)}
+          onAddAsStop={() => {
+            useMapStore.getState().addStop([placeFromSaved(savedMenu.place)]);
+            setSavedMenu(null);
+          }}
+          onAddToStop={(stopId) => {
+            useMapStore.getState().addCandidates(stopId, [placeFromSaved(savedMenu.place)]);
+            setSavedMenu(null);
+          }}
+          onRemove={() => {
+            useSavedPlacesStore.getState().remove(savedMenu.place.id);
+            setSavedMenu(null);
           }}
         />
       )}
