@@ -8,9 +8,7 @@
 
 ## 지금 상태를 한 줄로
 
-**편집기(드로잉·라벨·핀·순서·연결선)는 실제 지도 위에서 검증 완료, 서버 저장(T12) 코드도 다 작성했지만 Supabase 프로젝트가 없어 아직 로컬 저장으로만 돌아갑니다.** 뷰어·공유 링크는 없습니다.
-
-👉 **사용자가 Supabase 프로젝트를 만들고 `.env.local`을 채우면 서버 저장이 곧바로 켜집니다.** 아래 "사용자가 해줘야 하는 것" 참고.
+**편집기(드로잉·라벨·핀·순서·연결선)와 서버 저장(T12)이 모두 실제로 동작하며 검증 완료됐습니다.** 남은 것은 뷰어(T13)·OG 썸네일(T14)·공유 링크(F7), 그리고 Kakao REST 키가 필요한 장소 검색(T8) 실동작 확인입니다.
 
 저장소: https://github.com/hiorio/MAP-LINE (초기 커밋 `a84aed8` push 완료, `main` 브랜치)
 
@@ -35,35 +33,26 @@ npx kill-port 3000 && rm -rf .next && npm run dev
 
 | 변수 | 상태 | 비고 |
 |---|---|---|
-| `NEXT_PUBLIC_KAKAO_JS_KEY` | ✅ 채워짐 | 편집기 지도가 이미 뜬다 |
-| `KAKAO_REST_KEY` | ❌ 비어 있음 | **아래 "먼저 할 일" 참고 — 교체 필요** |
-| `NEXT_PUBLIC_SUPABASE_URL` | ❌ 비어 있음 | Supabase 프로젝트 자체가 없음 |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | ❌ 비어 있음 | 〃 |
-| `SUPABASE_SERVICE_ROLE_KEY` | ❌ 비어 있음 | 〃 |
+| `NEXT_PUBLIC_KAKAO_JS_KEY` | ✅ 채워짐 | 편집기 지도가 뜬다 |
+| `KAKAO_REST_KEY` | ❌ 비어 있음 | 이것만 채우면 장소 검색이 켜진다 |
+| `NEXT_PUBLIC_SUPABASE_URL` | ✅ 채워짐 | 서버 저장 동작 확인됨 |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | ⬜ 비어 있음 | 현재 코드에서 안 씀. 없어도 됨 |
+| `SUPABASE_SERVICE_ROLE_KEY` | ✅ 채워짐 | 〃 |
 
 `.env.local`은 `.gitignore`에 걸려 있어 커밋되지 않습니다. `.env.example`에 각 변수 설명이 있습니다.
 
 ## 사용자가 해줘야 하는 것 (코드로는 못 하는 일)
 
-### A. Supabase 프로젝트 생성 → 서버 저장 활성화
+### A. Supabase — ✅ 완료
 
-T12 코드는 전부 작성돼 있고, 아래만 하면 바로 켜집니다.
+프로젝트 생성, 0001·0002 마이그레이션 적용, `.env.local`의 `NEXT_PUBLIC_SUPABASE_URL`과
+`SUPABASE_SERVICE_ROLE_KEY` 설정까지 끝났고 서버 저장이 실제로 동작합니다.
 
-1. https://supabase.com 에서 프로젝트 생성 (무료 티어, 리전은 Northeast Asia 권장)
-2. 대시보드 > SQL Editor 에서 **순서대로** 실행:
-   - `supabase/migrations/0001_init.sql` 전체 붙여넣기 → Run
-   - `supabase/migrations/0002_document_rpc.sql` 전체 붙여넣기 → Run
-3. 대시보드 > Project Settings > API 에서 값 3개를 복사해 `.env.local`에 넣기:
-   ```
-   NEXT_PUBLIC_SUPABASE_URL=https://xxxx.supabase.co
-   NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...        (anon / public 키)
-   SUPABASE_SERVICE_ROLE_KEY=eyJ...            (service_role 키 — 절대 클라이언트 노출 금지)
-   ```
-4. dev 서버 재시작 후 랜딩에서 "지도 만들기" → 편집기 우상단이 **"이 기기에만 저장됨" → "저장됨"** 으로 바뀌면 성공
+`NEXT_PUBLIC_SUPABASE_ANON_KEY`는 아직 비어 있는데, 현재 코드에서 쓰는 곳이 없어 문제없습니다.
+뷰어(T13)가 브라우저에서 Supabase를 직접 읽게 만들 때만 필요합니다. 지금 설계에서는 뷰어도
+Route Handler를 경유하면 되므로 끝까지 안 쓸 수도 있습니다.
 
-설정 전까지는 편집기가 자동으로 로컬 저장으로 물러나므로 지금도 정상 동작합니다.
-
-### B. Kakao REST API 키 → 장소 검색 활성화
+### B. Kakao REST API 키 → 장소 검색 활성화 (아직 필요)
 
 `/api/search`, `/api/parse-share` 코드는 다 있지만 키가 없어 503만 확인된 상태입니다.
 카카오 콘솔 > 앱 > 플랫폼 키 > REST API 키를 복사해 `.env.local`의 `KAKAO_REST_KEY=`에 넣으면
@@ -89,12 +78,25 @@ T12 코드는 전부 작성돼 있고, 아래만 하면 바로 켜집니다.
 | 공유 텍스트 파서 | `lib/kakao/parseShareText.ts` | `npm test` (12개), 브라우저에서 API 경유 확인 |
 | Kakao Local 검색 래퍼 | `lib/kakao/localSearch.ts` | `npm test` (6개, x/y↔lat/lng 매핑 포함) |
 | `/api/search`, `/api/parse-share` | `app/api/search/route.ts`, `app/api/parse-share/route.ts` | curl/브라우저 fetch로 확인. **REST 키가 없어서 실제 카카오 응답은 아직 못 봄** (503·400·422 경로만 확인됨) |
-| T12 서버 저장 API | `app/api/maps/route.ts`, `app/api/maps/[slug]/route.ts`, `lib/supabase/server.ts` | **Supabase 프로젝트가 없어 503 경로만 확인됨.** 스키마는 `supabase/migrations/0002_document_rpc.sql` |
-| 서버/로컬 저장 자동 전환 | `lib/map/persistence.ts` | ✅ Supabase 미설정 시 로컬 폴백 동작 확인 ("이 기기에만 저장됨" 표시 + 로컬 초안 기록) |
+| T12 서버 저장 API + 스키마 | `app/api/maps/route.ts`, `app/api/maps/[slug]/route.ts`, `lib/supabase/server.ts`, `supabase/migrations/0002_document_rpc.sql` | ✅ 실제 Supabase에 대해 검증 완료 — 아래 상세 |
+| 서버/로컬 저장 자동 전환 | `lib/map/persistence.ts` | ✅ 양방향 확인. Supabase 미설정 시 "이 기기에만 저장됨"으로 폴백, 설정 시 "저장됨" |
 | 편집기 화면·툴바·장소 패널 | `app/edit/[slug]/Editor.tsx`, `components/toolbar/EditorToolbar.tsx`, `components/panels/PlacePanel.tsx` | 렌더 확인, 그리기/라벨 흐름 확인 |
 | 로컬 초안 저장 (§6.1 구조, debounce 2s + 강제 flush 10s + 이탈 시 flush) | `lib/map/draftStorage.ts` | 브라우저에서 새로고침 후 복원 확인 |
 | Supabase 스키마 (아직 미적용) | `supabase/migrations/0001_init.sql`, `0002_document_rpc.sql` | 파일만 있음. **프로젝트에 적용 안 됨 = SQL이 실제로 도는지 아직 검증 안 됨** |
 | 랜딩 + 지도 생성 | `app/page.tsx`, `components/CreateMapButton.tsx`, `lib/slug.ts` | 렌더 확인. 서버 있으면 POST /api/maps, 없으면 로컬 슬러그 |
+
+**T12 서버 저장 검증 내역** (실제 Supabase 대상, 전부 통과):
+
+| 확인 | 결과 |
+|---|---|
+| `POST /api/maps` | 201, 슬러그·편집토큰 발급, `maps` 행 생성 |
+| PATCH → GET 왕복 | 제목·핀 2개·손그림(3점)·라벨 한글 그대로, 좌표 정확, `modeToNext`·`kakaoPlaceId` 보존 |
+| 핀 순서 | `order_no`로 저장·복원되어 배열 순서 유지 |
+| 잘못된 편집 토큰 | 403 |
+| 낙관적 잠금 | 오래된 `updatedAt` → 409, 최신 → 200 |
+| `DELETE` | 200, 이후 GET 404 (자식 행 cascade 삭제) |
+| 편집기 실제 흐름 | 지도 생성 → 토큰 저장 → 핀·손그림 입력 → "저장됨" 표시 |
+| **로컬 초안 삭제 후 새로고침** | 제목·핀·연결선·손그림이 전부 복원 — 출처가 서버뿐임을 증명 |
 
 `npm run typecheck` / `npm run lint` / `npm test`(59개) 전부 통과 상태입니다. `npm run build`는 dev 서버가 떠 있어 재실행하지 않았습니다 — 필요하면 dev 서버를 끄고 따로 실행하세요.
 
@@ -109,16 +111,28 @@ T12 코드는 전부 작성돼 있고, 아래만 하면 바로 켜집니다.
 
 ## 다음 세션이 제일 먼저 할 일
 
-1. **사용자에게 위 "사용자가 해줘야 하는 것" A(Supabase)와 B(REST 키)를 안내**하세요. 둘 다 코드는 이미 있고 설정만 하면 켜집니다.
+1. **T13 뷰어 `/m/[slug]`** — 바로 시작 가능합니다. 필요한 건 다 있습니다:
+   - 데이터: `GET /api/maps/[slug]` (동작 확인됨)
+   - 렌더: `lib/render/scene.ts`의 `drawScene()` — 편집기와 같은 함수를 쓰면 편집 화면과 뷰어가 항상 같게 보입니다
+   - 지도: `components/map/KakaoMap.tsx` 재사용
+   - 구조 제안: 서버 컴포넌트에서 문서를 읽어 `generateMetadata`로 OG 태그를 채우고, 클라이언트 컴포넌트에 넘겨 캔버스를 그립니다. `MapOverlay`에서 입력 처리를 뺀 읽기 전용 버전이 필요합니다.
+   - 설계안 §7.4: 편집 UI 없음, 하단에 장소 리스트(탭하면 해당 핀으로 이동), 하단 고정 "나도 지도 만들기" 배너, 편집 토큰 보유자에게는 "편집하기" 버튼
+   - 조회수: `maps.view_count` 증가 RPC를 마이그레이션 0003으로 추가
 
-2. **Supabase가 켜지면 서버 저장 경로를 실제로 검증**하세요. SQL이 실제 DB에서 도는지 아직 확인 안 된 상태라 여기서 오류가 날 가능성이 가장 높습니다. 확인할 것:
-   - 랜딩 "지도 만들기" → `maps` 행 생성, 상태 표시가 "저장됨"
-   - 핀·손그림·라벨을 넣고 새로고침 → 서버에서 복원되는지 (PostGIS 왕복 정확도)
-   - 다른 브라우저/시크릿창에서 같은 `/edit/<slug>` 열기 → 편집 토큰이 없으므로 읽기는 되지만 저장은 로컬로 떨어져야 정상
-   - 두 탭을 동시에 열고 각각 편집 → 나중 저장이 409를 받아 "변경됨"에 머무는지 (낙관적 잠금)
-   - `0002_document_rpc.sql`이 `0001`의 RLS 구멍(anon이 `edit_token`을 읽을 수 있던 문제)을 막았는지: anon 키로 `select edit_token from maps` 시도 → 거부돼야 정상
+2. **F7 공유 버튼 활성화** — `Editor.tsx`의 `EditorTopBar`에 `disabled`로 박혀 있습니다. 서버 저장 모드일 때만 활성화하고, `/m/<slug>` URL을 클립보드에 복사하게 하면 됩니다.
 
-3. 그다음 **T13 뷰어** → **T14 OG 썸네일** → **F7 공유 버튼 활성화** 순서로.
+3. **T14 OG 썸네일** — 카카오 정적 지도 API로 1회 생성 후 Supabase Storage에 캐시(`maps.og_image_url` 컬럼 사용). 매 조회마다 호출하면 인기 지도 하나가 일 1,000건 쿼터를 다 먹습니다.
+
+4. **T8 실동작 확인** — 사용자가 `KAKAO_REST_KEY`를 채우면 검색 패널과 붙여넣기 파싱을 실제 카카오 응답으로 확인하세요.
+
+### 아직 확인 안 된 것 하나
+
+`0002`가 `0001`의 RLS 구멍을 막았는지는 **논리적으로는 확실하지만 직접 테스트는 못 했습니다.**
+(0002가 통째로 성공했으므로 맨 위 `drop policy` 문들도 실행됐습니다. Supabase SQL Editor는
+스크립트를 한 트랜잭션으로 돌립니다.) 확실히 하려면 Supabase 대시보드
+> Authentication > Policies 에서 `maps` / `places` / `strokes` / `labels` / `segments` 에
+정책이 하나도 없는지 눈으로 확인하면 됩니다. anon 키를 채운다면 `select edit_token from maps`가
+거부되는지 직접 쏴 보는 게 가장 확실합니다.
 
 작업 커밋은 의미 있는 단위로 나눠서 하세요. `.env.local`은 `.gitignore`에 걸려 있지만, 새 파일을 추가하기 전에 `git status`로 한 번 확인하는 습관을 들이면 안전합니다.
 
