@@ -1,0 +1,536 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<title>MAP-LINE · W0 드로잉 프로토타입</title>
+<style>
+  :root {
+    --paper: #FAF7F2;
+    --ink: #2C2C2A;
+    --coral: #E24B4A;
+    --line: rgba(44, 44, 42, 0.14);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+    color: var(--ink);
+    background: var(--paper);
+    overflow: hidden;
+  }
+
+  #stage { position: fixed; inset: 0 0 56px 0; }
+
+  /* z-index 를 명시하는 이유:
+     카카오 SDK 는 #map 안에 z-index 가 붙은 레이어를 여러 개 만든다.
+     #map 이 z-index:auto 면 그 자식들이 루트 스태킹 컨텍스트에 그대로 참여해
+     캔버스보다 위에 깔리고, 그리기 모드에서도 pointerdown 이 캔버스에 닿지 않는다.
+     #map 에 z-index 를 주어 스태킹 컨텍스트를 가두는 것이 핵심이다. */
+  #map { position: absolute; inset: 0; z-index: 0; }
+  #ink {
+    position: absolute; inset: 0; z-index: 1;
+    pointer-events: none;           /* 이동 모드에서는 지도가 이벤트를 받는다 */
+    touch-action: none;             /* 그리기 모드 브라우저 제스처 차단 */
+    transition: opacity 120ms linear;
+  }
+  body[data-mode="draw"] #ink,
+  body[data-mode="erase"] #ink { pointer-events: auto; cursor: crosshair; }
+  #ink.zooming { opacity: 0; }
+
+  #toolbar {
+    position: fixed; left: 0; right: 0; bottom: 0; height: 56px; z-index: 4;
+    display: flex; align-items: center; gap: 6px;
+    padding: 0 10px;
+    background: #fff;
+    border-top: 1px solid var(--line);
+    overflow-x: auto;
+  }
+  button {
+    font: inherit; font-size: 13px;
+    height: 36px; padding: 0 12px;
+    border: 1px solid var(--line); border-radius: 8px;
+    background: #fff; color: var(--ink);
+    white-space: nowrap; cursor: pointer;
+  }
+  button[aria-pressed="true"] { background: var(--ink); color: #fff; border-color: var(--ink); }
+  button:disabled { opacity: .4; cursor: default; }
+
+  .swatch { width: 28px; height: 28px; padding: 0; border-radius: 50%; border: 2px solid transparent; }
+  .swatch[aria-pressed="true"] { border-color: var(--ink); }
+  .sep { width: 1px; height: 24px; background: var(--line); flex: none; }
+
+  #hud {
+    position: fixed; top: 10px; left: 10px; z-index: 3;
+    background: rgba(255,255,255,.94);
+    border: 1px solid var(--line); border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 12px; font-variant-numeric: tabular-nums;
+    white-space: pre; pointer-events: none;
+  }
+  #hud b { font-weight: 600; }
+
+  #gate {
+    position: fixed; inset: 0; z-index: 10;
+    display: none; place-items: center;
+    background: var(--paper); padding: 24px;
+  }
+  #gate.on { display: grid; }
+  #gate .box { max-width: 460px; }
+  #gate h1 { font-size: 18px; margin: 0 0 12px; }
+  #gate p { margin: 0 0 8px; color: #6b6b66; font-size: 13px; }
+  #gate input {
+    width: 100%; height: 40px; margin: 12px 0;
+    padding: 0 12px; font: inherit;
+    border: 1px solid var(--line); border-radius: 8px;
+  }
+  #gate ol { margin: 12px 0 0; padding-left: 18px; color: #6b6b66; font-size: 12px; }
+</style>
+</head>
+<body data-mode="pan">
+
+<div id="stage">
+  <div id="map"></div>
+  <canvas id="ink"></canvas>
+  <div id="hud"></div>
+</div>
+
+<div id="toolbar">
+  <button id="mode-pan" aria-pressed="true">✋ 이동</button>
+  <button id="mode-draw" aria-pressed="false">✏️ 그리기</button>
+  <button id="mode-erase" aria-pressed="false">🧽 지우개</button>
+  <span class="sep"></span>
+  <button class="swatch" data-color="#E24B4A" aria-pressed="true" style="background:#E24B4A"></button>
+  <button class="swatch" data-color="#2D6BE4" aria-pressed="false" style="background:#2D6BE4"></button>
+  <button class="swatch" data-color="#2FA35B" aria-pressed="false" style="background:#2FA35B"></button>
+  <button class="swatch" data-color="#2C2C2A" aria-pressed="false" style="background:#2C2C2A"></button>
+  <span class="sep"></span>
+  <button id="w-thin" aria-pressed="true">얇게</button>
+  <button id="w-thick" aria-pressed="false">굵게</button>
+  <span class="sep"></span>
+  <button id="undo">↩︎ 되돌리기</button>
+  <button id="clear">🗑 전체 지우기</button>
+</div>
+
+<div id="gate">
+  <div class="box">
+    <h1>카카오 JavaScript 키가 필요합니다</h1>
+    <p>키는 이 브라우저의 localStorage에만 저장되며 어디로도 전송되지 않습니다.</p>
+    <input id="gate-key" type="text" placeholder="JavaScript 키 32자" autocomplete="off" spellcheck="false" />
+    <button id="gate-go">시작</button>
+    <ol>
+      <li>카카오 개발자 콘솔 &gt; 내 애플리케이션 &gt; 제품 설정 &gt; 카카오맵 &gt; 사용 설정 ON</li>
+      <li>플랫폼 &gt; Web 에 <code>http://localhost:3000</code> 등록</li>
+      <li>이 페이지는 반드시 <code>http://localhost:3000</code> 으로 열 것 (file:// 은 키 도메인 검증에 실패)</li>
+    </ol>
+  </div>
+</div>
+
+<script>
+/* =========================================================================
+ * MAP-LINE · W0 드로잉 프로토타입  (설계안 §8.1)
+ *
+ * 이 파일이 검증해야 하는 단 하나의 질문:
+ *   "지도 위에 그린 손그림이 확대·축소·이동 후에도 같은 지리적 위치에 붙어 있는가?"
+ *
+ * 안 되면 제품 전체가 무의미하고, 되면 제품의 8할이 증명된 것이다.
+ * 외부 의존성 없음. 카카오 SDK 외에는 아무것도 로드하지 않는다.
+ * ========================================================================= */
+
+/* ---------- 튜닝 상수 — W0에서 실제로 만져보며 확정할 값들 ---------- */
+const RDP_EPSILON_PX   = 2.0;   // 화면 기준 단순화 허용 오차
+const MIN_SAMPLE_PX    = 1.5;   // 이보다 가까운 입력점은 버린다
+const WIDTH_THIN       = 4;
+const WIDTH_THICK      = 9;
+const SCALE_CLAMP_MIN  = 0.35;  // 축소 시 선이 실 한 올이 되는 것을 막는다
+const SCALE_CLAMP_MAX  = 1.20;  // 확대 시 선이 뭉개진 덩어리가 되는 것을 막는다
+const FADE_FREE_LEVELS = 2;     // 이 차이까지는 불투명도 100%
+const ERASE_HIT_PX     = 14;
+const STORAGE_KEY      = 'mapline.w0.strokes';
+
+const INITIAL = { lat: 37.4979, lng: 127.0276, level: 3 }; // 강남역
+
+/* ---------- 순수 지오 함수 (lib/geo/rdp.ts, projection.ts 와 동일 로직) ----------
+ * 주의: RDP를 위경도가 아니라 화면 좌표에서 수행한다.
+ * 고정 줌에서 화면↔위경도는 국소적으로 선형이므로 결과는 "줌에 비례하는 epsilon을
+ * 쓴 위경도 RDP"와 사실상 같고, 오차 단위가 픽셀이라 지각적으로도 이쪽이 맞다.
+ * 대신 어느 줌에서 그렸는지를 zoomCreated 로 남긴다. */
+
+function distanceToSegment(p, a, b) {
+  const dx = b.x - a.x, dy = b.y - a.y;
+  if (dx === 0 && dy === 0) return Math.hypot(p.x - a.x, p.y - a.y);
+  let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy);
+  t = t < 0 ? 0 : t > 1 ? 1 : t;
+  return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+}
+
+function rdp(points, epsilon) {
+  if (points.length < 3) return points.slice();
+  const keep = new Uint8Array(points.length);
+  keep[0] = 1;
+  keep[points.length - 1] = 1;
+  const stack = [[0, points.length - 1]];
+  while (stack.length) {
+    const [first, last] = stack.pop();
+    let maxDist = -1, index = -1;
+    for (let i = first + 1; i < last; i++) {
+      const d = distanceToSegment(points[i], points[first], points[last]);
+      if (d > maxDist) { maxDist = d; index = i; }
+    }
+    if (maxDist > epsilon && index > 0) {
+      keep[index] = 1;
+      stack.push([first, index], [index, last]);
+    }
+  }
+  return points.filter((_, i) => keep[i] === 1);
+}
+
+function polylineDistance(p, pts) {
+  if (pts.length === 0) return Infinity;
+  if (pts.length === 1) return Math.hypot(p.x - pts[0].x, p.y - pts[0].y);
+  let min = Infinity;
+  for (let i = 1; i < pts.length; i++) {
+    const d = distanceToSegment(p, pts[i - 1], pts[i]);
+    if (d < min) min = d;
+  }
+  return min;
+}
+
+/* 카카오 level 은 1(최대 확대) ~ 14(최대 축소) 로 방향이 뒤집혀 있다. */
+function renderWidth(stroke, level) {
+  const scale = Math.pow(2, stroke.zoomCreated - level);
+  return stroke.width * Math.min(SCALE_CLAMP_MAX, Math.max(SCALE_CLAMP_MIN, scale));
+}
+function renderAlpha(stroke, level) {
+  const d = Math.abs(stroke.zoomCreated - level);
+  if (d <= FADE_FREE_LEVELS) return 1;
+  return Math.max(0.35, 1 - (d - FADE_FREE_LEVELS) * 0.16);
+}
+
+/* ---------- 키 게이트 ---------- */
+const gate = document.getElementById('gate');
+
+function resolveKey() {
+  const fromQuery = new URLSearchParams(location.search).get('key');
+  if (fromQuery) {
+    localStorage.setItem('mapline.kakaoJsKey', fromQuery.trim());
+    return fromQuery.trim();
+  }
+  return localStorage.getItem('mapline.kakaoJsKey');
+}
+
+function loadSdk(key) {
+  return new Promise((resolve, reject) => {
+    const el = document.createElement('script');
+    el.src = 'https://dapi.kakao.com/v2/maps/sdk.js?autoload=false&appkey=' + encodeURIComponent(key);
+    el.onload = () => window.kakao.maps.load(resolve);
+    el.onerror = () => reject(new Error('SDK 로드 실패'));
+    document.head.appendChild(el);
+  });
+}
+
+const key = resolveKey();
+if (key) {
+  loadSdk(key).then(boot).catch((err) => {
+    localStorage.removeItem('mapline.kakaoJsKey');
+    alert('카카오 SDK를 불러오지 못했습니다. 키와 등록 도메인을 확인하세요.\n' + err.message);
+    gate.classList.add('on');
+  });
+} else {
+  gate.classList.add('on');
+}
+document.getElementById('gate-go').addEventListener('click', () => {
+  const v = document.getElementById('gate-key').value.trim();
+  if (!v) return;
+  localStorage.setItem('mapline.kakaoJsKey', v);
+  location.reload();
+});
+
+/* ---------- 본체 ---------- */
+function boot() {
+  const kakao = window.kakao;
+  const stage = document.getElementById('stage');
+  const canvas = document.getElementById('ink');
+  const ctx = canvas.getContext('2d');
+  const hud = document.getElementById('hud');
+
+  const map = new kakao.maps.Map(document.getElementById('map'), {
+    center: new kakao.maps.LatLng(INITIAL.lat, INITIAL.lng),
+    level: INITIAL.level,
+  });
+
+  /** @type {{path:{lat:number,lng:number}[], color:string, width:number, zoomCreated:number}[]} */
+  let strokes = loadStrokes();
+  let live = null;           // 그리는 중인 획 (화면 좌표)
+  let mode = 'pan';
+  let color = '#E24B4A';
+  let width = WIDTH_THIN;
+  let dpr = 1;
+  let anchor = null;         // 팬 추적 기준점
+  let stats = { raw: 0, kept: 0, drawMs: 0, downs: 0 };
+
+  /* ----- 캔버스 / DPR (설계안 §8.1-2) ----- */
+  function resize() {
+    dpr = window.devicePixelRatio || 1;
+    const w = stage.clientWidth, h = stage.clientHeight;
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
+    canvas.style.width = w + 'px';
+    canvas.style.height = h + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    redraw();
+  }
+
+  function eventPoint(e) {
+    const rect = canvas.getBoundingClientRect();
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  }
+
+  /* ----- 좌표 변환 ----- */
+  function toScreen(proj, coord) {
+    const p = proj.containerPointFromCoords(new kakao.maps.LatLng(coord.lat, coord.lng));
+    return { x: p.x, y: p.y };
+  }
+  function toCoord(proj, point) {
+    const ll = proj.coordsFromContainerPoint(new kakao.maps.Point(point.x, point.y));
+    return { lat: ll.getLat(), lng: ll.getLng() };
+  }
+
+  /* ----- 렌더 ----- */
+  function strokeScreenPath(proj, stroke) {
+    return stroke.path.map((c) => toScreen(proj, c));
+  }
+
+  function redraw() {
+    const t0 = performance.now();
+    const proj = map.getProjection();
+    const level = map.getLevel();
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+
+    for (const s of strokes) {
+      const pts = strokeScreenPath(proj, s);
+      if (pts.length < 2) continue;
+      ctx.globalAlpha = renderAlpha(s, level);
+      ctx.strokeStyle = s.color;
+      ctx.lineWidth = renderWidth(s, level);
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+
+    if (live && live.points.length > 1) {
+      ctx.strokeStyle = live.color;
+      ctx.lineWidth = live.width;
+      ctx.beginPath();
+      ctx.moveTo(live.points[0].x, live.points[0].y);
+      for (let i = 1; i < live.points.length; i++) ctx.lineTo(live.points[i].x, live.points[i].y);
+      ctx.stroke();
+    }
+
+    stats.drawMs = performance.now() - t0;
+    paintHud();
+  }
+
+  function paintHud() {
+    const pct = stats.raw ? Math.round((stats.kept / stats.raw) * 100) : 0;
+    // downs 가 안 올라가면 캔버스가 이벤트를 못 받고 있다는 뜻 = 레이어 순서 문제.
+    hud.innerHTML =
+      '<b>mode</b> ' + mode + '   <b>입력</b> ' + stats.downs + '\n' +
+      '<b>level</b> ' + map.getLevel() + '   <b>획</b> ' + strokes.length + '\n' +
+      '<b>마지막 획</b> ' + stats.raw + ' → ' + stats.kept + 'pt (' + pct + '%)\n' +
+      '<b>redraw</b> ' + stats.drawMs.toFixed(1) + 'ms   <b>dpr</b> ' + dpr;
+  }
+
+  /* ----- 팬/줌 추적 (설계안 §8.1-5) -----
+   * 팬 중에 모든 획을 재투영하면 프레임이 무너진다.
+   * 기준 좌표 하나의 이동량만 계산해 캔버스를 통째로 CSS transform 으로 밀고,
+   * idle 에서 transform 을 지우고 정확히 다시 그린다. */
+  function captureAnchor() {
+    const proj = map.getProjection();
+    const center = map.getCenter();
+    anchor = {
+      coord: { lat: center.getLat(), lng: center.getLng() },
+      point: toScreen(proj, { lat: center.getLat(), lng: center.getLng() }),
+    };
+  }
+
+  let followQueued = false;
+  function followPan() {
+    if (!anchor || followQueued) return;
+    followQueued = true;
+    requestAnimationFrame(() => {
+      followQueued = false;
+      if (!anchor) return;
+      const now = toScreen(map.getProjection(), anchor.coord);
+      canvas.style.transform =
+        'translate3d(' + (now.x - anchor.point.x) + 'px,' + (now.y - anchor.point.y) + 'px,0)';
+    });
+  }
+
+  kakao.maps.event.addListener(map, 'center_changed', followPan);
+  kakao.maps.event.addListener(map, 'zoom_start', () => canvas.classList.add('zooming'));
+  kakao.maps.event.addListener(map, 'idle', () => {
+    canvas.style.transform = '';
+    canvas.classList.remove('zooming');
+    captureAnchor();
+    redraw();
+  });
+
+  /* ----- 입력 ----- */
+  canvas.addEventListener('pointerdown', (e) => {
+    stats.downs++;
+    paintHud();
+    if (mode === 'erase') { eraseAt(eventPoint(e)); return; }
+    if (mode !== 'draw') return;
+    e.preventDefault();
+    canvas.setPointerCapture(e.pointerId);
+    live = { points: [eventPoint(e)], color, width };
+  });
+
+  canvas.addEventListener('pointermove', (e) => {
+    if (!live) return;
+    e.preventDefault();
+    const p = eventPoint(e);
+    const last = live.points[live.points.length - 1];
+    if (Math.hypot(p.x - last.x, p.y - last.y) < MIN_SAMPLE_PX) return;
+    live.points.push(p);
+    // 라이브 구간만 덧그린다 — 전체 redraw 는 커밋 시점에 한 번.
+    ctx.strokeStyle = live.color;
+    ctx.lineWidth = live.width;
+    ctx.beginPath();
+    ctx.moveTo(last.x, last.y);
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+  });
+
+  function commit() {
+    if (!live) return;
+    const raw = live.points;
+    const simplified = rdp(raw, RDP_EPSILON_PX);
+    stats.raw = raw.length;
+    stats.kept = simplified.length;
+
+    if (simplified.length >= 2) {
+      const proj = map.getProjection();
+      strokes.push({
+        path: simplified.map((p) => toCoord(proj, p)),
+        color: live.color,
+        width: live.width,
+        zoomCreated: map.getLevel(),
+      });
+      saveStrokes();
+    }
+    live = null;
+    redraw();
+  }
+
+  canvas.addEventListener('pointerup', commit);
+  canvas.addEventListener('pointercancel', commit);
+
+  function eraseAt(point) {
+    const proj = map.getProjection();
+    let hit = -1, best = ERASE_HIT_PX;
+    for (let i = strokes.length - 1; i >= 0; i--) {
+      const d = polylineDistance(point, strokeScreenPath(proj, strokes[i]));
+      if (d < best) { best = d; hit = i; break; }
+    }
+    if (hit >= 0) {
+      strokes.splice(hit, 1);
+      saveStrokes();
+      redraw();
+    }
+  }
+
+  /* ----- 모드 전환 (설계안 §7.2 / §8.1-1) -----
+   * 그리기 중에는 지도 제스처를 완전히 잠근다.
+   * 이걸 안 하면 손가락 한 번에 그림 절반, 지도 팬 절반이 된다. */
+  function setMode(next) {
+    mode = next;
+    document.body.dataset.mode = next;
+    const drawing = next !== 'pan';
+    // CSS 선택자에 의존하지 않고 직접 지정한다. 원인 후보를 하나 줄인다.
+    canvas.style.pointerEvents = drawing ? 'auto' : 'none';
+    map.setDraggable(!drawing);
+    map.setZoomable(!drawing);
+    for (const id of ['pan', 'draw', 'erase']) {
+      document.getElementById('mode-' + id).setAttribute('aria-pressed', String(id === next));
+    }
+  }
+
+  document.getElementById('mode-pan').onclick = () => setMode('pan');
+  document.getElementById('mode-draw').onclick = () => setMode('draw');
+  document.getElementById('mode-erase').onclick = () => setMode('erase');
+
+  for (const el of document.querySelectorAll('.swatch')) {
+    el.onclick = () => {
+      color = el.dataset.color;
+      for (const o of document.querySelectorAll('.swatch')) {
+        o.setAttribute('aria-pressed', String(o === el));
+      }
+      if (mode === 'pan') setMode('draw');
+    };
+  }
+
+  document.getElementById('w-thin').onclick = () => setWidth(WIDTH_THIN);
+  document.getElementById('w-thick').onclick = () => setWidth(WIDTH_THICK);
+  function setWidth(w) {
+    width = w;
+    document.getElementById('w-thin').setAttribute('aria-pressed', String(w === WIDTH_THIN));
+    document.getElementById('w-thick').setAttribute('aria-pressed', String(w === WIDTH_THICK));
+  }
+
+  document.getElementById('undo').onclick = () => {
+    strokes.pop();
+    saveStrokes();
+    redraw();
+  };
+  /* confirm()은 인앱 브라우저나 대화상자 차단 상태에서 false를 반환한다.
+     그 경우 버튼이 조용히 아무 일도 안 하므로, 두 번 누르기로 확인을 대신한다. */
+  const clearBtn = document.getElementById('clear');
+  let clearArmed = null;
+  clearBtn.onclick = () => {
+    if (strokes.length === 0) return;
+    if (!clearArmed) {
+      clearBtn.textContent = '한 번 더 누르면 삭제';
+      clearBtn.setAttribute('aria-pressed', 'true');
+      clearArmed = setTimeout(disarmClear, 3000);
+      return;
+    }
+    disarmClear();
+    strokes = [];
+    saveStrokes();
+    redraw();
+  };
+  function disarmClear() {
+    clearTimeout(clearArmed);
+    clearArmed = null;
+    clearBtn.textContent = '🗑 전체 지우기';
+    clearBtn.setAttribute('aria-pressed', 'false');
+  }
+
+  /* ----- 로컬 보존 -----
+   * 새로고침 후에도 그림이 같은 자리에 붙어 있는지가 W0 의 핵심 확인 항목이다. */
+  function saveStrokes() {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(strokes)); } catch { /* 용량 초과 무시 */ }
+  }
+  function loadStrokes() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+      return Array.isArray(parsed) ? parsed : [];
+    } catch { return []; }
+  }
+
+  window.addEventListener('resize', resize);
+  resize();
+  captureAnchor();
+  redraw();
+}
+</script>
+</body>
+</html>
