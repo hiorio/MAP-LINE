@@ -281,6 +281,7 @@ function StopList({
       <h2 className="px-4 pt-3 text-xs font-semibold tracking-wide text-ink/40">
         담은 단계 {stops.length}개
       </h2>
+      <AutoLineToggles />
       <ol className="divide-y divide-hairline">
         {stops.map((stop, index) => (
           <li key={stop.id} className="px-4 py-3">
@@ -464,5 +465,53 @@ function SavedList({ onFocus }: { onFocus: (location: LatLng) => void }) {
         ))}
       </ul>
     </div>
+  );
+}
+
+/**
+ * 자동으로 그려지는 선을 끄고 켠다.
+ *
+ * 동선을 손으로 직접 그리는 사람에게는 자동 선이 방해가 된다. 설정은 문서에 담기므로
+ * 끈 상태 그대로 공유된다.
+ */
+function AutoLineToggles() {
+  const showLinks = useMapStore((s) => s.showCandidateLinks);
+  const showArrows = useMapStore((s) => s.showStopArrows);
+  const setShowLinks = useMapStore((s) => s.setShowCandidateLinks);
+  const setShowArrows = useMapStore((s) => s.setShowStopArrows);
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 px-4 pt-2">
+      <span className="mr-1 text-[11px] text-ink/35">자동 선</span>
+      <ToggleChip pressed={showLinks} onClick={() => setShowLinks(!showLinks)}>
+        후보 연결선
+      </ToggleChip>
+      <ToggleChip pressed={showArrows} onClick={() => setShowArrows(!showArrows)}>
+        이동 동선
+      </ToggleChip>
+    </div>
+  );
+}
+
+function ToggleChip({
+  pressed,
+  onClick,
+  children,
+}: {
+  pressed: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={pressed}
+      className={`h-7 rounded-full border px-2.5 text-xs ${
+        pressed ? 'border-ink bg-ink text-white' : 'border-hairline text-ink/45 line-through'
+      }`}
+    >
+      {children}
+    </button>
   );
 }

@@ -48,6 +48,8 @@ export function MapOverlay({ map }: { map: kakao.maps.Map | null }) {
   const strokes = useMapStore((s) => s.strokes);
   const labels = useMapStore((s) => s.labels);
   const mode = useMapStore((s) => s.mode);
+  const showCandidateLinks = useMapStore((s) => s.showCandidateLinks);
+  const showStopArrows = useMapStore((s) => s.showStopArrows);
 
   const savedPlaces = useSavedPlacesStore((s) => s.places);
   const savedVisible = useSavedPlacesStore((s) => s.visible);
@@ -62,7 +64,14 @@ export function MapOverlay({ map }: { map: kakao.maps.Map | null }) {
 
   const { canvasRef, toScreen, toCoord, redraw } = useMapCanvas({
     map,
-    scene: { stops, strokes, labels: renderedLabels, saved: visibleSaved },
+    scene: {
+      stops,
+      strokes,
+      labels: renderedLabels,
+      saved: visibleSaved,
+      showCandidateLinks,
+      showStopArrows,
+    },
     // 그리는 중인 획은 스토어에 들어가기 전이므로 장면 뒤에 덧그린다.
     afterDraw: (ctx) => {
       const live = liveRef.current;

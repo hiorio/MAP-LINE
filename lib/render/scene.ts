@@ -30,6 +30,9 @@ export interface Scene {
    * 코스에 올린 핀과 헷갈리면 안 되므로 번호 없이 다른 모양으로 그린다.
    */
   saved?: readonly { id: string; name: string; location: LatLng }[];
+  /** 자동으로 그리는 선. 지도를 만든 사람이 끌 수 있다. */
+  showCandidateLinks?: boolean;
+  showStopArrows?: boolean;
 }
 
 export type Projector = (coord: LatLng) => Point;
@@ -49,7 +52,8 @@ export function drawScene(
   ctx.lineJoin = 'round';
 
   // 손그림보다 아래에 깔아 둔다. 사용자가 직접 그린 선이 주인공이다.
-  drawStopArrows(ctx, scene.stops, project);
+  if (scene.showCandidateLinks !== false) drawCandidateLinks(ctx, scene.stops, project);
+  if (scene.showStopArrows !== false) drawStopArrows(ctx, scene.stops, project);
 
   for (const stroke of scene.strokes) {
     const points = stroke.path.map(project);
@@ -81,8 +85,64 @@ const ARROW_WIDTH = 2.5;
 const ARROW_HEAD_PX = 10;
 /** 화살표가 핀 안쪽에서 시작·끝나면 지저분하다. 양끝을 이만큼 물려 놓는다. */
 const ARROW_TRIM_PX = PIN_RADIUS + 6;
-/** 두 단계가 이보다 가까우면 화살표가 머리만 남아 오히려 지저분하다. */
-const ARROW_MIN_PX = ARROW_TRIM_PX * 2 + 12;
+/** 양끝을 비키고 남는 몸통이 이보다 짧으면 머리만 남아 오히려 지저분하다. */
+const ARROW_MIN_SHAFT_PX = 12;
+
+const LINK_WIDTH = 1.5;
+const LINK_DASH = [2, 5];
+const HUB_RADIUS = 3;
+
+/**
+ * 같은 단계의 후보들을 중간지점과 점선으로 잇는다.
+ *
+ * 화살표가 아무 핀에도 붙어 있지 않은 허공에서 시작하면 왜 거기서 나오는지 알 수 없다.
+ * 후보들이 중간지점으로 모이는 점선을 깔아 두면 그 지점이 이 무리의 대표라는 것이
+ * 그림만으로 읽힌다.
+ *
+ * 후보가 둘일 때는 중간지점이 두 핀을 잇는 선 위에 있으므로, 결과적으로 "두 후보를
+ * 잇는 점선 하나"와 같은 모양이 된다.
+ */
+function drawCandidateLinks(
+  ctx: CanvasRenderingContext2D,
+  stops: readonly Stop[],
+  project: Projector,
+) {
+  ctx.save();
+  ctx.setLineDash(LINK_DASH);
+  ctx.strokeStyle = ARROW_COLOR;
+  ctx.fillStyle = ARROW_COLOR;
+  ctx.lineWidth = LINK_WIDTH;
+
+  for (const stop of stops) {
+    if (stop.candidates.length < 2) continue;
+
+    const centroid = stopCentroid(stop);
+    if (!centroid) continue;
+    const hub = project(centroid);
+
+    for (const candidate of stop.candidates) {
+      const at = project(candidate.location);
+      const dx = hub.x - at.x;
+      const dy = hub.y - at.y;
+      const length = Math.hypot(dx, dy);
+      // 핀 안에서 시작하면 지저분하다. 핀에 가려 안 보일 만큼 짧으면 아예 생략한다.
+      if (length <= ARROW_TRIM_PX) continue;
+
+      ctx.beginPath();
+      ctx.moveTo(at.x + (dx / length) * ARROW_TRIM_PX, at.y + (dy / length) * ARROW_TRIM_PX);
+      ctx.lineTo(hub.x, hub.y);
+      ctx.stroke();
+    }
+
+    // 점선이 모이는 자리를 점 하나로 못 박는다. 화살표가 여기서 출발한다.
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.arc(hub.x, hub.y, HUB_RADIUS, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.setLineDash(LINK_DASH);
+  }
+  ctx.restore();
+}
 
 function drawStopArrows(
   ctx: CanvasRenderingContext2D,
@@ -91,7 +151,13 @@ function drawStopArrows(
 ) {
   const centers = stops.map((stop) => {
     const centroid = stopCentroid(stop);
-    return centroid ? project(centroid) : null;
+    if (!centroid) return null;
+    return {
+      point: project(centroid),
+      // 후보가 하나면 중간지점에 핀이 서 있으므로 핀 반지름만큼 비켜야 한다.
+      // 여럿이면 그 자리에 허브 점만 있으니 거기에 붙여야 이어져 보인다.
+      trim: stop.candidates.length === 1 ? ARROW_TRIM_PX : HUB_RADIUS + 3,
+    };
   });
 
   ctx.save();
@@ -104,15 +170,15 @@ function drawStopArrows(
     const to = centers[i];
     if (!from || !to) continue;
 
-    const dx = to.x - from.x;
-    const dy = to.y - from.y;
+    const dx = to.point.x - from.point.x;
+    const dy = to.point.y - from.point.y;
     const length = Math.hypot(dx, dy);
-    if (length < ARROW_MIN_PX) continue;
+    if (length < from.trim + to.trim + ARROW_MIN_SHAFT_PX) continue;
 
     const ux = dx / length;
     const uy = dy / length;
-    const start = { x: from.x + ux * ARROW_TRIM_PX, y: from.y + uy * ARROW_TRIM_PX };
-    const end = { x: to.x - ux * ARROW_TRIM_PX, y: to.y - uy * ARROW_TRIM_PX };
+    const start = { x: from.point.x + ux * from.trim, y: from.point.y + uy * from.trim };
+    const end = { x: to.point.x - ux * to.trim, y: to.point.y - uy * to.trim };
 
     ctx.beginPath();
     ctx.moveTo(start.x, start.y);

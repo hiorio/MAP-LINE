@@ -73,7 +73,19 @@ export interface MapDocument {
   stops: Stop[];
   strokes: Stroke[];
   labels: MapLabel[];
+  /**
+   * 자동으로 그리는 선을 켤지 끌지.
+   *
+   * 문서에 담는 이유: 만든 사람이 직접 동선을 그리고 자동 화살표를 껐다면, 링크를 받은
+   * 사람에게도 꺼져 있어야 한다. 편집기 개인 설정으로 두면 공유된 지도가 만든 사람이
+   * 의도한 모습과 달라진다.
+   */
+  showCandidateLinks: boolean;
+  showStopArrows: boolean;
 }
+
+export const DEFAULT_SHOW_CANDIDATE_LINKS = true;
+export const DEFAULT_SHOW_STOP_ARROWS = true;
 
 /** 지도에 찍힌 모든 후보를 단계 번호와 함께 펼친다. 렌더와 히트 테스트가 쓴다. */
 export function flattenStops(stops: readonly Stop[]): { place: Place; stopNumber: number }[] {

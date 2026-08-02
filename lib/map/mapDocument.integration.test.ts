@@ -79,6 +79,8 @@ function makeSample() {
     title: '강남 저녁 코스',
     center: { lat: 37.4979, lng: 127.0276 },
     zoomLevel: 4,
+    showCandidateLinks: true,
+    showStopArrows: false,
     stops: [
       {
         id: ids.stopA,
@@ -281,6 +283,32 @@ describeIfConfigured('save_map_document / get_map_document 왕복', () => {
     expect(data.stops).toEqual([]);
     expect(data.strokes).toEqual([]);
     expect(data.labels).toEqual([]);
+  });
+
+  it('자동 선 설정을 저장하고 되돌려준다', async () => {
+    // 만든 사람이 화살표를 껐다면 링크를 받은 사람에게도 꺼져 있어야 한다.
+    const { slug, editToken } = await createMap();
+    const { document } = makeSample();
+    await save(slug, editToken, document);
+    const { data } = await read(slug);
+
+    expect(data.showCandidateLinks).toBe(true);
+    expect(data.showStopArrows).toBe(false);
+  });
+
+  it('설정이 빠진 문서를 받아도 기존 값을 지우지 않는다', async () => {
+    // 예전 버전 클라이언트가 보낸 문서에는 이 필드가 없다.
+    const { slug, editToken } = await createMap();
+    const { document } = makeSample();
+    await save(slug, editToken, document);
+
+    const withoutFlags = { ...document } as Record<string, unknown>;
+    delete withoutFlags.showCandidateLinks;
+    delete withoutFlags.showStopArrows;
+    await save(slug, editToken, withoutFlags as never);
+
+    const { data } = await read(slug);
+    expect(data.showStopArrows).toBe(false);
   });
 });
 

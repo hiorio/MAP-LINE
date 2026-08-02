@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { createId } from '@/lib/id';
 import {
   DEFAULT_FONT_SIZE,
+  DEFAULT_SHOW_CANDIDATE_LINKS,
+  DEFAULT_SHOW_STOP_ARROWS,
   LABEL_COLOR,
   PIN_COLOR,
   STROKE_COLORS,
@@ -35,6 +37,9 @@ const MAX_HISTORY = 50;
 
 interface MapStore extends Snapshot {
   title: string;
+  /** 자동으로 그리는 선의 표시 여부. 문서에 담겨 공유된다. */
+  showCandidateLinks: boolean;
+  showStopArrows: boolean;
   mode: EditorMode;
   color: string;
   width: number;
@@ -42,6 +47,8 @@ interface MapStore extends Snapshot {
   history: Snapshot[];
 
   setTitle: (title: string) => void;
+  setShowCandidateLinks: (show: boolean) => void;
+  setShowStopArrows: (show: boolean) => void;
   setMode: (mode: EditorMode) => void;
   setColor: (color: string) => void;
   setWidth: (width: number) => void;
@@ -70,6 +77,8 @@ interface MapStore extends Snapshot {
 
 export const useMapStore = create<MapStore>((set, get) => ({
   title: '',
+  showCandidateLinks: DEFAULT_SHOW_CANDIDATE_LINKS,
+  showStopArrows: DEFAULT_SHOW_STOP_ARROWS,
   mode: 'pan',
   color: STROKE_COLORS[0],
   width: STROKE_WIDTHS[0],
@@ -80,6 +89,9 @@ export const useMapStore = create<MapStore>((set, get) => ({
   history: [],
 
   setTitle: (title) => set({ title, saveState: 'dirty' }),
+  // 되돌리기 대상은 아니다. 제목과 마찬가지로 문서 설정이지 편집 내용이 아니다.
+  setShowCandidateLinks: (showCandidateLinks) => set({ showCandidateLinks, saveState: 'dirty' }),
+  setShowStopArrows: (showStopArrows) => set({ showStopArrows, saveState: 'dirty' }),
   setMode: (mode) => set({ mode }),
   setColor: (color) => set({ color }),
   setWidth: (width) => set({ width }),
@@ -179,6 +191,8 @@ export const useMapStore = create<MapStore>((set, get) => ({
   hydrate: (document) =>
     set({
       title: document.title ?? '',
+      showCandidateLinks: document.showCandidateLinks ?? DEFAULT_SHOW_CANDIDATE_LINKS,
+      showStopArrows: document.showStopArrows ?? DEFAULT_SHOW_STOP_ARROWS,
       stops: document.stops ?? [],
       strokes: document.strokes ?? [],
       labels: document.labels ?? [],

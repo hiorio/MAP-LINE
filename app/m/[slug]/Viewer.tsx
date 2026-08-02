@@ -75,6 +75,8 @@ function ViewerCanvas({
       stops: document.stops,
       strokes: document.strokes,
       labels: document.labels,
+      showCandidateLinks: document.showCandidateLinks,
+      showStopArrows: document.showStopArrows,
     },
   });
 

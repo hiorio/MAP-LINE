@@ -202,6 +202,8 @@ function useAutosave(
   const strokes = useMapStore((s) => s.strokes);
   const labels = useMapStore((s) => s.labels);
   const title = useMapStore((s) => s.title);
+  const showCandidateLinks = useMapStore((s) => s.showCandidateLinks);
+  const showStopArrows = useMapStore((s) => s.showStopArrows);
   const firstDirtyRef = useRef<number | null>(null);
   const inFlightRef = useRef(false);
 
@@ -217,6 +219,8 @@ function useAutosave(
       slug,
       {
         title: state.title,
+        showCandidateLinks: state.showCandidateLinks,
+        showStopArrows: state.showStopArrows,
         center: center ? { lat: center.getLat(), lng: center.getLng() } : DEFAULT_CENTER,
         zoomLevel: map?.getLevel() ?? DEFAULT_LEVEL,
         stops: state.stops,
@@ -243,7 +247,7 @@ function useAutosave(
 
     const timer = setTimeout(flush, delay);
     return () => clearTimeout(timer);
-  }, [stops, strokes, labels, title, flush]);
+  }, [stops, strokes, labels, title, showCandidateLinks, showStopArrows, flush]);
 
   useEffect(() => {
     // 탭을 닫거나 백그라운드로 보낼 때의 마지막 기회.
