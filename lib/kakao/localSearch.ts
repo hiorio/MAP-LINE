@@ -1,5 +1,6 @@
 import { fromKakaoXY } from '@/lib/geo/projection';
 import type { PlaceCandidate } from '@/lib/map/types';
+import { recordKakaoCall } from './usage';
 
 /**
  * Kakao Local 키워드 검색. **서버에서만** 호출한다.
@@ -36,6 +37,7 @@ export async function searchPlaces(query: string, size = 5): Promise<PlaceCandid
   url.searchParams.set('query', query);
   url.searchParams.set('size', String(Math.min(Math.max(size, 1), 15)));
 
+  recordKakaoCall('search');
   const response = await fetch(url, {
     headers: { Authorization: `KakaoAK ${key}` },
     // 상호·좌표는 캐시 취급이므로 짧게 캐시해 쿼터를 아낀다.

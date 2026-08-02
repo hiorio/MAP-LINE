@@ -1,5 +1,6 @@
 import type { LatLng } from '@/lib/map/types';
 import { MissingRestKeyError } from './localSearch';
+import { recordKakaoCall } from './usage';
 
 /**
  * 카카오 정적 지도. **서버에서만** 호출한다.
@@ -43,6 +44,7 @@ export async function fetchStaticMap(options: StaticMapOptions): Promise<ArrayBu
   const key = process.env.KAKAO_REST_KEY;
   if (!key) throw new MissingRestKeyError();
 
+  recordKakaoCall('staticmap');
   const response = await fetch(buildStaticMapUrl(options), {
     headers: { Authorization: `KakaoAK ${key}` },
   });

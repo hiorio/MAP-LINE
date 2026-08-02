@@ -39,7 +39,7 @@ export function CreateMapButton() {
         setPending(true);
         router.push(`/edit/${await createMap()}`);
       }}
-      className="inline-flex h-12 items-center rounded-xl bg-ink px-6 text-base font-medium text-white disabled:opacity-60"
+      className="flex h-12 w-full items-center justify-center rounded-xl bg-ink px-6 text-base font-medium text-white transition-opacity disabled:opacity-60"
     >
       {pending ? '여는 중…' : '지도 만들기'}
     </button>

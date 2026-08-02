@@ -99,6 +99,8 @@ Route Handler를 경유하면 되므로 끝까지 안 쓸 수도 있습니다.
 | 캔버스 공용 훅 | `components/map/useMapCanvas.ts` | 편집기와 뷰어가 같은 `drawScene`을 쓰도록 추출. 리팩터 후 편집기 재검증 완료 |
 | F7 공유 버튼 | `app/edit/[slug]/Editor.tsx`의 `ShareButton` | ✅ 서버 저장 모드에서만 활성화. `navigator.share` 우선, 없으면 클립보드 복사 |
 | T14 OG 썸네일 | `app/api/og/[slug]/route.ts`, `lib/map/ogImage.ts`, `lib/kakao/staticMap.ts` | ✅ 실제 생성 확인 (홍대 지도 + 핀 3개, 254KB PNG), Storage 캐시·재사용·내용 변경 시 재생성·`updated_at` 불변까지 검증 |
+| T15 랜딩 | `app/page.tsx`, `components/DemoMap.tsx` | ✅ 설계안 §7.1대로 데모 그림 + CTA 단일 버튼(클릭 가능 요소가 정확히 1개). 모바일·데스크톱 확인 |
+| 사용량 모니터링 | `lib/kakao/usage.ts`, `app/api/usage/route.ts` | ✅ `GET /api/usage`로 확인. 80% 초과 시 서버 로그 경고. **인스턴스 메모리 기준 근사치** |
 | T12 서버 저장 API + 스키마 | `app/api/maps/route.ts`, `app/api/maps/[slug]/route.ts`, `lib/supabase/server.ts`, `supabase/migrations/0002_document_rpc.sql` | ✅ 실제 Supabase에 대해 검증 완료 — 아래 상세 |
 | 서버/로컬 저장 자동 전환 | `lib/map/persistence.ts` | ✅ 양방향 확인. Supabase 미설정 시 "이 기기에만 저장됨"으로 폴백, 설정 시 "저장됨" |
 | 편집기 화면·툴바·장소 패널 | `app/edit/[slug]/Editor.tsx`, `components/toolbar/EditorToolbar.tsx`, `components/panels/PlacePanel.tsx` | 렌더 확인, 그리기/라벨 흐름 확인 |
@@ -149,12 +151,18 @@ Route Handler를 경유하면 되므로 끝까지 안 쓸 수도 있습니다.
   - **편집기에서 공유 → 카톡으로 링크 전송 → 카톡 안에서 열기.** 이게 실제 사용 경로입니다
   - 카톡 미리보기에 썸네일이 뜨는가 (배포 후에만 가능 — localhost는 카톡 크롤러가 못 읽습니다)
 
-**2. 랜딩 페이지** — 지금은 개발 안내문입니다. 설계안 §7.1대로 데모 지도 + CTA 단일 버튼으로.
-방금 만든 뷰어를 임베드하거나 스크린샷을 쓰면 됩니다.
+배포 없이 카톡 테스트만 먼저 하려면 터널을 쓰면 됩니다:
 
-**3. 배포** — 위 "D" 참고. 배포해야 카톡 미리보기를 실제로 검증할 수 있습니다.
+```bash
+npx cloudflared tunnel --url http://localhost:3000
+```
 
-**4. 사용량 모니터링** — 설계안 §10. 카카오 쿼터 80% 알림. 지금은 소진돼도 모릅니다.
+임시 공개 URL이 나옵니다. 카카오 콘솔 SDK 도메인에 그 주소를 추가하면 카톡으로 링크를 보내
+인앱 브라우저에서 열어볼 수 있습니다.
+
+**2. 배포** — 위 "D" 참고. 이 제품의 절반(공유받은 사람의 경험)은 배포 전까지 제대로 검증할 수 없습니다.
+
+**3. 스팸 방지** — IP당 시간당 지도 생성 제한, 신고 링크. 아직 없습니다.
 
 ### 아직 확인 안 된 것 하나
 
