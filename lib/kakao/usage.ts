@@ -1,53 +1,55 @@
 import 'server-only';
+import { getServiceClient } from '@/lib/supabase/server';
 
 /**
- * 카카오 REST API 호출 횟수를 프로세스 안에서 센다.
+ * 카카오 REST API 호출 횟수를 Postgres에 기록한다.
  *
- * 설계안 §10: 무료 쿼터(경로·정적 지도 각 일 1,000건)는 "추후 별도 안내 전까지"라는
- * 단서가 붙어 있고, 초과분은 우리가 낸다. 소진된 뒤에 알면 늦는다.
+ * 설계안 §10: 무료 쿼터(정적 지도 일 1,000건 등)는 "추후 별도 안내 전까지"라는 단서가
+ * 붙어 있고 초과분은 우리가 낸다. 소진된 뒤에 알면 늦는다.
  *
- * 한계를 분명히 해 둔다: 이 카운터는 **서버 인스턴스 메모리에만** 있다. Vercel처럼
- * 인스턴스가 여러 개거나 자주 재시작되는 환경에서는 합계가 실제보다 적게 나온다.
- * 카카오 콘솔의 [통계 > 쿼터]가 언제나 정답이고, 이 값은 "지금 이 서버가 얼마나
- * 때리고 있는지"를 로그로 보기 위한 근사치다. 정확한 집계가 필요해지면 Postgres
- * 테이블이나 Redis로 옮긴다.
+ * 프로세스 메모리가 아니라 DB에 두는 이유: 재배포하면 사라지고 인스턴스가 여러 개면
+ * 각자 따로 세어 합계가 실제보다 **적게** 나온다. 쿼터 초과를 판단해야 하는 값이
+ * 작게 나오는 것은 위험한 방향의 오차다.
+ *
+ * 카카오 콘솔의 [통계 > 쿼터]가 여전히 최종 근거다. 이 값은 우리 쪽에서 본 호출 수이고,
+ * 실패한 요청이나 캐시로 막힌 요청까지 세는 방식이 콘솔과 다를 수 있다.
  */
-export type KakaoApi = 'search' | 'staticmap';
+export type KakaoApi = 'search' | 'staticmap' | 'route';
 
 /** 카카오가 공지한 일일 무료 쿼터 */
-const DAILY_QUOTA: Record<KakaoApi, number> = {
+export const DAILY_QUOTA: Record<KakaoApi, number> = {
   search: 100_000,
   staticmap: 1_000,
+  route: 1_000,
 };
 
 /** 이 비율을 넘으면 경고 로그를 남긴다 */
 const WARN_RATIO = 0.8;
 
-interface DayCount {
-  day: string;
-  counts: Record<KakaoApi, number>;
-  warned: Partial<Record<KakaoApi, boolean>>;
-}
+/** 같은 날 같은 API로 경고를 한 번만 남기기 위한 표식 */
+const warned = new Set<string>();
 
-let state: DayCount = freshDay();
+/**
+ * 호출 1건을 기록한다.
+ *
+ * 실패해도 throw하지 않는다. 사용량 집계 때문에 검색이나 썸네일 생성이 막히면 안 된다.
+ */
+export async function recordKakaoCall(api: KakaoApi): Promise<void> {
+  const supabase = getServiceClient();
+  if (!supabase) return;
 
-function freshDay(): DayCount {
-  return { day: today(), counts: { search: 0, staticmap: 0 }, warned: {} };
-}
+  const { data, error } = await supabase.rpc('record_api_call', { p_api: api });
+  if (error) {
+    console.error('[kakao-quota] 사용량 기록 실패', error);
+    return;
+  }
 
-/** 쿼터는 KST 자정에 초기화된다고 보고 맞춘다. */
-function today(): string {
-  return new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
-}
-
-export function recordKakaoCall(api: KakaoApi): void {
-  if (state.day !== today()) state = freshDay();
-
-  const used = (state.counts[api] += 1);
+  const used = typeof data === 'number' ? data : 0;
   const quota = DAILY_QUOTA[api];
+  const key = `${new Date().toISOString().slice(0, 10)}:${api}`;
 
-  if (!state.warned[api] && used >= quota * WARN_RATIO) {
-    state.warned[api] = true;
+  if (used >= quota * WARN_RATIO && !warned.has(key)) {
+    warned.add(key);
     console.warn(
       `[kakao-quota] ${api} 사용량이 일일 무료 쿼터의 ${Math.round(WARN_RATIO * 100)}%를 넘었습니다 ` +
         `(${used}/${quota}). 카카오 콘솔 > 통계 > 쿼터에서 실제 사용량을 확인하세요.`,
@@ -55,17 +57,38 @@ export function recordKakaoCall(api: KakaoApi): void {
   }
 }
 
-export function readUsage() {
-  if (state.day !== today()) state = freshDay();
-  return {
-    day: state.day,
-    // 이 서버 인스턴스 기준이라는 점을 응답에도 남긴다.
-    scope: 'this-server-instance' as const,
-    apis: (Object.keys(DAILY_QUOTA) as KakaoApi[]).map((api) => ({
+export interface UsageRow {
+  day: string;
+  api: KakaoApi;
+  calls: number;
+}
+
+export async function readUsage(days = 7) {
+  const supabase = getServiceClient();
+  if (!supabase) return { configured: false as const, rows: [] as UsageRow[] };
+
+  const { data, error } = await supabase.rpc('get_api_usage', { p_days: days });
+  if (error) {
+    console.error('[kakao-quota] 사용량 조회 실패', error);
+    return { configured: true as const, rows: [] as UsageRow[] };
+  }
+
+  return { configured: true as const, rows: (data ?? []) as UsageRow[] };
+}
+
+/** 오늘 사용량을 쿼터와 함께 정리한다. */
+export function summarizeToday(rows: readonly UsageRow[]) {
+  const today = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+  return (Object.keys(DAILY_QUOTA) as KakaoApi[]).map((api) => {
+    const used = rows.find((row) => row.day === today && row.api === api)?.calls ?? 0;
+    const quota = DAILY_QUOTA[api];
+    return {
       api,
-      used: state.counts[api],
-      quota: DAILY_QUOTA[api],
-      ratio: Number((state.counts[api] / DAILY_QUOTA[api]).toFixed(4)),
-    })),
-  };
+      used,
+      quota,
+      ratio: Number((used / quota).toFixed(4)),
+      warn: used >= quota * WARN_RATIO,
+    };
+  });
 }

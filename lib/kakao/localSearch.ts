@@ -37,7 +37,8 @@ export async function searchPlaces(query: string, size = 5): Promise<PlaceCandid
   url.searchParams.set('query', query);
   url.searchParams.set('size', String(Math.min(Math.max(size, 1), 15)));
 
-  recordKakaoCall('search');
+  // 집계 때문에 검색이 느려지거나 막히면 안 된다. 기다리지 않는다.
+  void recordKakaoCall('search');
   const response = await fetch(url, {
     headers: { Authorization: `KakaoAK ${key}` },
     // 상호·좌표는 캐시 취급이므로 짧게 캐시해 쿼터를 아낀다.

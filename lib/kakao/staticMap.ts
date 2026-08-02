@@ -44,7 +44,8 @@ export async function fetchStaticMap(options: StaticMapOptions): Promise<ArrayBu
   const key = process.env.KAKAO_REST_KEY;
   if (!key) throw new MissingRestKeyError();
 
-  recordKakaoCall('staticmap');
+  // 집계 때문에 썸네일 생성이 느려지거나 막히면 안 된다. 기다리지 않는다.
+  void recordKakaoCall('staticmap');
   const response = await fetch(buildStaticMapUrl(options), {
     headers: { Authorization: `KakaoAK ${key}` },
   });
