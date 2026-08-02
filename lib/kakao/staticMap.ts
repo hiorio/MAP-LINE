@@ -5,38 +5,37 @@ import { recordKakaoCall } from './usage';
 /**
  * 카카오 정적 지도. **서버에서만** 호출한다.
  *
- * 알려진 한계: 이 API에는 경로/폴리라인 파라미터가 없다. 마커만 최대 5개까지다.
- * 그래서 손그림은 썸네일에 들어가지 않는다. 넣으려면 받은 이미지 위에 직접 합성해야
- * 하는데, 카카오의 레벨 → 미터/픽셀 대응을 정확히 알아야 획이 엉뚱한 데 찍히지 않는다.
- * 틀린 위치에 그리느니 지도와 핀만 보여주는 편이 낫다고 판단했다.
+ * 마커 파라미터는 일부러 쓰지 않는다. `markers`를 넘기면 카카오가 **`center`를 무시하고
+ * 마커들에 맞춰 지도를 다시 잡는다**. 실제로 확인해 보니 마커 하나를 넘기면 그 마커가
+ * 무조건 이미지 한가운데에 놓였다. 지도를 만든 사람이 맞춰 둔 화면이 통째로 어긋나는
+ * 셈이고, 마커 5개 제한과 번호 없는 기본 핀 모양도 편집기와 맞지 않는다.
+ *
+ * 그래서 여기서는 표시 없는 순수한 지도만 받고, 핀·화살표·손그림·메모는
+ * `lib/render/ogOverlay.ts`가 그린 SVG를 얹어 합성한다. 좌표 → 픽셀 대응은
+ * `lib/map/staticProjection.ts`에 실측해 둔 값을 쓴다.
  */
 const STATIC_MAP_ENDPOINT = 'https://dapi.kakao.com/v2/maps/staticmap';
 
-/** 카카오가 허용하는 마커 최대 개수 */
-const MAX_MARKERS = 5;
-
-/** OG 이미지 권장 비율(1.91:1)에 맞춘 기본 크기. scale=2라 실제로는 2배로 나온다. */
+/** OG 이미지 권장 비율(1.91:1)에 맞춘 기본 크기. CSS 픽셀 기준이다. */
 export const OG_WIDTH = 800;
 export const OG_HEIGHT = 420;
+
+/** 고해상도 화면에서 흐릿하지 않도록 2배로 받는다. 실제 이미지는 1600x840이다. */
+export const OG_SCALE = 2;
 
 export interface StaticMapOptions {
   center: LatLng;
   level: number;
-  markers?: readonly LatLng[];
 }
 
-export function buildStaticMapUrl({ center, level, markers = [] }: StaticMapOptions): string {
+export function buildStaticMapUrl({ center, level }: StaticMapOptions): string {
   const url = new URL(STATIC_MAP_ENDPOINT);
   url.searchParams.set('size', `${OG_WIDTH}x${OG_HEIGHT}`);
   // 좌표는 X,Y = 경도,위도 순서다. Local API와 같은 함정이 여기에도 있다.
   url.searchParams.set('center', `${center.lng},${center.lat}`);
   url.searchParams.set('lv', String(clampLevel(level)));
-  url.searchParams.set('scale', '2');
+  url.searchParams.set('scale', String(OG_SCALE));
   url.searchParams.set('format', 'png');
-
-  for (const marker of markers.slice(0, MAX_MARKERS)) {
-    url.searchParams.append('markers', `location:${marker.lng},${marker.lat}`);
-  }
   return url.toString();
 }
 
@@ -56,8 +55,13 @@ export async function fetchStaticMap(options: StaticMapOptions): Promise<ArrayBu
   return response.arrayBuffer();
 }
 
-/** 정적 지도는 1~15, 우리 저장값은 1~14라 범위는 겹치지만 방어한다. */
-function clampLevel(level: number): number {
+/**
+ * 정적 지도는 1~15, 우리 저장값은 1~14라 범위는 겹치지만 방어한다.
+ *
+ * 오버레이를 얹는 쪽도 **반드시 이 값을 써야 한다**. 요청한 레벨과 그린 레벨이
+ * 어긋나면 획이 통째로 엉뚱한 배율로 찍힌다.
+ */
+export function clampLevel(level: number): number {
   if (!Number.isFinite(level)) return 3;
   return Math.min(15, Math.max(1, Math.round(level)));
 }

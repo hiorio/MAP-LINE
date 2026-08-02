@@ -22,28 +22,9 @@ describe('buildStaticMapUrl', () => {
     expect(p.get('format')).toBe('png');
   });
 
-  it('마커를 경도,위도 순서로 반복 파라미터로 넣는다', () => {
-    const url = buildStaticMapUrl({
-      center,
-      level: 3,
-      markers: [
-        { lat: 37.5, lng: 127.0 },
-        { lat: 37.6, lng: 127.1 },
-      ],
-    });
-    expect(params(url).getAll('markers')).toEqual([
-      'location:127,37.5',
-      'location:127.1,37.6',
-    ]);
-  });
-
-  it('마커는 5개를 넘기지 않는다', () => {
-    // 카카오가 최대 5개만 받는다. 더 보내면 요청 자체가 실패한다.
-    const markers = Array.from({ length: 9 }, (_, i) => ({ lat: 37 + i / 100, lng: 127 }));
-    expect(params(buildStaticMapUrl({ center, level: 3, markers })).getAll('markers')).toHaveLength(5);
-  });
-
-  it('마커가 없으면 markers 파라미터를 넣지 않는다', () => {
+  it('마커 파라미터를 절대 넣지 않는다', () => {
+    // markers를 넘기면 카카오가 center를 무시하고 마커에 맞춰 지도를 다시 잡는다.
+    // 지도를 만든 사람이 맞춰 둔 화면이 통째로 어긋나므로 핀은 직접 합성한다.
     expect(params(buildStaticMapUrl({ center, level: 3 })).getAll('markers')).toEqual([]);
   });
 

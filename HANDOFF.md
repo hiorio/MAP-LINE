@@ -133,6 +133,7 @@ Railway에 올라가 있습니다: https://map-line-production.up.railway.app
 | 서버 저장·낙관적 잠금 | `app/api/maps/**`, `lib/map/persistence.ts`, `0002`/`0006` |
 | 뷰어·공유 링크 | `app/m/[slug]/**`, `Editor.tsx`의 `ShareButton` |
 | OG 썸네일 + Storage 캐시 | `app/api/og/[slug]`, `lib/map/ogImage.ts`, `lib/kakao/staticMap.ts`, `0004` |
+| 썸네일에 핀·손그림·화살표·메모 합성 | `lib/render/ogOverlay.ts`, `lib/render/sceneGeometry.ts`, `lib/map/staticProjection.ts`, `nixpacks.toml` |
 | 랜딩 | `app/page.tsx`, `components/DemoMap.tsx` |
 | 사용량 집계·진단 | `lib/kakao/usage.ts`, `app/api/usage`, `0005` |
 | 요청 빈도 제한 | `lib/rateLimit.ts`, `0009` |
@@ -156,9 +157,6 @@ Railway에 올라가 있습니다: https://map-line-production.up.railway.app
 
 - **카카오톡 인앱 브라우저 실기기 테스트** — 유일하게 남은 미검증 항목이자 제일 중요합니다.
   아래 "다음 세션이 제일 먼저 할 일" 참고
-- **썸네일에 손그림** — 카카오 정적 지도 API에 폴리라인 파라미터가 없습니다. 받은 이미지 위에
-  직접 합성하려면 카카오의 레벨 → 미터/픽셀 대응을 정확히 알아야 하고, 틀리면 획이 엉뚱한
-  곳에 찍힙니다. 지도+핀만으로도 미리보기 목적은 달성한다고 판단해 미뤘습니다
 - **실제 경로 좌표** — 단계 사이 화살표가 직선입니다. `/api/route`로 실제 도보·대중교통
   경로를 받으면 `lib/render/scene.ts`의 `drawStopArrows`가 좌표 배열을 받도록 바꾸면 됩니다.
   단계마다 후보가 여럿이면 어느 후보 기준으로 경로를 뽑을지 정해야 합니다
@@ -237,7 +235,9 @@ npx vitest run lib/map/mapDocument.integration.test.ts     # 스키마 건드린
 - **Kakao Local API는 `x`=경도, `y`=위도입니다.** 순서가 직관과 반대라 `lib/geo/projection.ts`의 `fromKakaoXY()` 한 곳에 가둬뒀습니다. 새로 카카오 응답을 다루는 코드를 쓸 때 직접 `{lat: y, lng: x}`를 쓰지 말고 이 함수를 거치세요.
 - **`updated_at` 트리거는 "내용이 바뀐 시각"만 담아야 합니다.** 0001의 트리거는 update마다 무조건 `now()`로 덮었습니다. 그대로 두면 (a) 뷰어 조회로 `view_count`가 오를 때, (b) 썸네일 URL을 기록할 때도 `updated_at`이 밀립니다. (a)는 편집기의 낙관적 잠금이 실제 충돌도 아닌데 409를 뱉게 만들고, (b)는 `og_updated_at < updated_at`이 영원히 참이 되어 **썸네일 무한 재생성 = 카카오 쿼터 소진**을 일으킵니다. 0003·0004에서 `view_count`, `og_image_url`, `og_updated_at`을 제외하도록 고쳤습니다. **메타데이터 컬럼을 새로 추가하면 이 목록에도 넣으세요** (`0004_og_cache.sql`의 `ignored` 배열).
 - **OG 이미지는 `og:image` URL이 절대 경로여야 크롤러가 읽습니다.** `app/layout.tsx`의 `metadataBase`가 `NEXT_PUBLIC_SITE_URL`로 그 기준을 잡습니다. 배포 시 이걸 안 바꾸면 썸네일이 localhost를 가리켜 카톡 미리보기가 비어 보입니다.
-- **카카오 정적 지도 API에는 경로/폴리라인 파라미터가 없습니다.** 마커만 최대 5개입니다. 손그림을 썸네일에 넣으려면 직접 합성해야 합니다.
+- **카카오 정적 지도의 `markers` 파라미터는 쓰면 안 됩니다.** 폴리라인 파라미터가 아예 없는 것도 문제지만, 더 나쁜 건 `markers`를 넘기면 카카오가 **`center`를 무시하고 마커에 맞춰 지도를 다시 잡는다**는 점입니다(마커 하나면 그 마커가 무조건 이미지 한가운데에 옵니다). 지도를 만든 사람이 맞춰 둔 화면이 통째로 어긋납니다. 그래서 지도는 표시 없이 받고 핀·화살표·손그림·메모를 전부 직접 합성합니다 — `lib/render/ogOverlay.ts`(SVG 생성) + `lib/map/ogImage.ts`(sharp 합성).
+- **좌표 → 픽셀 대응은 실측해서 `lib/map/staticProjection.ts`에 넣어뒀습니다.** 카카오가 문서로 내놓지 않아 직접 쟀습니다. 성질이 중요한데, **메르카토르가 아닙니다**: 위도 1도당 픽셀 수가 위도와 무관하게 일정하고, 경도만 `cos(위도)`배로 좁아지는 등거리 투영입니다. 레벨이 1 오를 때마다 정확히 절반이 됩니다. 검증은 정적 지도의 `center`를 알려진 각도만큼 옮겼을 때 이미지가 실제로 몇 픽셀 밀리는지 대조했고, 레벨 1·2·3·5·7에서 240px 기준 오차 0px이었습니다. **요청한 레벨과 그린 레벨이 어긋나면 획이 통째로 엉뚱한 배율로 찍히므로 `clampLevel()`을 양쪽에서 같이 쓰세요.**
+- **썸네일의 한글은 서버 글꼴에 달려 있습니다.** SVG 안에 가게 이름과 메모가 한글로 들어가는데 기본 빌드 이미지에는 CJK 글꼴이 없습니다. `nixpacks.toml`의 `fonts-noto-cjk`가 그걸 넣습니다. 이 줄이 빠지면 **핀과 선은 멀쩡한데 글자만 빈칸/두부로 나와서** 알아채기 어렵습니다.
 - **0001의 RLS 정책에는 보안 구멍이 있었고 0002에서 막았습니다.** `create policy maps_read on maps for select using (true)`는 컬럼 단위가 아니라서 anon 키로 `select edit_token from maps`가 통했습니다. 즉 누구나 남의 지도를 편집할 수 있었습니다. `maps_public` 뷰로는 원본 테이블 직접 조회를 막지 못합니다. 0002에서 읽기 정책을 전부 없애 기본 거부로 만들고, `get_map_document`(security definer, edit_token 미반환)로만 읽기를 엽니다. **새 테이블에 읽기 정책을 추가할 때 같은 실수를 반복하지 마세요.**
 - **저장은 지도 전체 스냅샷을 보내지만 DB에는 업서트로 반영됩니다** (0006). 클라이언트가 만든 uuid를 그대로 기본키로 쓰고, 페이로드에 없는 행만 지웁니다. 그래서 `lib/id.ts`의 `createId()`는 **어떤 환경에서도 유효한 uuid를 반환해야 합니다** — 형식이 깨지면 저장이 통째로 실패합니다. PostGIS ↔ `{lat,lng}` 변환은 RPC 안에서 끝나므로 클라이언트는 PostGIS를 모릅니다.
 - **업서트에는 `where <table>.map_id = v_id` 가드가 붙어 있습니다.** 없으면 남의 지도 행 id를 일부러 보내 그 행을 자기 지도로 끌어올 수 있습니다. 이 가드 때문에 **테스트에서 여러 지도가 같은 id를 쓰면 행이 조용히 빠집니다** — 의도된 동작입니다.

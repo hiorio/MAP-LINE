@@ -1,6 +1,14 @@
 import 'server-only';
-import { fetchStaticMap } from '@/lib/kakao/staticMap';
+import {
+  clampLevel,
+  fetchStaticMap,
+  OG_HEIGHT,
+  OG_SCALE,
+  OG_WIDTH,
+} from '@/lib/kakao/staticMap';
+import { renderOgOverlay } from '@/lib/render/ogOverlay';
 import { getServiceClient } from '@/lib/supabase/server';
+import { createStaticProjection } from './staticProjection';
 import type { StoredMapDocument } from './getMapDocument';
 
 /**
@@ -19,24 +27,62 @@ export async function getOrCreateOgImage(document: StoredMapDocument): Promise<B
   const cached = await readCache(document);
   if (cached) return cached;
 
-  let bytes: ArrayBuffer;
+  let png: Buffer;
   try {
-    bytes = await fetchStaticMap({
-      center: document.center,
-      level: document.zoomLevel,
-      // 단계마다 대표 후보 하나만 찍는다. 정적 지도는 마커를 5개까지만 받는다.
-      markers: document.stops
-        .map((stop) => stop.candidates[0]?.location)
-        .filter((location): location is NonNullable<typeof location> => location !== undefined),
-    });
+    const level = clampLevel(document.zoomLevel);
+    const base = await fetchStaticMap({ center: document.center, level });
+    png = await composeOverlay(base, document, level);
   } catch (cause) {
     console.error('[ogImage] 정적 지도 생성 실패', cause);
     return null;
   }
 
-  const blob = new Blob([bytes], { type: 'image/png' });
+  const blob = new Blob([new Uint8Array(png)], { type: 'image/png' });
   await writeCache(document.slug, blob);
   return blob;
+}
+
+/**
+ * 받아 온 지도 위에 핀·화살표·손그림·메모를 얹는다.
+ *
+ * 합성이 실패해도 썸네일 자체는 나와야 한다. 표시 없는 지도라도 없는 것보다는 낫다.
+ */
+async function composeOverlay(
+  base: ArrayBuffer,
+  document: StoredMapDocument,
+  level: number,
+): Promise<Buffer> {
+  const map = Buffer.from(base);
+
+  const svg = renderOgOverlay({
+    stops: document.stops,
+    strokes: document.strokes,
+    labels: document.labels,
+    showCandidateLinks: document.showCandidateLinks,
+    showStopArrows: document.showStopArrows,
+    level,
+    width: OG_WIDTH,
+    height: OG_HEIGHT,
+    scale: OG_SCALE,
+    project: createStaticProjection({
+      center: document.center,
+      level,
+      width: OG_WIDTH,
+      height: OG_HEIGHT,
+    }),
+  });
+
+  try {
+    // sharp는 Next가 이미 쓰고 있지만, 여기서만 필요하므로 요청 시점에 들인다.
+    const { default: sharp } = await import('sharp');
+    return await sharp(map)
+      .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
+      .png()
+      .toBuffer();
+  } catch (cause) {
+    console.error('[ogImage] 오버레이 합성 실패, 지도만 내보낸다', cause);
+    return map;
+  }
 }
 
 async function readCache(document: StoredMapDocument): Promise<Blob | null> {

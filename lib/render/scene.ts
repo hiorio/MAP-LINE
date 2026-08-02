@@ -2,13 +2,28 @@ import { strokeRenderAlpha, strokeRenderWidth } from '@/lib/geo/projection';
 import type { Point } from '@/lib/geo/rdp';
 import {
   flattenStops,
-  stopCentroid,
   type LatLng,
   type MapLabel,
   type Place,
   type Stop,
   type Stroke,
 } from '@/lib/map/types';
+import {
+  arrowHead,
+  candidateLinks,
+  labelBoxSize,
+  stopArrows,
+  ARROW_COLOR,
+  ARROW_WIDTH,
+  HUB_RADIUS,
+  LABEL_PADDING_X,
+  LABEL_PADDING_Y,
+  LINK_DASH,
+  LINK_WIDTH,
+  PIN_RADIUS,
+  SAVED_RADIUS,
+  type Projector,
+} from './sceneGeometry';
 
 /**
  * 오버레이 한 장에 화살표 → 획 → 핀 → 라벨 순으로 그린다.
@@ -35,11 +50,9 @@ export interface Scene {
   showStopArrows?: boolean;
 }
 
-export type Projector = (coord: LatLng) => Point;
+export type { Projector };
+export { PIN_RADIUS, SAVED_RADIUS };
 
-export const PIN_RADIUS = 13;
-const LABEL_PADDING_X = 6;
-const LABEL_PADDING_Y = 3;
 const LABEL_FONT = '-apple-system, BlinkMacSystemFont, "Malgun Gothic", sans-serif';
 
 export function drawScene(
@@ -80,18 +93,6 @@ export function drawScene(
 
 /* ------------------------------------------------------------------ 화살표 */
 
-const ARROW_COLOR = '#8A8A83';
-const ARROW_WIDTH = 2.5;
-const ARROW_HEAD_PX = 10;
-/** 화살표가 핀 안쪽에서 시작·끝나면 지저분하다. 양끝을 이만큼 물려 놓는다. */
-const ARROW_TRIM_PX = PIN_RADIUS + 6;
-/** 양끝을 비키고 남는 몸통이 이보다 짧으면 머리만 남아 오히려 지저분하다. */
-const ARROW_MIN_SHAFT_PX = 12;
-
-const LINK_WIDTH = 1.5;
-const LINK_DASH = [2, 5];
-const HUB_RADIUS = 3;
-
 /**
  * 같은 단계의 후보들을 중간지점과 점선으로 잇는다.
  *
@@ -108,29 +109,16 @@ function drawCandidateLinks(
   project: Projector,
 ) {
   ctx.save();
-  ctx.setLineDash(LINK_DASH);
   ctx.strokeStyle = ARROW_COLOR;
   ctx.fillStyle = ARROW_COLOR;
   ctx.lineWidth = LINK_WIDTH;
 
-  for (const stop of stops) {
-    if (stop.candidates.length < 2) continue;
-
-    const centroid = stopCentroid(stop);
-    if (!centroid) continue;
-    const hub = project(centroid);
-
-    for (const candidate of stop.candidates) {
-      const at = project(candidate.location);
-      const dx = hub.x - at.x;
-      const dy = hub.y - at.y;
-      const length = Math.hypot(dx, dy);
-      // 핀 안에서 시작하면 지저분하다. 핀에 가려 안 보일 만큼 짧으면 아예 생략한다.
-      if (length <= ARROW_TRIM_PX) continue;
-
+  for (const { hub, spokes } of candidateLinks(stops, project)) {
+    ctx.setLineDash([...LINK_DASH]);
+    for (const { from, to } of spokes) {
       ctx.beginPath();
-      ctx.moveTo(at.x + (dx / length) * ARROW_TRIM_PX, at.y + (dy / length) * ARROW_TRIM_PX);
-      ctx.lineTo(hub.x, hub.y);
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(to.x, to.y);
       ctx.stroke();
     }
 
@@ -139,7 +127,6 @@ function drawCandidateLinks(
     ctx.beginPath();
     ctx.arc(hub.x, hub.y, HUB_RADIUS, 0, Math.PI * 2);
     ctx.fill();
-    ctx.setLineDash(LINK_DASH);
   }
   ctx.restore();
 }
@@ -149,62 +136,27 @@ function drawStopArrows(
   stops: readonly Stop[],
   project: Projector,
 ) {
-  const centers = stops.map((stop) => {
-    const centroid = stopCentroid(stop);
-    if (!centroid) return null;
-    return {
-      point: project(centroid),
-      // 후보가 하나면 중간지점에 핀이 서 있으므로 핀 반지름만큼 비켜야 한다.
-      // 여럿이면 그 자리에 허브 점만 있으니 거기에 붙여야 이어져 보인다.
-      trim: stop.candidates.length === 1 ? ARROW_TRIM_PX : HUB_RADIUS + 3,
-    };
-  });
-
   ctx.save();
   ctx.strokeStyle = ARROW_COLOR;
   ctx.fillStyle = ARROW_COLOR;
   ctx.lineWidth = ARROW_WIDTH;
 
-  for (let i = 1; i < centers.length; i++) {
-    const from = centers[i - 1];
-    const to = centers[i];
-    if (!from || !to) continue;
-
-    const dx = to.point.x - from.point.x;
-    const dy = to.point.y - from.point.y;
-    const length = Math.hypot(dx, dy);
-    if (length < from.trim + to.trim + ARROW_MIN_SHAFT_PX) continue;
-
-    const ux = dx / length;
-    const uy = dy / length;
-    const start = { x: from.point.x + ux * from.trim, y: from.point.y + uy * from.trim };
-    const end = { x: to.point.x - ux * to.trim, y: to.point.y - uy * to.trim };
-
+  for (const { start, end, ux, uy } of stopArrows(stops, project)) {
     ctx.beginPath();
     ctx.moveTo(start.x, start.y);
     ctx.lineTo(end.x, end.y);
     ctx.stroke();
 
-    drawArrowHead(ctx, end, ux, uy);
+    // 진행 방향 끝에 채운 삼각형을 얹는다. 어느 쪽으로 가는지가 화살표의 존재 이유다.
+    const [tip, left, right] = arrowHead(end, ux, uy);
+    ctx.beginPath();
+    ctx.moveTo(tip.x, tip.y);
+    ctx.lineTo(left.x, left.y);
+    ctx.lineTo(right.x, right.y);
+    ctx.closePath();
+    ctx.fill();
   }
   ctx.restore();
-}
-
-/** 진행 방향 끝에 채운 삼각형을 얹는다. 어느 쪽으로 가는지가 화살표의 존재 이유다. */
-function drawArrowHead(ctx: CanvasRenderingContext2D, at: Point, ux: number, uy: number) {
-  const spread = 0.42; // 라디안. 너무 벌리면 화살표가 아니라 갈매기로 보인다.
-  const cos = Math.cos(spread);
-  const sin = Math.sin(spread);
-
-  const left = { x: -ux * cos + uy * sin, y: -uy * cos - ux * sin };
-  const right = { x: -ux * cos - uy * sin, y: -uy * cos + ux * sin };
-
-  ctx.beginPath();
-  ctx.moveTo(at.x, at.y);
-  ctx.lineTo(at.x + left.x * ARROW_HEAD_PX, at.y + left.y * ARROW_HEAD_PX);
-  ctx.lineTo(at.x + right.x * ARROW_HEAD_PX, at.y + right.y * ARROW_HEAD_PX);
-  ctx.closePath();
-  ctx.fill();
 }
 
 /* ---------------------------------------------------------------------- 핀 */
@@ -245,8 +197,6 @@ export function hitsPin(point: Point, at: Point): boolean {
 }
 
 /* ------------------------------------------------------------------ 보관함 */
-
-export const SAVED_RADIUS = 8;
 
 /**
  * 보관함 표시. 속이 빈 작은 원에 별을 얹는다.
@@ -308,8 +258,7 @@ export function drawLabel(ctx: CanvasRenderingContext2D, label: MapLabel, at: Po
 
 export function hitsLabel(point: Point, label: MapLabel, at: Point): boolean {
   // 대략적인 폭 추정으로 충분하다. 정확한 측정은 컨텍스트가 필요해 과하다.
-  const width = label.text.length * label.fontSize * 0.7 + LABEL_PADDING_X * 2;
-  const height = label.fontSize + LABEL_PADDING_Y * 2;
+  const { width, height } = labelBoxSize(label.text, label.fontSize);
   return Math.abs(point.x - at.x) <= width / 2 + 2 && Math.abs(point.y - at.y) <= height / 2 + 2;
 }
 
