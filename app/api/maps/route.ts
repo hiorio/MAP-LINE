@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { toWkbPoint } from '@/lib/geo/projection';
 import { DEFAULT_CENTER, DEFAULT_LEVEL, type LatLng } from '@/lib/map/types';
+import { CREATE_MAP_LIMIT, checkRateLimit, tooManyRequests } from '@/lib/rateLimit';
 import { getServiceClient } from '@/lib/supabase/server';
 import { createSlug } from '@/lib/slug';
 
@@ -23,6 +24,10 @@ export async function POST(request: Request) {
       { status: 503 },
     );
   }
+
+  // 반복 호출로 빈 지도를 찍어 내면 우리 저장 공간이 찬다.
+  const limit = await checkRateLimit(request, CREATE_MAP_LIMIT);
+  if (!limit.allowed) return tooManyRequests(CREATE_MAP_LIMIT);
 
   let body: CreateBody = {};
   try {

@@ -12,9 +12,15 @@ vi.mock('@/lib/supabase/server', () => ({
 
 const { POST } = await import('./route');
 
-/** insert 결과만 흉내 내는 최소 클라이언트 */
+/**
+ * insert 결과만 흉내 내는 최소 클라이언트.
+ * `rpc`는 빈도 제한이 쓴다 — 한도 안의 값을 돌려줘 통과시킨다.
+ */
 function fakeClient(insert: () => Promise<{ error: unknown }>) {
-  return { from: () => ({ insert }) };
+  return {
+    from: () => ({ insert }),
+    rpc: async () => ({ data: 1, error: null }),
+  };
 }
 
 function request(body: unknown) {
@@ -126,6 +132,25 @@ describe('POST /api/maps', () => {
     const response = await POST(request({}));
     expect(response.status).toBe(201);
     expect(attempts).toBe(2);
+  });
+
+  it('한도를 넘으면 429를 주고 지도를 만들지 않는다', async () => {
+    // 반복 호출로 빈 지도를 찍어 내면 우리 저장 공간이 찬다.
+    let inserted = 0;
+    getServiceClient.mockReturnValue({
+      from: () => ({
+        insert: async () => {
+          inserted += 1;
+          return { error: null };
+        },
+      }),
+      rpc: async () => ({ data: 9999, error: null }),
+    });
+
+    const response = await POST(request({}));
+    expect(response.status).toBe(429);
+    expect(response.headers.get('Retry-After')).toBeTruthy();
+    expect(inserted).toBe(0);
   });
 
   it('중복 외의 DB 오류는 재시도하지 않고 502로 끝낸다', async () => {

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { MissingRestKeyError, searchPlaces } from '@/lib/kakao/localSearch';
 import { parseShareText } from '@/lib/kakao/parseShareText';
 import { readCenterParams } from '@/lib/kakao/searchParams';
+import { SEARCH_LIMIT, checkRateLimit, tooManyRequests } from '@/lib/rateLimit';
 
 /** 프랜차이즈 동명 지점을 자동 확정하면 엉뚱한 지점이 담긴다. 항상 고르게 한다. */
 const CANDIDATE_COUNT = 3;
@@ -18,6 +19,10 @@ export async function POST(request: Request) {
   if (typeof text !== 'string' || text.trim().length === 0) {
     return NextResponse.json({ error: '붙여넣은 텍스트가 없습니다.' }, { status: 400 });
   }
+
+  // 이 경로도 결국 Kakao Local을 부른다. 검색과 같은 한도를 공유한다.
+  const limit = await checkRateLimit(request, SEARCH_LIMIT);
+  if (!limit.allowed) return tooManyRequests(SEARCH_LIMIT);
 
   const parsed = parseShareText(text);
   if (!parsed) {

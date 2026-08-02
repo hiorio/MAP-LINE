@@ -1,6 +1,6 @@
 # HANDOFF — MAP-LINE
 
-마지막 갱신: 2026-08-02 (이 문서를 갱신한 세션이 끝나는 시점)
+마지막 갱신: 2026-08-02
 
 다른 AI 세션이 이 문서 하나만 읽고 바로 이어서 작업할 수 있도록 쓴 인수인계 문서입니다.
 설계 배경과 근거는 [README.md](README.md)에 있으니 "왜 이렇게 했는가"가 궁금하면 거기를 봅니다.
@@ -8,20 +8,20 @@
 
 ## 지금 상태를 한 줄로
 
-**v0.1 기능이 전부 구현·검증됐고, 알고 있던 구조적 약점 3가지도 해결했습니다.**
+**v0.1 기능이 전부 구현·검증됐고 서울 리전 Supabase에 배포까지 끝났습니다.**
 만들기 → 공유 링크 → 상대가 열어봄까지 OG 썸네일 포함해 실제로 동작합니다.
-마이그레이션 0001~0006 모두 적용됨. 테스트 **123개** 통과.
 
-**남은 것은 기능이 아니라 마감입니다** — 실기기 테스트, 배포.
-장기 계획은 [docs/ROADMAP.md](docs/ROADMAP.md), 배포 절차는 [docs/DEPLOY.md](docs/DEPLOY.md).
+- 배포본: https://map-line-production.up.railway.app (Railway, `ap-southeast-1`)
+- 저장소: https://github.com/hiorio/MAP-LINE (`main`)
+- DB: Supabase `chouiphlafpxmglwriix` (**서울 `ap-northeast-2`**)
+- 마이그레이션 0001~0009 적용 완료, 테스트 **177개** 통과
 
-⚠️ **두 가지 미완료:**
-1. **배포 안 됨.** `localhost`에서만 돕니다. 공유 링크를 남이 열 수 없고 카카오톡 크롤러도
-   도달하지 못하므로 **제품의 절반(받는 사람 경험)이 아직 검증 불가**입니다. Railway 권장
-2. **카카오톡 인앱 브라우저 미검증.** 공유 링크 대부분이 거기서 열리는데 pointer event
-   처리가 표준과 달라 드로잉이 깨질 수 있습니다
+⚠️ **남은 미검증 항목은 하나뿐입니다 — 카카오톡 인앱 브라우저 실기기 테스트.**
+공유 링크 대부분이 거기서 열리는데 pointer event 처리가 표준과 달라 드로잉이 깨질 수
+있습니다. 배포가 끝났으므로 이제 실제로 확인 가능합니다. 아래 "다음 세션이 제일 먼저 할 일" 참고.
 
-저장소: https://github.com/hiorio/MAP-LINE (초기 커밋 `a84aed8` push 완료, `main` 브랜치)
+장기 계획은 [docs/ROADMAP.md](docs/ROADMAP.md), 배포는 [docs/DEPLOY.md](docs/DEPLOY.md),
+마이그레이션은 [docs/MIGRATIONS.md](docs/MIGRATIONS.md).
 
 ## 실행
 
@@ -46,9 +46,10 @@ npx kill-port 3000 && rm -rf .next && npm run dev
 |---|---|---|
 | `NEXT_PUBLIC_KAKAO_JS_KEY` | ✅ 채워짐 | 편집기 지도가 뜬다 |
 | `KAKAO_REST_KEY` | ✅ 채워짐 | 장소 검색·공유텍스트 파싱 동작 확인 |
-| `NEXT_PUBLIC_SUPABASE_URL` | ✅ 채워짐 | 서버 저장 동작 확인됨 |
+| `NEXT_PUBLIC_SUPABASE_URL` | ✅ 채워짐 | 서울 리전 프로젝트. **Railway에도 같은 값이 있어야 한다** |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | ⬜ 비어 있음 | 현재 코드에서 안 씀. 없어도 됨 |
 | `SUPABASE_SERVICE_ROLE_KEY` | ✅ 채워짐 | 〃 |
+| `NEXT_PUBLIC_SITE_URL` | ⬜ 로컬은 불필요 | **Railway에는 배포 주소가 들어가 있어야 OG 썸네일이 뜬다** |
 
 `.env.local`은 `.gitignore`에 걸려 있어 커밋되지 않습니다. `.env.example`에 각 변수 설명이 있습니다.
 
@@ -56,8 +57,12 @@ npx kill-port 3000 && rm -rf .next && npm run dev
 
 ### A. Supabase — ✅ 완료
 
-프로젝트 생성, 0001·0002 마이그레이션 적용, `.env.local`의 `NEXT_PUBLIC_SUPABASE_URL`과
-`SUPABASE_SERVICE_ROLE_KEY` 설정까지 끝났고 서버 저장이 실제로 동작합니다.
+서울 리전(`ap-northeast-2`) 프로젝트에 마이그레이션 0001~0009가 적용돼 있고 서버 저장이
+실제로 동작합니다. 뭄바이 리전에서 옮긴 뒤 통합 테스트가 23.2초 → 7.2초로 줄었습니다.
+
+**환경 변수는 두 곳에 있습니다** — `.env.local`(로컬)과 Railway `Variables`(배포본).
+Supabase 프로젝트를 바꾸면 양쪽 다 고쳐야 합니다. 코드에는 주소가 하드코딩된 곳이 없고
+`lib/supabase/server.ts` 한 곳에서만 환경 변수를 읽습니다.
 
 `NEXT_PUBLIC_SUPABASE_ANON_KEY`는 아직 비어 있는데, 현재 코드에서 쓰는 곳이 없어 문제없습니다.
 뷰어(T13)가 브라우저에서 Supabase를 직접 읽게 만들 때만 필요합니다. 지금 설계에서는 뷰어도
@@ -67,7 +72,11 @@ Route Handler를 경유하면 되므로 끝까지 안 쓸 수도 있습니다.
 
 `KAKAO_REST_KEY` 설정됨. 실제 카카오 응답으로 검색·공유텍스트 파싱 모두 동작 확인.
 
-### C. 마이그레이션 0001~0006 — ✅ 전부 적용 완료
+### C. 마이그레이션 — ✅ CLI로 자동화됨
+
+새 마이그레이션이 생기면 **`npm run db:push`** 한 줄이면 됩니다. 절차와 주의사항은
+[docs/MIGRATIONS.md](docs/MIGRATIONS.md)에 있습니다. 이 PC에는 로그인·연결이 끝나 있고,
+새 PC에서만 `supabase login` → `npm run db:link`를 한 번 하면 됩니다.
 
 | 파일 | 내용 |
 |---|---|
@@ -77,118 +86,104 @@ Route Handler를 경유하면 되므로 끝까지 안 쓸 수도 있습니다.
 | `0004_og_cache.sql` | OG 썸네일 캐시 컬럼, 트리거 제외 목록에 OG 컬럼 추가 |
 | `0005_api_usage.sql` | 카카오 API 사용량 집계 테이블 |
 | `0006_upsert_save.sql` | 저장을 업서트로 전환, 클라이언트 id 보존 |
+| `0007_stops.sql` | 단계·후보 모델(`places.stop_index`), `segments` 제거 |
+| `0008_auto_line_toggles.sql` | 자동 선 표시 설정 두 개 |
+| `0009_rate_limit.sql` | 요청 빈도 제한 집계 |
 
-**마이그레이션 적용은 [docs/MIGRATIONS.md](docs/MIGRATIONS.md)를 따릅니다.**
-Supabase CLI를 붙여 두었으므로 `npm run db:push` 한 줄이면 밀린 것만 적용됩니다.
-단, 사용자가 한 번은 `supabase login` → `npm run db:link` → `migration repair`를 해야 합니다
-(이력 테이블이 비어 있어 그냥 push하면 0001부터 전부 재실행됩니다).
+**마이그레이션은 두 번 돌려도 안전해야 합니다.** 도구가 재실행할 수 있게 된 이상
+사람이 고르는 안전장치가 사라졌습니다. 특히 데이터 백필이 위험합니다 — `0007`의
+`stop_index` 백필은 재실행하면 한 단계의 후보들을 쪼개 놓는 형태였고, 널 허용 컬럼으로
+만든 뒤 널만 채우는 방식으로 고쳤습니다.
 
-적용 후 `npx vitest run lib/map/mapDocument.integration.test.ts`로 검증하세요.
+스키마를 바꾼 배포는 **`db:push` 먼저, 배포 나중**입니다. 순서가 바뀌면 새 코드가
+아직 없는 컬럼을 찾습니다.
 
-**마이그레이션은 두 번 돌려도 안전해야 합니다.** 특히 데이터 백필이 위험합니다 —
-`0007`의 `stop_index` 백필은 처음에 재실행하면 한 단계의 후보들을 쪼개 놓는 형태였고,
-널 허용 컬럼으로 만든 뒤 널만 채우는 방식으로 고쳤습니다.
+### D. 배포 — ✅ 완료
 
-### D. 배포할 때 (아직 안 함)
+Railway에 올라가 있습니다: https://map-line-production.up.railway.app
 
-- Vercel 프로젝트 연결, 환경 변수 5개 등록 (`.env.local`과 동일 + `NEXT_PUBLIC_SITE_URL`)
-- **`NEXT_PUBLIC_SITE_URL`을 운영 도메인으로 설정** — OG 이미지가 절대 URL이어야 카카오톡이
-  미리보기를 읽습니다. 안 하면 localhost를 가리켜 썸네일이 안 뜹니다
-- 카카오 콘솔 > 앱 > 플랫폼 키 > JavaScript 키의 SDK 도메인에 운영 도메인 추가
-- 애드센스를 붙이는 시점에는 Vercel Pro(월 $20)가 필요합니다 — Hobby는 상업적 사용 불가
+절차와 함정(포트 불일치로 인한 502, Node 버전, `npm ci`와 빌드 캐시 충돌)은
+[docs/DEPLOY.md](docs/DEPLOY.md)에 정리돼 있습니다.
+
+**Railway `Variables`에 있어야 하는 값** — `.env.local`과 같되 `NEXT_PUBLIC_SITE_URL`이
+배포 주소로 들어가 있어야 카카오톡 미리보기 썸네일이 뜹니다.
+
+카카오 콘솔 > 앱 > 플랫폼 키 > JavaScript 키의 SDK 도메인에 배포 주소가 등록돼 있어야
+지도 타일이 보입니다.
 
 > 참고: 카카오 REST/네이티브 앱 키가 작업 중 대화 로그에 평문으로 남은 적이 있습니다.
-> 사용자는 신경 쓰지 않기로 했으므로 그대로 진행하되, 나중에 서비스를 공개할 때
-> 콘솔에서 키를 재발급하면 됩니다. `.env.local`은 `.gitignore`에 걸려 있어 저장소에는
-> 올라가지 않습니다.
+> 사용자는 신경 쓰지 않기로 했으므로 그대로 진행하되, 공개 서비스로 갈 때 재발급하면 됩니다.
 
 ## 지금까지 만들어진 것
 
-### 완료 — 코드 있음, 테스트 있음, 로컬에서 동작 확인됨
+### 완료 — 코드·테스트 있고 실제 환경에서 확인됨
 
-| 영역 | 파일 | 확인 방법 |
-|---|---|---|
-| W0 드로잉 프로토타입 (참고용, 값 확정 완료) | `public/prototype/draw.html` | 이미 검증 끝. 더 안 건드려도 됨 |
-| RDP 단순화·좌표 투영·줌 보정 | `lib/geo/rdp.ts`, `lib/geo/projection.ts` | `npm test` |
-| 카카오 SDK 로더 | `lib/kakao/loadSdk.ts` | 실제 지도 뜨는 것으로 확인 |
-| 지도 컴포넌트 | `components/map/KakaoMap.tsx` | 〃 |
-| 드로잉+핀+연결선+라벨 통합 오버레이 | `components/map/MapOverlay.tsx`, `lib/render/scene.ts` | ✅ 실제 카카오 지도 위에서 검증 완료: 핀 3개 찍기(번호·이름), 순서 변경(▲▼, 지도 번호도 즉시 반영), 이동수단 변경(연결선 스타일 즉시 반영 — 도보=회색 점선, 대중교통=파란 굵은 점선), 지우개로 핀 삭제 시 연결선도 함께 제거, 새로고침 후 전부 복원 |
-| 편집기 상태(Zustand) | `store/useMapStore.ts` | `npm test` (18개 테스트, 되돌리기·순서변경·전체지우기 포함) |
-| 공유 텍스트 파서 | `lib/kakao/parseShareText.ts` | `npm test` (12개), 브라우저에서 API 경유 확인 |
-| Kakao Local 검색 래퍼 | `lib/kakao/localSearch.ts` | `npm test` (6개, x/y↔lat/lng 매핑 포함) |
-| `/api/search`, `/api/parse-share` | `app/api/search/route.ts`, `app/api/parse-share/route.ts` | ✅ 실제 카카오 응답 확인 ("강남역" → 5건, 네이버 공유텍스트 → 파싱 후 후보 검색) |
-| T13 뷰어 `/m/[slug]` | `app/m/[slug]/page.tsx`, `app/m/[slug]/Viewer.tsx` | ✅ SSR 메타(제목·OG 경로 요약), 읽기 전용 캔버스, 장소 스트립 탭 이동, 토큰 있으면 "편집하기" 노출·없으면 숨김, 없는 슬러그 404 |
-| 캔버스 공용 훅 | `components/map/useMapCanvas.ts` | 편집기와 뷰어가 같은 `drawScene`을 쓰도록 추출. 리팩터 후 편집기 재검증 완료 |
-| F7 공유 버튼 | `app/edit/[slug]/Editor.tsx`의 `ShareButton` | ✅ 서버 저장 모드에서만 활성화. `navigator.share` 우선, 없으면 클립보드 복사 |
-| T14 OG 썸네일 | `app/api/og/[slug]/route.ts`, `lib/map/ogImage.ts`, `lib/kakao/staticMap.ts` | ✅ 실제 생성 확인 (홍대 지도 + 핀 3개, 254KB PNG), Storage 캐시·재사용·내용 변경 시 재생성·`updated_at` 불변까지 검증 |
-| T15 랜딩 | `app/page.tsx`, `components/DemoMap.tsx` | ✅ 설계안 §7.1대로 데모 그림 + CTA 단일 버튼(클릭 가능 요소가 정확히 1개). 모바일·데스크톱 확인 |
-| 사용량 모니터링 | `lib/kakao/usage.ts`, `app/api/usage/route.ts`, `0005` | ✅ Postgres 집계. `GET /api/usage`로 확인, 80% 초과 시 서버 로그 경고. KST 자정 기준으로 날짜를 끊음 |
-| 테스트 (약점 1 해결) | `lib/map/mapDocument.integration.test.ts`, `app/api/**/*.test.ts` | ✅ 실제 Supabase 대상 23개 + 라우트 핸들러 22개. 총 **123개** |
-| ID 보존·업서트 저장 (약점 2 해결) | `0006_upsert_save.sql`, `lib/id.ts` | ✅ 클라이언트 uuid를 PK로 사용, 사라진 행만 삭제. 교차 지도 id 탈취 방어 포함 |
-| T12 서버 저장 API + 스키마 | `app/api/maps/route.ts`, `app/api/maps/[slug]/route.ts`, `lib/supabase/server.ts`, `supabase/migrations/0002_document_rpc.sql` | ✅ 실제 Supabase에 대해 검증 완료 — 아래 상세 |
-| 서버/로컬 저장 자동 전환 | `lib/map/persistence.ts` | ✅ 양방향 확인. Supabase 미설정 시 "이 기기에만 저장됨"으로 폴백, 설정 시 "저장됨" |
-| 편집기 화면·툴바·장소 패널 | `app/edit/[slug]/Editor.tsx`, `components/toolbar/EditorToolbar.tsx`, `components/panels/PlacePanel.tsx` | 렌더 확인, 그리기/라벨 흐름 확인 |
-| 로컬 초안 저장 (§6.1 구조, debounce 2s + 강제 flush 10s + 이탈 시 flush) | `lib/map/draftStorage.ts` | 브라우저에서 새로고침 후 복원 확인 |
-| Supabase 스키마 (아직 미적용) | `supabase/migrations/0001_init.sql`, `0002_document_rpc.sql` | 파일만 있음. **프로젝트에 적용 안 됨 = SQL이 실제로 도는지 아직 검증 안 됨** |
-| 랜딩 + 지도 생성 | `app/page.tsx`, `components/CreateMapButton.tsx`, `lib/slug.ts` | 렌더 확인. 서버 있으면 POST /api/maps, 없으면 로컬 슬러그 |
+| 영역 | 파일 |
+|---|---|
+| RDP 단순화·좌표 투영·줌 보정 | `lib/geo/rdp.ts`, `lib/geo/projection.ts` |
+| 카카오 SDK 로더·지도 | `lib/kakao/loadSdk.ts`, `components/map/KakaoMap.tsx` |
+| 캔버스 오버레이 (손그림·핀·라벨·화살표) | `components/map/MapOverlay.tsx`, `components/map/useMapCanvas.ts`, `lib/render/scene.ts` |
+| 편집기 상태·되돌리기 | `store/useMapStore.ts` |
+| 단계·후보 모델 | `lib/map/types.ts`(`Stop`, `flattenStops`, `stopCentroid`), `0007` |
+| 자동 선(후보 연결선·이동 화살표)과 끄기 | `lib/render/scene.ts`, `0008` |
+| 라벨 수정·이동 | `components/map/MapOverlay.tsx` (탭=수정, 드래그=이동) |
+| 장소 검색·거리순 정렬 | `lib/kakao/localSearch.ts`, `lib/kakao/searchParams.ts`, `app/api/search` |
+| 공유 텍스트 파싱 | `lib/kakao/parseShareText.ts`, `app/api/parse-share` |
+| 보관함(개인 장소 저장) | `lib/map/savedPlaces.ts`, `store/useSavedPlacesStore.ts` |
+| 서버 저장·낙관적 잠금 | `app/api/maps/**`, `lib/map/persistence.ts`, `0002`/`0006` |
+| 뷰어·공유 링크 | `app/m/[slug]/**`, `Editor.tsx`의 `ShareButton` |
+| OG 썸네일 + Storage 캐시 | `app/api/og/[slug]`, `lib/map/ogImage.ts`, `lib/kakao/staticMap.ts`, `0004` |
+| 랜딩 | `app/page.tsx`, `components/DemoMap.tsx` |
+| 사용량 집계·진단 | `lib/kakao/usage.ts`, `app/api/usage`, `0005` |
+| 요청 빈도 제한 | `lib/rateLimit.ts`, `0009` |
 
-**T12 서버 저장 검증 내역** (실제 Supabase 대상, 전부 통과):
+**실제 환경 검증 요약**
 
 | 확인 | 결과 |
 |---|---|
-| `POST /api/maps` | 201, 슬러그·편집토큰 발급, `maps` 행 생성 |
-| PATCH → GET 왕복 | 제목·핀 2개·손그림(3점)·라벨 한글 그대로, 좌표 정확, `modeToNext`·`kakaoPlaceId` 보존 |
-| 핀 순서 | `order_no`로 저장·복원되어 배열 순서 유지 |
-| 잘못된 편집 토큰 | 403 |
-| 낙관적 잠금 | 오래된 `updatedAt` → 409, 최신 → 200 |
-| `DELETE` | 200, 이후 GET 404 (자식 행 cascade 삭제) |
-| 편집기 실제 흐름 | 지도 생성 → 토큰 저장 → 핀·손그림 입력 → "저장됨" 표시 |
-| **로컬 초안 삭제 후 새로고침** | 제목·핀·연결선·손그림이 전부 복원 — 출처가 서버뿐임을 증명 |
+| 서버 저장 왕복 | 제목·단계·후보 순서·좌표·설정 보존 (통합 테스트 26개) |
+| 클라이언트 id 보존 | 여러 번 저장해도 불변, 교차 지도 id 탈취 차단 |
+| 낙관적 잠금 | 오래된 `updatedAt` → 409 |
+| `updated_at` 트리거 | 조회수·썸네일 기록에 반응하지 않음 |
+| 배포본 전 기능 | 생성·저장·뷰어·OG(216KB)·삭제 모두 200 |
+| 요청 빈도 제한 | 20건까지 통과, 21건째 429, 다른 IP는 영향 없음 |
+| 서울 리전 이전 | 통합 테스트 23.2초 → 7.2초 |
 
-`npm run typecheck` / `npm run lint` / `npm test`(59개) 전부 통과 상태입니다. `npm run build`는 dev 서버가 떠 있어 재실행하지 않았습니다 — 필요하면 dev 서버를 끄고 따로 실행하세요.
+`npm run typecheck` / `npm run lint` / `npm test`(**177개**) 전부 통과.
+`npm run build`는 dev 서버를 끄고 돌려야 합니다(위 "실행" 주의사항).
 
 ### 미완료
 
-기능 목록과 우선순위는 [docs/ROADMAP.md](docs/ROADMAP.md)에 정리돼 있습니다. 요약하면:
-
-- **실기기 테스트 (최우선)** — 특히 카카오톡 인앱 브라우저. 미검증
-- **랜딩 페이지** — 지금은 개발 안내문 수준. 설계안 §7.1의 "데모 지도 + CTA 단일 버튼"으로
-- **배포** — Vercel, 운영 도메인. 위 "D" 참고
-- **사용량 모니터링** — 카카오 쿼터 80% 알림. 지금은 소진돼도 모릅니다
+- **카카오톡 인앱 브라우저 실기기 테스트** — 유일하게 남은 미검증 항목이자 제일 중요합니다.
+  아래 "다음 세션이 제일 먼저 할 일" 참고
 - **썸네일에 손그림** — 카카오 정적 지도 API에 폴리라인 파라미터가 없습니다. 받은 이미지 위에
-  직접 합성하려면 카카오의 레벨 → 미터/픽셀 대응을 정확히 알아야 하는데 틀리면 획이 엉뚱한
+  직접 합성하려면 카카오의 레벨 → 미터/픽셀 대응을 정확히 알아야 하고, 틀리면 획이 엉뚱한
   곳에 찍힙니다. 지도+핀만으로도 미리보기 목적은 달성한다고 판단해 미뤘습니다
-- **T11 후반** — 연결선이 직선입니다. `/api/route`로 실제 경로 좌표를 받으면
-  `lib/render/scene.ts`의 `drawSegments`가 좌표 배열을 받도록만 바꾸면 됩니다
-- **v0.2 중간지점** — 손 안 댐. 알고리즘 설계는 ROADMAP에 있습니다
+- **실제 경로 좌표** — 단계 사이 화살표가 직선입니다. `/api/route`로 실제 도보·대중교통
+  경로를 받으면 `lib/render/scene.ts`의 `drawStopArrows`가 좌표 배열을 받도록 바꾸면 됩니다.
+  단계마다 후보가 여럿이면 어느 후보 기준으로 경로를 뽑을지 정해야 합니다
+- **신고 링크** — 빈도 제한은 넣었지만 신고 창구는 없습니다
+- **v0.2 중간지점** — 손 안 댐. 알고리즘 설계는 [docs/ROADMAP.md](docs/ROADMAP.md)에 있습니다
 
 ## 다음 세션이 제일 먼저 할 일
 
-**1. 실기기 테스트가 최우선입니다.** 기능은 다 됐지만 실제 사용 환경에서 한 번도 안 돌려봤습니다.
+**카카오톡 인앱 브라우저에서 실기기 테스트.** 기능은 다 됐고 배포도 끝났지만, 실제 사용
+환경에서 한 번도 안 돌려봤습니다. 공유 링크 대부분이 카카오톡 안에서 열리는데 그 웹뷰의
+pointer event 처리가 표준과 달라, 여기서 드로잉이 깨지면 제품이 성립하지 않습니다.
 
-- 폰을 개발 PC와 같은 Wi-Fi에 연결하고 `http://192.168.x.x:3000` 접속 (dev 서버 시작 시 출력되는 Network 주소)
-- 카카오 콘솔 > 앱 > 플랫폼 키 > JavaScript 키의 SDK 도메인에 그 주소가 등록돼 있어야 합니다
-- 확인할 것:
-  - 손가락으로 그리기가 되는가 (pointer event 처리)
-  - 그리기 모드에서 지도가 안 움직이는가
-  - 선이 흐리지 않은가 (DPR)
-  - **편집기에서 공유 → 카톡으로 링크 전송 → 카톡 안에서 열기.** 이게 실제 사용 경로입니다
-  - 카톡 미리보기에 썸네일이 뜨는가 (배포 후에만 가능 — localhost는 카톡 크롤러가 못 읽습니다)
+1. 폰 카카오톡에서 자신에게 https://map-line-production.up.railway.app 전송
+2. 카톡 안에서 링크를 눌러 인앱 브라우저로 열기
+3. 확인할 것:
+   - 손가락으로 선이 그어지는가 (제일 중요)
+   - 그리기 모드에서 지도가 안 움직이는가
+   - 선이 흐리지 않은가 (레티나 DPR)
+   - `📍 핀` / `T 라벨` 탭 시 입력창이 뜨고 **사라지지 않는가**
+     (데스크톱에서 같은 증상을 겪고 고친 적이 있음 — 터치는 또 다른 경로)
+   - 라벨 드래그로 이동이 되는가
+   - 편집기에서 `공유` → 카톡 전송 → **미리보기에 지도 썸네일이 뜨는가**
 
-배포 없이 카톡 테스트만 먼저 하려면 터널을 쓰면 됩니다:
-
-```bash
-npx cloudflared tunnel --url http://localhost:3000
-```
-
-임시 공개 URL이 나옵니다. 카카오 콘솔 SDK 도메인에 그 주소를 추가하면 카톡으로 링크를 보내
-인앱 브라우저에서 열어볼 수 있습니다.
-
-**2. 배포 (Railway 권장)** — [docs/DEPLOY.md](docs/DEPLOY.md)에 절차가 있습니다.
-프로덕션 빌드와 `PORT` 주입 실행은 로컬에서 검증해 뒀으니 빌드가 깨질 일은 없습니다.
-Railway 리전을 Supabase 리전(Asia)과 맞추세요. 안 맞으면 자동 저장마다 태평양을 왕복합니다.
-
-**3. 스팸 방지** — IP당 시간당 지도 생성 제한, 신고 링크. 아직 없습니다.
+깨지는 게 있으면 그 화면에서 무슨 일이 일어나는지부터 알려 주세요. 원격 디버깅이
+어려우므로 증상 서술이 유일한 단서입니다.
 
 ### 아직 확인 안 된 것
 
@@ -202,7 +197,7 @@ Railway 리전을 Supabase 리전(Asia)과 맞추세요. 안 맞으면 자동 �
 ### 테스트 돌리는 법
 
 ```bash
-npm test                                                  # 전체 123개
+npm test                                                  # 전체 177개
 npx vitest run lib/map/mapDocument.integration.test.ts     # 스키마 건드린 뒤엔 이것부터
 ```
 
@@ -219,6 +214,18 @@ npx vitest run lib/map/mapDocument.integration.test.ts     # 스키마 건드린
 작업 중 실제로 겪고 고친 것들입니다. README에도 있지만 여기 요약합니다 — 재작업 방지용.
 
 - **카카오 지도 컨테이너에 `z-index: 0`이 없으면 그리기가 안 됩니다.** SDK가 컨테이너 안에 만드는 내부 레이어가 z-index를 갖고 있어서, 컨테이너가 `auto`면 그 자식이 드로잉 캔버스보다 위에 깔려 `pointerdown`이 캔버스에 안 닿습니다. `KakaoMap.tsx`에 `z-0`, 오버레이 캔버스에 `z-10`으로 이미 고정돼 있습니다.
+- **합성 이벤트로 한 검증을 믿지 마세요.** `pointerdown`만 dispatch하면 뒤따르는
+  `mouseup`이 없어서, 실제 마우스에서만 드러나는 경로를 통째로 건너뜁니다. 핀·라벨 입력창이
+  뜨자마자 스스로 닫히던 버그를 그렇게 놓쳤습니다. 입력이 얽힌 기능은 `computer` 도구의
+  진짜 클릭·드래그로 확인하세요.
+- **한글 입력 확정 Enter를 제출로 받으면 안 됩니다.** 조합을 확정하는 Enter도 `keydown`으로
+  들어와 마지막 글자가 빠진 채 저장됩니다. `e.nativeEvent.isComposing`으로 걸러냅니다.
+  한국어 장소 이름을 치는 제품이라 치명적입니다.
+- **오류를 삼키고 빈 결과를 200으로 돌려주지 마세요.** `/api/usage`가 그래서 "DB 죽음"과
+  "사용량 0"을 구분 못 했고, 배포본이 삭제된 프로젝트를 보고 있는데도 정상으로 읽혔습니다.
+  상태를 보러 오는 경로는 상태를 숨기면 안 됩니다.
+- **환경 변수는 두 곳에 있습니다** — `.env.local`과 Railway `Variables`. 한쪽만 바꾸면
+  로컬은 되는데 배포본만 깨지고, 원인이 눈에 안 띕니다.
 - **`crypto.randomUUID()`를 직접 쓰면 안 됩니다.** 보안 컨텍스트에서만 존재해서 `http://192.168.x.x:3000`(실기기 테스트용 LAN 주소)에서 터집니다. `lib/id.ts`의 `createId()`를 씁니다 — 대체 경로에서도 uuid v4 형식을 지킵니다.
 - **`@next/env`를 ESM 설정 파일에서 명명 import하면 조용히 실패합니다.** CommonJS 모듈이라 에러 없이 값만 안 들어옵니다. `vitest.config.ts`는 `.env.local`을 직접 읽습니다.
 - **vitest의 `setupFiles`에서 `process.env`를 채워도 워커에 반영되지 않습니다.** 설정 파일에서 읽어 `test.env`로 넘겨야 합니다.

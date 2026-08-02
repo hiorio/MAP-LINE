@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { MissingRestKeyError, searchPlaces } from '@/lib/kakao/localSearch';
 import { readCenterParams } from '@/lib/kakao/searchParams';
+import { SEARCH_LIMIT, checkRateLimit, tooManyRequests } from '@/lib/rateLimit';
 
 /**
  * Kakao 키워드 검색 프록시.
@@ -13,6 +14,10 @@ export async function GET(request: Request) {
   if (!query) {
     return NextResponse.json({ error: '검색어가 없습니다.' }, { status: 400 });
   }
+
+  // 검색은 호출마다 카카오 쿼터를 태운다. 그 비용은 우리가 낸다.
+  const limit = await checkRateLimit(request, SEARCH_LIMIT);
+  if (!limit.allowed) return tooManyRequests(SEARCH_LIMIT);
 
   try {
     // 지금 보고 있는 지도 중심을 넘기면 가까운 곳부터 나온다.
