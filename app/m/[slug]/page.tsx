@@ -24,8 +24,14 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return {
     title: `${title} · MAP-LINE`,
     description,
-    openGraph: { title, description, type: 'article' },
-    // og:image는 T14(정적 지도 썸네일 + Storage 캐시)에서 채운다.
+    openGraph: {
+      title,
+      description,
+      type: 'article',
+      // 이미지는 요청이 올 때 만들어 Storage에 캐시한다. 여기서 미리 만들지 않는다.
+      images: [{ url: `/api/og/${slug}`, width: 1600, height: 840, alt: title }],
+    },
+    twitter: { card: 'summary_large_image', title, description },
   };
 }
 

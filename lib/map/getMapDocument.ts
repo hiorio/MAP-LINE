@@ -6,6 +6,9 @@ export interface StoredMapDocument extends MapDocument {
   slug: string;
   viewCount: number;
   updatedAt: string;
+  /** Storage에 캐시된 OG 썸네일. 아직 만들지 않았으면 null */
+  ogImageUrl: string | null;
+  ogUpdatedAt: string | null;
 }
 
 /**
