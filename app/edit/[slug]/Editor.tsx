@@ -44,7 +44,7 @@ export function Editor({ slug }: { slug: string }) {
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden">
-      <EditorTopBar saveMode={saveMode} />
+      <EditorTopBar slug={slug} saveMode={saveMode} />
       <div className="relative flex-1">
         {initial && (
           <>
@@ -59,7 +59,7 @@ export function Editor({ slug }: { slug: string }) {
   );
 }
 
-function EditorTopBar({ saveMode }: { saveMode: SaveMode }) {
+function EditorTopBar({ slug, saveMode }: { slug: string; saveMode: SaveMode }) {
   const title = useMapStore((s) => s.title);
   const setTitle = useMapStore((s) => s.setTitle);
   const saveState = useMapStore((s) => s.saveState);
@@ -82,15 +82,53 @@ function EditorTopBar({ saveMode }: { saveMode: SaveMode }) {
         className="min-w-0 flex-1 bg-transparent text-sm font-medium outline-none placeholder:text-ink/35"
       />
       <span className="shrink-0 text-xs tabular-nums text-ink/45">{label}</span>
-      <button
-        type="button"
-        disabled
-        title="공유 링크는 뷰어(T13)가 붙은 뒤 활성화됩니다"
-        className="h-8 shrink-0 rounded-lg border border-hairline px-3 text-sm disabled:opacity-40"
-      >
-        공유
-      </button>
+      <ShareButton slug={slug} saveMode={saveMode} />
     </header>
+  );
+}
+
+/**
+ * 서버에 저장된 지도만 공유할 수 있다. 로컬 전용 지도는 링크를 줘도 상대가 열 수 없다.
+ */
+function ShareButton({ slug, saveMode }: { slug: string; saveMode: SaveMode }) {
+  const [copied, setCopied] = useState(false);
+
+  const share = async () => {
+    const url = `${window.location.origin}/m/${slug}`;
+    const title = useMapStore.getState().title || '제목 없는 지도';
+
+    // 모바일에서는 OS 공유 시트가 카톡으로 바로 보내는 가장 짧은 경로다.
+    if (navigator.share) {
+      try {
+        await navigator.share({ title, url });
+        return;
+      } catch {
+        // 사용자가 취소했거나 지원하지 않으면 복사로 넘어간다.
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      window.prompt('아래 주소를 복사하세요', url);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={share}
+      disabled={saveMode !== 'server'}
+      title={
+        saveMode === 'server'
+          ? '읽기 전용 링크를 공유합니다'
+          : '이 지도는 이 기기에만 저장돼 있어 공유할 수 없습니다'
+      }
+      className="h-8 shrink-0 rounded-lg border border-hairline px-3 text-sm disabled:opacity-40"
+    >
+      {copied ? '복사됨' : '공유'}
+    </button>
   );
 }
 

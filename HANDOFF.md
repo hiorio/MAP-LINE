@@ -8,7 +8,9 @@
 
 ## 지금 상태를 한 줄로
 
-**편집기(드로잉·라벨·핀·순서·연결선)와 서버 저장(T12)이 모두 실제로 동작하며 검증 완료됐습니다.** 남은 것은 뷰어(T13)·OG 썸네일(T14)·공유 링크(F7), 그리고 Kakao REST 키가 필요한 장소 검색(T8) 실동작 확인입니다.
+**v0.1의 핵심 루프(만들기 → 공유 링크 → 상대가 열어봄)가 처음부터 끝까지 동작합니다.** 편집기, 장소 검색, 서버 저장, 뷰어, 공유 버튼까지 전부 실제로 검증됐습니다. 남은 것은 OG 썸네일 이미지(T14)와 실제 경로 좌표(T11 후반)입니다.
+
+⚠️ **`supabase/migrations/0003_view_count.sql`이 아직 적용되지 않았습니다.** 적용 전까지 조회수가 집계되지 않습니다(뷰어는 정상 동작). 아래 "사용자가 해줘야 하는 것" 참고.
 
 저장소: https://github.com/hiorio/MAP-LINE (초기 커밋 `a84aed8` push 완료, `main` 브랜치)
 
@@ -34,7 +36,7 @@ npx kill-port 3000 && rm -rf .next && npm run dev
 | 변수 | 상태 | 비고 |
 |---|---|---|
 | `NEXT_PUBLIC_KAKAO_JS_KEY` | ✅ 채워짐 | 편집기 지도가 뜬다 |
-| `KAKAO_REST_KEY` | ❌ 비어 있음 | 이것만 채우면 장소 검색이 켜진다 |
+| `KAKAO_REST_KEY` | ✅ 채워짐 | 장소 검색·공유텍스트 파싱 동작 확인 |
 | `NEXT_PUBLIC_SUPABASE_URL` | ✅ 채워짐 | 서버 저장 동작 확인됨 |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | ⬜ 비어 있음 | 현재 코드에서 안 씀. 없어도 됨 |
 | `SUPABASE_SERVICE_ROLE_KEY` | ✅ 채워짐 | 〃 |
@@ -52,11 +54,22 @@ npx kill-port 3000 && rm -rf .next && npm run dev
 뷰어(T13)가 브라우저에서 Supabase를 직접 읽게 만들 때만 필요합니다. 지금 설계에서는 뷰어도
 Route Handler를 경유하면 되므로 끝까지 안 쓸 수도 있습니다.
 
-### B. Kakao REST API 키 → 장소 검색 활성화 (아직 필요)
+### B. Kakao REST API 키 — ✅ 완료
 
-`/api/search`, `/api/parse-share` 코드는 다 있지만 키가 없어 503만 확인된 상태입니다.
-카카오 콘솔 > 앱 > 플랫폼 키 > REST API 키를 복사해 `.env.local`의 `KAKAO_REST_KEY=`에 넣으면
-검색 패널이 실제로 동작합니다.
+`KAKAO_REST_KEY` 설정됨. 실제 카카오 응답으로 검색·공유텍스트 파싱 모두 동작 확인.
+
+### C. 마이그레이션 0003 적용 (조회수) — 아직 필요
+
+Supabase 대시보드 > SQL Editor 에서 `supabase/migrations/0003_view_count.sql` 실행.
+
+두 가지를 합니다:
+- `increment_map_view()` 추가 — 뷰어가 열릴 때 조회수 +1
+- `set_updated_at()` 트리거 교체 — **이게 더 중요합니다.** 0001의 트리거는 update마다
+  무조건 `updated_at = now()`로 덮습니다. 그대로 두면 누가 뷰어를 열 때마다 `updated_at`이
+  밀려서 편집기가 들고 있던 값이 낡은 것이 되고, 실제 충돌이 아닌데도 낙관적 잠금이
+  409를 뱉습니다. 0003은 조회수만 바뀐 경우 `updated_at`을 건드리지 않게 고칩니다.
+
+적용 전까지 조회수 API는 조용히 `{counted:false}`를 반환하고 뷰어는 정상 동작합니다.
 
 > 참고: 카카오 REST/네이티브 앱 키가 작업 중 대화 로그에 평문으로 남은 적이 있습니다.
 > 사용자는 신경 쓰지 않기로 했으므로 그대로 진행하되, 나중에 서비스를 공개할 때
@@ -77,7 +90,10 @@ Route Handler를 경유하면 되므로 끝까지 안 쓸 수도 있습니다.
 | 편집기 상태(Zustand) | `store/useMapStore.ts` | `npm test` (18개 테스트, 되돌리기·순서변경·전체지우기 포함) |
 | 공유 텍스트 파서 | `lib/kakao/parseShareText.ts` | `npm test` (12개), 브라우저에서 API 경유 확인 |
 | Kakao Local 검색 래퍼 | `lib/kakao/localSearch.ts` | `npm test` (6개, x/y↔lat/lng 매핑 포함) |
-| `/api/search`, `/api/parse-share` | `app/api/search/route.ts`, `app/api/parse-share/route.ts` | curl/브라우저 fetch로 확인. **REST 키가 없어서 실제 카카오 응답은 아직 못 봄** (503·400·422 경로만 확인됨) |
+| `/api/search`, `/api/parse-share` | `app/api/search/route.ts`, `app/api/parse-share/route.ts` | ✅ 실제 카카오 응답 확인 ("강남역" → 5건, 네이버 공유텍스트 → 파싱 후 후보 검색) |
+| T13 뷰어 `/m/[slug]` | `app/m/[slug]/page.tsx`, `app/m/[slug]/Viewer.tsx` | ✅ SSR 메타(제목·OG 경로 요약), 읽기 전용 캔버스, 장소 스트립 탭 이동, 토큰 있으면 "편집하기" 노출·없으면 숨김, 없는 슬러그 404 |
+| 캔버스 공용 훅 | `components/map/useMapCanvas.ts` | 편집기와 뷰어가 같은 `drawScene`을 쓰도록 추출. 리팩터 후 편집기 재검증 완료 |
+| F7 공유 버튼 | `app/edit/[slug]/Editor.tsx`의 `ShareButton` | ✅ 서버 저장 모드에서만 활성화. `navigator.share` 우선, 없으면 클립보드 복사 |
 | T12 서버 저장 API + 스키마 | `app/api/maps/route.ts`, `app/api/maps/[slug]/route.ts`, `lib/supabase/server.ts`, `supabase/migrations/0002_document_rpc.sql` | ✅ 실제 Supabase에 대해 검증 완료 — 아래 상세 |
 | 서버/로컬 저장 자동 전환 | `lib/map/persistence.ts` | ✅ 양방향 확인. Supabase 미설정 시 "이 기기에만 저장됨"으로 폴백, 설정 시 "저장됨" |
 | 편집기 화면·툴바·장소 패널 | `app/edit/[slug]/Editor.tsx`, `components/toolbar/EditorToolbar.tsx`, `components/panels/PlacePanel.tsx` | 렌더 확인, 그리기/라벨 흐름 확인 |
@@ -100,30 +116,26 @@ Route Handler를 경유하면 되므로 끝까지 안 쓸 수도 있습니다.
 
 `npm run typecheck` / `npm run lint` / `npm test`(59개) 전부 통과 상태입니다. `npm run build`는 dev 서버가 떠 있어 재실행하지 않았습니다 — 필요하면 dev 서버를 끄고 따로 실행하세요.
 
-### 미완료 — 코드 없음
+### 미완료
 
-- **T11 후반**: 연결선은 지금 핀 사이 직선(이동수단별 점선/실선 스타일만 구분)입니다. `/api/route`로 실제 도보/대중교통 경로 좌표를 받아오는 부분은 없습니다. `lib/render/scene.ts`의 `drawSegments`가 좌표 배열을 받도록 바꾸면 됩니다.
-- **T13 뷰어**: `/m/[slug]` 페이지 없음. 읽기 API(`GET /api/maps/[slug]`)와 렌더 함수(`lib/render/scene.ts`의 `drawScene`)는 이미 있으므로 재사용하면 됩니다.
-- **T14 OG 썸네일**: `/api/og/[slug]` 없음. 카카오 정적 지도 API로 1회 생성 후 Supabase Storage에 캐시해야 합니다(매 조회마다 호출하면 쿼터가 날아갑니다). `maps.og_image_url` 컬럼은 이미 있습니다.
-- **조회수**: `maps.view_count` 컬럼은 있지만 증가시키는 코드가 없습니다. T13에서 RPC 하나 추가하면 됩니다.
-- **F7 공유 링크**: 편집기 상단바 "공유" 버튼이 `disabled`입니다. T13 이후 활성화.
+- **T14 OG 썸네일**: `/api/og/[slug]` 없음. 지금 공유하면 카톡 미리보기에 제목·설명만 나오고 이미지가 없습니다. 카카오 정적 지도 API로 **생성 시 1회 호출 후 Supabase Storage에 캐시**해야 합니다 — 매 조회마다 호출하면 인기 지도 하나가 일 1,000건 쿼터를 다 먹습니다. `maps.og_image_url` 컬럼은 이미 있고, `app/m/[slug]/page.tsx`의 `generateMetadata`에 `openGraph.images`만 채우면 됩니다.
+- **T11 후반**: 연결선이 핀 사이 직선입니다(이동수단별 점선/실선 스타일만 구분). `/api/route`로 실제 도보/대중교통 경로 좌표를 받아오는 부분이 없습니다. `lib/render/scene.ts`의 `drawSegments`가 좌표 배열을 받도록 바꾸면 됩니다.
+- **조회수 마이그레이션 0003 미적용**: 위 "C" 참고. 코드는 다 있습니다.
 - **v0.2 중간지점**: 손 안 댐.
 
 ## 다음 세션이 제일 먼저 할 일
 
-1. **T13 뷰어 `/m/[slug]`** — 바로 시작 가능합니다. 필요한 건 다 있습니다:
-   - 데이터: `GET /api/maps/[slug]` (동작 확인됨)
-   - 렌더: `lib/render/scene.ts`의 `drawScene()` — 편집기와 같은 함수를 쓰면 편집 화면과 뷰어가 항상 같게 보입니다
-   - 지도: `components/map/KakaoMap.tsx` 재사용
-   - 구조 제안: 서버 컴포넌트에서 문서를 읽어 `generateMetadata`로 OG 태그를 채우고, 클라이언트 컴포넌트에 넘겨 캔버스를 그립니다. `MapOverlay`에서 입력 처리를 뺀 읽기 전용 버전이 필요합니다.
-   - 설계안 §7.4: 편집 UI 없음, 하단에 장소 리스트(탭하면 해당 핀으로 이동), 하단 고정 "나도 지도 만들기" 배너, 편집 토큰 보유자에게는 "편집하기" 버튼
-   - 조회수: `maps.view_count` 증가 RPC를 마이그레이션 0003으로 추가
+1. **사용자에게 마이그레이션 0003 적용을 안내**하세요 (위 "C"). 특히 `set_updated_at` 트리거 수정이 들어 있어서, 적용 전에는 뷰어 조회가 편집기의 낙관적 잠금을 오작동시킬 수 있습니다.
 
-2. **F7 공유 버튼 활성화** — `Editor.tsx`의 `EditorTopBar`에 `disabled`로 박혀 있습니다. 서버 저장 모드일 때만 활성화하고, `/m/<slug>` URL을 클립보드에 복사하게 하면 됩니다.
+2. **T14 OG 썸네일** — 지금 카톡으로 공유하면 미리보기 이미지가 없습니다. 설계안 §1.4의 핵심 지표가 "지도당 조회수"인데 미리보기 이미지 유무가 클릭률에 직접 영향을 주므로 우선순위가 높습니다.
+   - 카카오 정적 지도 API로 지도 이미지를 받아 Supabase Storage에 올리고 `maps.og_image_url`에 기록
+   - **생성/저장 시 1회만** 호출할 것. 매 조회마다 호출하면 쿼터가 날아갑니다
+   - Storage 버킷을 public으로 만들어야 카톡 크롤러가 읽습니다
+   - `generateMetadata`의 `openGraph`에 `images` 추가
 
-3. **T14 OG 썸네일** — 카카오 정적 지도 API로 1회 생성 후 Supabase Storage에 캐시(`maps.og_image_url` 컬럼 사용). 매 조회마다 호출하면 인기 지도 하나가 일 1,000건 쿼터를 다 먹습니다.
+3. **실기기 테스트** — 아직 한 번도 안 했습니다. 공유 링크 대다수가 **카카오톡 인앱 브라우저**에서 열리는데 pointer event 처리가 표준과 달라서 여기서 문제가 터질 가능성이 높습니다. `.env.local` 없이도 `http://192.168.x.x:3000`으로 폰에서 접속해 확인하세요(카카오 콘솔의 JS 키 도메인에 해당 주소가 등록돼 있어야 합니다).
 
-4. **T8 실동작 확인** — 사용자가 `KAKAO_REST_KEY`를 채우면 검색 패널과 붙여넣기 파싱을 실제 카카오 응답으로 확인하세요.
+4. **T11 후반** — 실제 경로 좌표.
 
 ### 아직 확인 안 된 것 하나
 
