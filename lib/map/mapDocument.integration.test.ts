@@ -1,7 +1,8 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { toWkbPoint } from '@/lib/geo/projection';
+import { isUuid } from '@/lib/id';
 import type { MapDocument } from './types';
 
 /**
@@ -56,58 +57,77 @@ function read(slug: string) {
   return supabase.rpc('get_map_document', { p_slug: slug });
 }
 
-const sampleDocument: MapDocument = {
-  title: '강남 저녁 코스',
-  center: { lat: 37.4979, lng: 127.0276 },
-  zoomLevel: 4,
-  places: [
-    {
-      id: 'client-a',
-      name: '만남의 광장',
-      location: { lat: 37.4979, lng: 127.0276 },
-      pinColor: '#E24B4A',
-      modeToNext: 'transit',
-    },
-    {
-      id: 'client-b',
-      name: '점심 국밥',
-      address: '서울 강남구 강남대로 390',
-      kakaoPlaceId: '12345',
-      location: { lat: 37.499, lng: 127.029 },
-      pinColor: '#E24B4A',
-      modeToNext: 'walk',
-    },
-    {
-      id: 'client-c',
-      name: '2차 카페',
-      location: { lat: 37.5005, lng: 127.0311 },
-      pinColor: '#E24B4A',
-      modeToNext: 'car',
-    },
-  ],
-  strokes: [
-    {
-      id: 'client-s1',
-      color: '#2D6BE4',
-      width: 9,
-      zoomCreated: 4,
-      path: [
-        { lat: 37.4979, lng: 127.0276 },
-        { lat: 37.4985, lng: 127.0281 },
-        { lat: 37.499, lng: 127.029 },
-      ],
-    },
-  ],
-  labels: [
-    {
-      id: 'client-l1',
-      text: '여기서 계단으로',
-      location: { lat: 37.4982, lng: 127.028 },
-      fontSize: 18,
-      color: '#2FA35B',
-    },
-  ],
-};
+/**
+ * 테스트마다 새 id로 문서를 만든다.
+ *
+ * 고정 id를 여러 테스트가 공유하면 안 된다. 두 번째 지도에 같은 id를 넣으려는 순간
+ * `save_map_document`의 교차 지도 방어(`where places.map_id = v_id`)에 걸려 행이
+ * 조용히 빠진다. 그건 의도된 동작이고, 그 방어는 아래에서 따로 검증한다.
+ */
+function makeSample() {
+  const ids = {
+    placeA: randomUUID(),
+    placeB: randomUUID(),
+    placeC: randomUUID(),
+    stroke: randomUUID(),
+    label: randomUUID(),
+  };
+
+  const document: MapDocument = {
+    title: '강남 저녁 코스',
+    center: { lat: 37.4979, lng: 127.0276 },
+    zoomLevel: 4,
+    places: [
+      {
+        id: ids.placeA,
+        name: '만남의 광장',
+        location: { lat: 37.4979, lng: 127.0276 },
+        pinColor: '#E24B4A',
+        modeToNext: 'transit',
+      },
+      {
+        id: ids.placeB,
+        name: '점심 국밥',
+        address: '서울 강남구 강남대로 390',
+        kakaoPlaceId: '12345',
+        location: { lat: 37.499, lng: 127.029 },
+        pinColor: '#E24B4A',
+        modeToNext: 'walk',
+      },
+      {
+        id: ids.placeC,
+        name: '2차 카페',
+        location: { lat: 37.5005, lng: 127.0311 },
+        pinColor: '#E24B4A',
+        modeToNext: 'car',
+      },
+    ],
+    strokes: [
+      {
+        id: ids.stroke,
+        color: '#2D6BE4',
+        width: 9,
+        zoomCreated: 4,
+        path: [
+          { lat: 37.4979, lng: 127.0276 },
+          { lat: 37.4985, lng: 127.0281 },
+          { lat: 37.499, lng: 127.029 },
+        ],
+      },
+    ],
+    labels: [
+      {
+        id: ids.label,
+        text: '여기서 계단으로',
+        location: { lat: 37.4982, lng: 127.028 },
+        fontSize: 18,
+        color: '#2FA35B',
+      },
+    ],
+  };
+
+  return { ids, document };
+}
 
 beforeAll(() => {
   if (!configured) return;
@@ -145,7 +165,8 @@ describeIfConfigured('save_map_document / get_map_document 왕복', () => {
 
   it('제목·중심·줌을 저장하고 되돌려준다', async () => {
     const { slug, editToken } = await createMap();
-    await save(slug, editToken, sampleDocument);
+    const { document } = makeSample();
+    await save(slug, editToken, document);
     const { data } = await read(slug);
 
     expect(data.title).toBe('강남 저녁 코스');
@@ -157,7 +178,8 @@ describeIfConfigured('save_map_document / get_map_document 왕복', () => {
   it('핀의 순서를 배열 순서 그대로 보존한다', async () => {
     // 순서가 곧 핀 번호이자 연결선 방향이다. 뒤집히면 지도가 다른 뜻이 된다.
     const { slug, editToken } = await createMap();
-    await save(slug, editToken, sampleDocument);
+    const { document } = makeSample();
+    await save(slug, editToken, document);
     const { data } = await read(slug);
 
     expect(data.places.map((p: { name: string }) => p.name)).toEqual([
@@ -169,7 +191,8 @@ describeIfConfigured('save_map_document / get_map_document 왕복', () => {
 
   it('핀의 좌표와 부가 정보를 보존한다', async () => {
     const { slug, editToken } = await createMap();
-    await save(slug, editToken, sampleDocument);
+    const { document } = makeSample();
+    await save(slug, editToken, document);
     const { data } = await read(slug);
 
     const [first, second] = data.places;
@@ -186,7 +209,8 @@ describeIfConfigured('save_map_document / get_map_document 왕복', () => {
 
   it('획의 좌표 순서와 스타일을 보존한다', async () => {
     const { slug, editToken } = await createMap();
-    await save(slug, editToken, sampleDocument);
+    const { document } = makeSample();
+    await save(slug, editToken, document);
     const { data } = await read(slug);
 
     const stroke = data.strokes[0];
@@ -201,7 +225,8 @@ describeIfConfigured('save_map_document / get_map_document 왕복', () => {
 
   it('라벨의 글자·크기·색을 보존한다', async () => {
     const { slug, editToken } = await createMap();
-    await save(slug, editToken, sampleDocument);
+    const { document } = makeSample();
+    await save(slug, editToken, document);
     const { data } = await read(slug);
 
     expect(data.labels[0]).toMatchObject({
@@ -214,8 +239,9 @@ describeIfConfigured('save_map_document / get_map_document 왕복', () => {
   it('점이 2개 미만인 획은 버린다', async () => {
     // geography(LineString)은 점 2개 이상을 요구한다. 통과시키면 저장 자체가 실패한다.
     const { slug, editToken } = await createMap();
+    const { document } = makeSample();
     await save(slug, editToken, {
-      ...sampleDocument,
+      ...document,
       strokes: [
         { id: 'x', color: '#000', width: 4, zoomCreated: 3, path: [{ lat: 37.5, lng: 127 }] },
       ],
@@ -226,8 +252,9 @@ describeIfConfigured('save_map_document / get_map_document 왕복', () => {
 
   it('다시 저장하면 이전 내용을 남기지 않고 통째로 교체한다', async () => {
     const { slug, editToken } = await createMap();
-    await save(slug, editToken, sampleDocument);
-    await save(slug, editToken, { ...sampleDocument, places: [], strokes: [], labels: [] });
+    const { document } = makeSample();
+    await save(slug, editToken, document);
+    await save(slug, editToken, { ...document, places: [], strokes: [], labels: [] });
 
     const { data } = await read(slug);
     expect(data.places).toEqual([]);
@@ -236,32 +263,163 @@ describeIfConfigured('save_map_document / get_map_document 왕복', () => {
   });
 });
 
+describeIfConfigured('식별자 보존', () => {
+  it('클라이언트가 만든 id를 그대로 쓴다', async () => {
+    // 서버가 새 id를 발급하면 저장할 때마다 같은 핀의 id가 바뀐다. 그러면 특정 핀이나
+    // 획을 참조하는 기능(댓글, 협업 편집)을 이 위에 올릴 수 없다.
+    const { slug, editToken } = await createMap();
+    const { ids, document } = makeSample();
+    await save(slug, editToken, document);
+    const { data } = await read(slug);
+
+    expect(data.places.map((p: { id: string }) => p.id)).toEqual([
+      ids.placeA,
+      ids.placeB,
+      ids.placeC,
+    ]);
+    expect(data.strokes[0].id).toBe(ids.stroke);
+    expect(data.labels[0].id).toBe(ids.label);
+  });
+
+  it('여러 번 저장해도 id가 바뀌지 않는다', async () => {
+    const { slug, editToken } = await createMap();
+    const { document } = makeSample();
+    await save(slug, editToken, document);
+    const { data: first } = await read(slug);
+
+    await save(slug, editToken, { ...document, title: '두 번째 저장' });
+    const { data: second } = await read(slug);
+
+    expect(second.places.map((p: { id: string }) => p.id)).toEqual(
+      first.places.map((p: { id: string }) => p.id),
+    );
+    expect(second.strokes[0].id).toBe(first.strokes[0].id);
+  });
+
+  it('id가 uuid가 아니면 새로 발급해 저장을 살린다', async () => {
+    // 예전 클라이언트가 만든 로컬 초안에는 32자 hex id가 남아 있다.
+    // 그대로 캐스팅하면 저장 전체가 실패하므로 조용히 대체한다.
+    const { slug, editToken } = await createMap();
+    const { document } = makeSample();
+    const { error } = await save(slug, editToken, {
+      ...document,
+      places: [
+        {
+          id: 'acb5e6900445621ff5dd4f6b8a870983',
+          name: '옛 초안 핀',
+          location: { lat: 37.5, lng: 127 },
+          pinColor: '#E24B4A',
+          modeToNext: 'walk',
+        },
+      ],
+    });
+
+    expect(error).toBeNull();
+    const { data } = await read(slug);
+    expect(data.places).toHaveLength(1);
+    expect(isUuid(data.places[0].id)).toBe(true);
+  });
+
+  it('핀을 지우면 그 행만 사라지고 나머지 id는 유지된다', async () => {
+    const { slug, editToken } = await createMap();
+    const { ids, document } = makeSample();
+    await save(slug, editToken, document);
+
+    // 가운데 핀만 제거
+    await save(slug, editToken, {
+      ...document,
+      places: document.places.filter((place) => place.id !== ids.placeB),
+    });
+
+    const { data } = await read(slug);
+    expect(data.places.map((p: { id: string }) => p.id)).toEqual([ids.placeA, ids.placeC]);
+    // 순번은 다시 매겨져야 한다 — 순서가 곧 핀 번호다.
+    expect(data.places.map((p: { name: string }) => p.name)).toEqual(['만남의 광장', '2차 카페']);
+  });
+
+  it('순서를 바꿔도 id는 그대로고 번호만 재계산된다', async () => {
+    const { slug, editToken } = await createMap();
+    const { ids, document } = makeSample();
+    await save(slug, editToken, document);
+
+    const reversed = [...document.places].reverse();
+    await save(slug, editToken, { ...document, places: reversed });
+
+    const { data } = await read(slug);
+    expect(data.places.map((p: { id: string }) => p.id)).toEqual([
+      ids.placeC,
+      ids.placeB,
+      ids.placeA,
+    ]);
+  });
+});
+
+describeIfConfigured('교차 지도 방어', () => {
+  it('다른 지도에 속한 id를 보내도 그 행을 끌어오지 못한다', async () => {
+    // uuid 충돌은 사실상 없지만 일부러 남의 지도 행 id를 보낼 수는 있다.
+    // 그때 그 행이 내 지도로 옮겨 오면 남의 지도가 망가진다.
+    const victim = await createMap();
+    const { ids, document } = makeSample();
+    await save(victim.slug, victim.editToken, document);
+
+    const attacker = await createMap();
+    const { document: attackerDoc } = makeSample();
+    await save(attacker.slug, attacker.editToken, {
+      ...attackerDoc,
+      places: [
+        {
+          id: ids.placeA, // 피해자 지도의 핀 id
+          name: '가로챈 핀',
+          location: { lat: 37.6, lng: 127.1 },
+          pinColor: '#E24B4A',
+          modeToNext: 'walk',
+        },
+      ],
+    });
+
+    // 피해자 지도는 그대로여야 한다.
+    const { data: victimData } = await read(victim.slug);
+    expect(victimData.places.map((p: { id: string }) => p.id)).toContain(ids.placeA);
+    expect(victimData.places.find((p: { id: string }) => p.id === ids.placeA).name).toBe(
+      '만남의 광장',
+    );
+
+    // 공격자 지도에는 그 핀이 들어가지 않는다.
+    const { data: attackerData } = await read(attacker.slug);
+    expect(attackerData.places).toEqual([]);
+  });
+});
+
 describeIfConfigured('편집 권한과 낙관적 잠금', () => {
   it('편집 토큰이 틀리면 저장을 거부한다', async () => {
     const { slug } = await createMap();
-    const { error } = await save(slug, 'wrong-token', sampleDocument);
+    const { document } = makeSample();
+    const { error } = await save(slug, 'wrong-token', document);
     expect(error?.message).toContain('INVALID_EDIT_TOKEN');
   });
 
   it('없는 지도에 저장하면 실패한다', async () => {
-    const { error } = await save('zztest-missing', 'any', sampleDocument);
+    const { document } = makeSample();
+    const { error } = await save('zztest-missing', 'any', document);
     expect(error?.message).toContain('MAP_NOT_FOUND');
   });
 
   it('오래된 updatedAt으로 저장하면 거부한다', async () => {
     const { slug, editToken } = await createMap();
-    await save(slug, editToken, sampleDocument);
+    const { document } = makeSample();
+    await save(slug, editToken, document);
 
-    const { error } = await save(slug, editToken, sampleDocument, '2020-01-01T00:00:00Z');
+    const { error } = await save(slug, editToken, document, '2020-01-01T00:00:00Z');
     expect(error?.message).toContain('STALE_DOCUMENT');
   });
 
   it('최신 updatedAt이면 저장을 허용한다', async () => {
     const { slug, editToken } = await createMap();
-    await save(slug, editToken, sampleDocument);
+    const { document } = makeSample();
+    await save(slug, editToken, document);
     const { data: current } = await read(slug);
 
-    const { error } = await save(slug, editToken, sampleDocument, current.updatedAt);
+    const { error } = await save(slug, editToken, document, current.updatedAt);
     expect(error).toBeNull();
   });
 });
@@ -270,7 +428,8 @@ describeIfConfigured('updated_at 트리거', () => {
   it('조회수가 올라도 updated_at은 그대로다', async () => {
     // 밀리면 편집기가 들고 있던 값이 낡은 것이 되어, 충돌이 아닌데도 409가 난다.
     const { slug, editToken } = await createMap();
-    await save(slug, editToken, sampleDocument);
+    const { document } = makeSample();
+    await save(slug, editToken, document);
     const { data: before } = await read(slug);
 
     await supabase.rpc('increment_map_view', { p_slug: slug });
@@ -283,7 +442,8 @@ describeIfConfigured('updated_at 트리거', () => {
   it('썸네일 URL을 기록해도 updated_at은 그대로다', async () => {
     // 밀리면 og_updated_at < updated_at 이 영원히 참이 되어 썸네일이 무한 재생성된다.
     const { slug, editToken } = await createMap();
-    await save(slug, editToken, sampleDocument);
+    const { document } = makeSample();
+    await save(slug, editToken, document);
     const { data: before } = await read(slug);
 
     await supabase.rpc('set_map_og_image', { p_slug: slug, p_url: 'https://example.com/x.png' });
@@ -298,11 +458,12 @@ describeIfConfigured('updated_at 트리거', () => {
 
   it('내용이 바뀌면 updated_at이 갱신된다', async () => {
     const { slug, editToken } = await createMap();
-    await save(slug, editToken, sampleDocument);
+    const { document } = makeSample();
+    await save(slug, editToken, document);
     const { data: before } = await read(slug);
 
     await new Promise((resolve) => setTimeout(resolve, 1100));
-    await save(slug, editToken, { ...sampleDocument, title: '바뀐 제목' });
+    await save(slug, editToken, { ...document, title: '바뀐 제목' });
     const { data: after } = await read(slug);
 
     expect(after.title).toBe('바뀐 제목');

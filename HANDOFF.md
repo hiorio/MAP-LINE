@@ -8,13 +8,18 @@
 
 ## 지금 상태를 한 줄로
 
-**v0.1 기능이 전부 구현·검증됐습니다.** 만들기 → 공유 링크 → 상대가 열어봄까지, OG 썸네일 포함해서 실제로 동작합니다. 마이그레이션 0001~0004 모두 적용됨.
+**v0.1 기능이 전부 구현·검증됐고, 알고 있던 구조적 약점 3가지도 해결했습니다.**
+만들기 → 공유 링크 → 상대가 열어봄까지 OG 썸네일 포함해 실제로 동작합니다.
+마이그레이션 0001~0006 모두 적용됨. 테스트 **123개** 통과.
 
-**남은 것은 기능이 아니라 마감입니다** — 실기기 테스트, 랜딩 페이지, 배포, 사용량 모니터링.
-장기 계획은 [docs/ROADMAP.md](docs/ROADMAP.md) 참고.
+**남은 것은 기능이 아니라 마감입니다** — 실기기 테스트, 배포.
+장기 계획은 [docs/ROADMAP.md](docs/ROADMAP.md), 배포 절차는 [docs/DEPLOY.md](docs/DEPLOY.md).
 
-⚠️ **가장 큰 미검증 리스크: 카카오톡 인앱 브라우저.** 공유 링크 대부분이 거기서 열리는데
-pointer event 처리가 표준과 달라 드로잉이 깨질 수 있습니다. 아직 한 번도 실기기에서 확인 안 했습니다.
+⚠️ **두 가지 미완료:**
+1. **배포 안 됨.** `localhost`에서만 돕니다. 공유 링크를 남이 열 수 없고 카카오톡 크롤러도
+   도달하지 못하므로 **제품의 절반(받는 사람 경험)이 아직 검증 불가**입니다. Railway 권장
+2. **카카오톡 인앱 브라우저 미검증.** 공유 링크 대부분이 거기서 열리는데 pointer event
+   처리가 표준과 달라 드로잉이 깨질 수 있습니다
 
 저장소: https://github.com/hiorio/MAP-LINE (초기 커밋 `a84aed8` push 완료, `main` 브랜치)
 
@@ -62,10 +67,20 @@ Route Handler를 경유하면 되므로 끝까지 안 쓸 수도 있습니다.
 
 `KAKAO_REST_KEY` 설정됨. 실제 카카오 응답으로 검색·공유텍스트 파싱 모두 동작 확인.
 
-### C. 마이그레이션 0001~0004 — ✅ 전부 적용 완료
+### C. 마이그레이션 0001~0006 — ✅ 전부 적용 완료
 
-새 마이그레이션을 추가하면 사용자에게 SQL Editor 실행을 안내해야 합니다.
-`supabase` CLI를 연결하지 않았으므로 자동 적용되지 않습니다.
+| 파일 | 내용 |
+|---|---|
+| `0001_init.sql` | 테이블·인덱스·RLS 초기 정의 |
+| `0002_document_rpc.sql` | 읽기/쓰기 RPC, 0001의 `edit_token` 노출 구멍 차단 |
+| `0003_view_count.sql` | 조회수, `updated_at` 트리거를 조회수에 둔감하게 |
+| `0004_og_cache.sql` | OG 썸네일 캐시 컬럼, 트리거 제외 목록에 OG 컬럼 추가 |
+| `0005_api_usage.sql` | 카카오 API 사용량 집계 테이블 |
+| `0006_upsert_save.sql` | 저장을 업서트로 전환, 클라이언트 id 보존 |
+
+**새 마이그레이션을 추가하면 사용자에게 SQL Editor 실행을 안내해야 합니다.**
+`supabase` CLI를 연결하지 않았으므로 자동 적용되지 않습니다. 적용 후
+`npx vitest run lib/map/mapDocument.integration.test.ts`로 검증하세요.
 
 ### D. 배포할 때 (아직 안 함)
 
@@ -100,7 +115,9 @@ Route Handler를 경유하면 되므로 끝까지 안 쓸 수도 있습니다.
 | F7 공유 버튼 | `app/edit/[slug]/Editor.tsx`의 `ShareButton` | ✅ 서버 저장 모드에서만 활성화. `navigator.share` 우선, 없으면 클립보드 복사 |
 | T14 OG 썸네일 | `app/api/og/[slug]/route.ts`, `lib/map/ogImage.ts`, `lib/kakao/staticMap.ts` | ✅ 실제 생성 확인 (홍대 지도 + 핀 3개, 254KB PNG), Storage 캐시·재사용·내용 변경 시 재생성·`updated_at` 불변까지 검증 |
 | T15 랜딩 | `app/page.tsx`, `components/DemoMap.tsx` | ✅ 설계안 §7.1대로 데모 그림 + CTA 단일 버튼(클릭 가능 요소가 정확히 1개). 모바일·데스크톱 확인 |
-| 사용량 모니터링 | `lib/kakao/usage.ts`, `app/api/usage/route.ts` | ✅ `GET /api/usage`로 확인. 80% 초과 시 서버 로그 경고. **인스턴스 메모리 기준 근사치** |
+| 사용량 모니터링 | `lib/kakao/usage.ts`, `app/api/usage/route.ts`, `0005` | ✅ Postgres 집계. `GET /api/usage`로 확인, 80% 초과 시 서버 로그 경고. KST 자정 기준으로 날짜를 끊음 |
+| 테스트 (약점 1 해결) | `lib/map/mapDocument.integration.test.ts`, `app/api/**/*.test.ts` | ✅ 실제 Supabase 대상 23개 + 라우트 핸들러 22개. 총 **123개** |
+| ID 보존·업서트 저장 (약점 2 해결) | `0006_upsert_save.sql`, `lib/id.ts` | ✅ 클라이언트 uuid를 PK로 사용, 사라진 행만 삭제. 교차 지도 id 탈취 방어 포함 |
 | T12 서버 저장 API + 스키마 | `app/api/maps/route.ts`, `app/api/maps/[slug]/route.ts`, `lib/supabase/server.ts`, `supabase/migrations/0002_document_rpc.sql` | ✅ 실제 Supabase에 대해 검증 완료 — 아래 상세 |
 | 서버/로컬 저장 자동 전환 | `lib/map/persistence.ts` | ✅ 양방향 확인. Supabase 미설정 시 "이 기기에만 저장됨"으로 폴백, 설정 시 "저장됨" |
 | 편집기 화면·툴바·장소 패널 | `app/edit/[slug]/Editor.tsx`, `components/toolbar/EditorToolbar.tsx`, `components/panels/PlacePanel.tsx` | 렌더 확인, 그리기/라벨 흐름 확인 |
@@ -160,18 +177,33 @@ npx cloudflared tunnel --url http://localhost:3000
 임시 공개 URL이 나옵니다. 카카오 콘솔 SDK 도메인에 그 주소를 추가하면 카톡으로 링크를 보내
 인앱 브라우저에서 열어볼 수 있습니다.
 
-**2. 배포** — 위 "D" 참고. 이 제품의 절반(공유받은 사람의 경험)은 배포 전까지 제대로 검증할 수 없습니다.
+**2. 배포 (Railway 권장)** — [docs/DEPLOY.md](docs/DEPLOY.md)에 절차가 있습니다.
+프로덕션 빌드와 `PORT` 주입 실행은 로컬에서 검증해 뒀으니 빌드가 깨질 일은 없습니다.
+Railway 리전을 Supabase 리전(Asia)과 맞추세요. 안 맞으면 자동 저장마다 태평양을 왕복합니다.
 
 **3. 스팸 방지** — IP당 시간당 지도 생성 제한, 신고 링크. 아직 없습니다.
 
-### 아직 확인 안 된 것 하나
+### 아직 확인 안 된 것
 
-`0002`가 `0001`의 RLS 구멍을 막았는지는 **논리적으로는 확실하지만 직접 테스트는 못 했습니다.**
-(0002가 통째로 성공했으므로 맨 위 `drop policy` 문들도 실행됐습니다. Supabase SQL Editor는
-스크립트를 한 트랜잭션으로 돌립니다.) 확실히 하려면 Supabase 대시보드
-> Authentication > Policies 에서 `maps` / `places` / `strokes` / `labels` / `segments` 에
-정책이 하나도 없는지 눈으로 확인하면 됩니다. anon 키를 채운다면 `select edit_token from maps`가
-거부되는지 직접 쏴 보는 게 가장 확실합니다.
+- `0002`가 `0001`의 RLS 구멍을 막았는지 **직접 테스트는 못 했습니다.** 논리적으로는 확실합니다
+  (0002가 통째로 성공했으므로 맨 위 `drop policy` 문들도 실행됐고, Supabase SQL Editor는
+  스크립트를 한 트랜잭션으로 돌립니다). 확실히 하려면 Supabase 대시보드 > Authentication >
+  Policies 에서 `maps`/`places`/`strokes`/`labels`/`segments`에 정책이 없는지 보면 됩니다.
+  `NEXT_PUBLIC_SUPABASE_ANON_KEY`를 채운다면 anon으로 `select edit_token from maps`가
+  거부되는지 쏴 보는 게 가장 확실합니다.
+
+### 테스트 돌리는 법
+
+```bash
+npm test                                                  # 전체 123개
+npx vitest run lib/map/mapDocument.integration.test.ts     # 스키마 건드린 뒤엔 이것부터
+```
+
+통합 테스트는 실제 Supabase에 `zztest`로 시작하는 지도를 만들고 `afterAll`에서 지웁니다.
+환경 변수가 없으면 스스로 스킵합니다.
+
+**통합 테스트를 새로 쓸 때 주의:** 지도마다 새 uuid를 쓰세요(`makeSample()`). 고정 id를 여러
+테스트가 공유하면 두 번째 지도부터 교차 지도 방어에 걸려 행이 조용히 빠집니다. 실제로 겪었습니다.
 
 작업 커밋은 의미 있는 단위로 나눠서 하세요. `.env.local`은 `.gitignore`에 걸려 있지만, 새 파일을 추가하기 전에 `git status`로 한 번 확인하는 습관을 들이면 안전합니다.
 
@@ -180,7 +212,9 @@ npx cloudflared tunnel --url http://localhost:3000
 작업 중 실제로 겪고 고친 것들입니다. README에도 있지만 여기 요약합니다 — 재작업 방지용.
 
 - **카카오 지도 컨테이너에 `z-index: 0`이 없으면 그리기가 안 됩니다.** SDK가 컨테이너 안에 만드는 내부 레이어가 z-index를 갖고 있어서, 컨테이너가 `auto`면 그 자식이 드로잉 캔버스보다 위에 깔려 `pointerdown`이 캔버스에 안 닿습니다. `KakaoMap.tsx`에 `z-0`, 오버레이 캔버스에 `z-10`으로 이미 고정돼 있습니다.
-- **`crypto.randomUUID()`를 직접 쓰면 안 됩니다.** 보안 컨텍스트에서만 존재해서 `http://192.168.x.x:3000`(실기기 테스트용 LAN 주소)에서 터집니다. `lib/id.ts`의 `createId()`를 씁니다.
+- **`crypto.randomUUID()`를 직접 쓰면 안 됩니다.** 보안 컨텍스트에서만 존재해서 `http://192.168.x.x:3000`(실기기 테스트용 LAN 주소)에서 터집니다. `lib/id.ts`의 `createId()`를 씁니다 — 대체 경로에서도 uuid v4 형식을 지킵니다.
+- **`@next/env`를 ESM 설정 파일에서 명명 import하면 조용히 실패합니다.** CommonJS 모듈이라 에러 없이 값만 안 들어옵니다. `vitest.config.ts`는 `.env.local`을 직접 읽습니다.
+- **vitest의 `setupFiles`에서 `process.env`를 채워도 워커에 반영되지 않습니다.** 설정 파일에서 읽어 `test.env`로 넘겨야 합니다.
 - **`confirm()`에 의존하면 안 됩니다.** 인앱 브라우저(카카오톡 등)나 대화상자 차단 상태에서 조용히 `false`를 반환해 버튼이 안 먹습니다. "전체 지우기"는 두 번 누르기 패턴으로 대체했습니다 (`components/toolbar/EditorToolbar.tsx`의 `ClearButton`).
 - **되돌리기는 pop이 아니라 스냅샷입니다.** 설계안 원문은 "pop 방식"이라 했지만, 지우개가 중간 획/핀을 지울 수 있어서 단순 pop은 엉뚱한 걸 되살립니다. `useMapStore.ts`의 `commit()`이 매 변경 전 `{places, strokes, labels}` 스냅샷을 히스토리에 쌓습니다.
 - **RDP는 위경도가 아니라 화면 좌표에서 합니다.** 고정 줌에서 화면↔위경도가 국소적으로 선형이라 결과가 사실상 같고, 오차 단위가 픽셀이라 튜닝이 직관적입니다. 대신 획마다 `zoomCreated`를 저장해 다른 줌에서 볼 때 `strokeRenderWidth`/`strokeRenderAlpha`(`lib/geo/projection.ts`)로 굵기·투명도를 보정합니다.
@@ -191,7 +225,8 @@ npx cloudflared tunnel --url http://localhost:3000
 - **OG 이미지는 `og:image` URL이 절대 경로여야 크롤러가 읽습니다.** `app/layout.tsx`의 `metadataBase`가 `NEXT_PUBLIC_SITE_URL`로 그 기준을 잡습니다. 배포 시 이걸 안 바꾸면 썸네일이 localhost를 가리켜 카톡 미리보기가 비어 보입니다.
 - **카카오 정적 지도 API에는 경로/폴리라인 파라미터가 없습니다.** 마커만 최대 5개입니다. 손그림을 썸네일에 넣으려면 직접 합성해야 합니다.
 - **0001의 RLS 정책에는 보안 구멍이 있었고 0002에서 막았습니다.** `create policy maps_read on maps for select using (true)`는 컬럼 단위가 아니라서 anon 키로 `select edit_token from maps`가 통했습니다. 즉 누구나 남의 지도를 편집할 수 있었습니다. `maps_public` 뷰로는 원본 테이블 직접 조회를 막지 못합니다. 0002에서 읽기 정책을 전부 없애 기본 거부로 만들고, `get_map_document`(security definer, edit_token 미반환)로만 읽기를 엽니다. **새 테이블에 읽기 정책을 추가할 때 같은 실수를 반복하지 마세요.**
-- **저장은 변경분이 아니라 지도 전체 스냅샷 교체입니다.** `save_map_document`가 자식 행을 지우고 다시 넣습니다. 한 트랜잭션이어야 해서 RPC로 만들었습니다. PostGIS ↔ `{lat,lng}` 변환도 이 함수 안에서 끝나므로 클라이언트는 PostGIS를 모릅니다.
+- **저장은 지도 전체 스냅샷을 보내지만 DB에는 업서트로 반영됩니다** (0006). 클라이언트가 만든 uuid를 그대로 기본키로 쓰고, 페이로드에 없는 행만 지웁니다. 그래서 `lib/id.ts`의 `createId()`는 **어떤 환경에서도 유효한 uuid를 반환해야 합니다** — 형식이 깨지면 저장이 통째로 실패합니다. PostGIS ↔ `{lat,lng}` 변환은 RPC 안에서 끝나므로 클라이언트는 PostGIS를 모릅니다.
+- **업서트에는 `where <table>.map_id = v_id` 가드가 붙어 있습니다.** 없으면 남의 지도 행 id를 일부러 보내 그 행을 자기 지도로 끌어올 수 있습니다. 이 가드 때문에 **테스트에서 여러 지도가 같은 id를 쓰면 행이 조용히 빠집니다** — 의도된 동작입니다.
 - **이동수단은 `segments` 테이블이 아니라 `places.mode_to_next`에 있습니다.** 클라이언트의 유일한 근거가 "places 배열 순서 + 각 핀의 다음 구간 이동수단"이라 두 곳에 나누면 동기화 버그만 생깁니다. `segments` 테이블은 비어 있고, 설계안의 `style='manual'`(사용자가 그린 선으로 연결선 대체)과 실제 경로 좌표를 저장할 때 쓸 자리로 남겨 뒀습니다.
 - **공유 텍스트 파싱은 단축 URL을 절대 풀지 않습니다.** `naver.me`/`kko.kr`을 서버에서 리졸브하는 건 타사 약관 회색지대입니다. 대신 URL을 버리고 이름/주소만 뽑아 Kakao Local에 재검색합니다 (`lib/kakao/parseShareText.ts` + `app/api/parse-share/route.ts`).
 - **`extractDistrict`는 시/도 접두를 먼저 걷어냅니다.** 안 그러면 "서울특별시"의 '시'를 구·군으로 오인합니다.
