@@ -50,6 +50,8 @@ interface MapStore extends Snapshot {
   addStroke: (stroke: Stroke) => void;
   removeStroke: (id: string) => void;
   addLabel: (label: MapLabel) => void;
+  /** 글자를 고치거나 위치를 옮길 때 쓴다. */
+  updateLabel: (id: string, patch: Partial<Omit<MapLabel, 'id'>>) => void;
   removeLabel: (id: string) => void;
 
   /** 고른 장소들을 새 단계 하나로 담는다. 여러 개면 그 단계의 후보가 된다. */
@@ -90,6 +92,16 @@ export const useMapStore = create<MapStore>((set, get) => ({
     set((s) => ({ ...commit(s), strokes: s.strokes.filter((x) => x.id !== id) })),
 
   addLabel: (label) => set((s) => ({ ...commit(s), labels: [...s.labels, label] })),
+
+  updateLabel: (id, patch) =>
+    set((s) => {
+      const labels = s.labels.map((label) =>
+        label.id === id ? { ...label, ...patch } : label,
+      );
+      return labels.some((label, i) => label !== s.labels[i])
+        ? { ...commit(s), labels }
+        : s;
+    }),
 
   removeLabel: (id) =>
     set((s) => ({ ...commit(s), labels: s.labels.filter((x) => x.id !== id) })),

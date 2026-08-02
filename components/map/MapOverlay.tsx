@@ -12,6 +12,8 @@ import { useMapCanvas } from './useMapCanvas';
 const RDP_EPSILON_PX = 2;
 const MIN_SAMPLE_PX = 1.5;
 const ERASE_HIT_PX = 14;
+/** 이만큼 움직이기 전까지는 탭으로 본다. 손이 살짝 떨렸다고 라벨이 옮겨지면 안 된다. */
+const LABEL_DRAG_PX = 4;
 
 interface LiveStroke {
   points: Point[];
@@ -23,20 +25,39 @@ interface Draft {
   kind: 'label' | 'place';
   point: Point;
   coord: LatLng;
+  /** 있으면 새로 만드는 게 아니라 이 라벨의 글자를 고치는 중이다. */
+  editingLabelId?: string;
+  initialText?: string;
+}
+
+/** 끌고 있는 라벨. 스토어에 넣으면 되돌리기 기록이 프레임마다 쌓인다. */
+interface LabelDrag {
+  id: string;
+  start: Point;
+  moved: boolean;
 }
 
 export function MapOverlay({ map }: { map: kakao.maps.Map | null }) {
   const liveRef = useRef<LiveStroke | null>(null);
+  const labelDragRef = useRef<LabelDrag | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [draggedLabel, setDraggedLabel] = useState<{ id: string; coord: LatLng } | null>(null);
 
   const stops = useMapStore((s) => s.stops);
   const strokes = useMapStore((s) => s.strokes);
   const labels = useMapStore((s) => s.labels);
   const mode = useMapStore((s) => s.mode);
 
+  // 끄는 동안에는 확정 전 위치로 그린다.
+  const renderedLabels = draggedLabel
+    ? labels.map((label) =>
+        label.id === draggedLabel.id ? { ...label, location: draggedLabel.coord } : label,
+      )
+    : labels;
+
   const { canvasRef, toScreen, toCoord, redraw } = useMapCanvas({
     map,
-    scene: { stops, strokes, labels },
+    scene: { stops, strokes, labels: renderedLabels },
     // 그리는 중인 획은 스토어에 들어가기 전이므로 장면 뒤에 덧그린다.
     afterDraw: (ctx) => {
       const live = liveRef.current;
@@ -76,7 +97,18 @@ export function MapOverlay({ map }: { map: kakao.maps.Map | null }) {
     const point = eventPoint(event);
 
     if (mode === 'erase') return eraseAt(point);
-    if (mode === 'label') return setDraft({ kind: 'label', point, coord: toCoord(point) });
+
+    if (mode === 'label') {
+      // 이미 있는 라벨을 짚었으면 새로 만들지 않는다. 탭이면 글자 수정, 끌면 이동.
+      const existing = labelAt(point);
+      if (existing) {
+        event.currentTarget.setPointerCapture(event.pointerId);
+        labelDragRef.current = { id: existing.id, start: point, moved: false };
+        return;
+      }
+      return setDraft({ kind: 'label', point, coord: toCoord(point) });
+    }
+
     if (mode === 'place') return setDraft({ kind: 'place', point, coord: toCoord(point) });
     if (mode !== 'draw') return;
 
@@ -86,6 +118,18 @@ export function MapOverlay({ map }: { map: kakao.maps.Map | null }) {
   };
 
   const handlePointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const drag = labelDragRef.current;
+    if (drag) {
+      event.preventDefault();
+      const point = eventPoint(event);
+      if (!drag.moved && Math.hypot(point.x - drag.start.x, point.y - drag.start.y) < LABEL_DRAG_PX) {
+        return;
+      }
+      drag.moved = true;
+      setDraggedLabel({ id: drag.id, coord: toCoord(point) });
+      return;
+    }
+
     const live = liveRef.current;
     if (!live) return;
     event.preventDefault();
@@ -106,6 +150,29 @@ export function MapOverlay({ map }: { map: kakao.maps.Map | null }) {
     ctx.stroke();
   };
 
+  /** 라벨을 짚고 있었다면 이동을 확정하거나 글자 수정으로 넘어간다. */
+  const handlePointerUp = () => {
+    const drag = labelDragRef.current;
+    if (!drag) return commitStroke();
+
+    labelDragRef.current = null;
+    const label = useMapStore.getState().labels.find((item) => item.id === drag.id);
+
+    if (drag.moved) {
+      // 끄는 동안에는 화면에만 그렸다. 손을 뗄 때 한 번만 기록한다.
+      if (draggedLabel) useMapStore.getState().updateLabel(drag.id, { location: draggedLabel.coord });
+    } else if (label) {
+      setDraft({
+        kind: 'label',
+        point: drag.start,
+        coord: label.location,
+        editingLabelId: label.id,
+        initialText: label.text,
+      });
+    }
+    setDraggedLabel(null);
+  };
+
   const commitStroke = () => {
     const live = liveRef.current;
     liveRef.current = null;
@@ -124,6 +191,16 @@ export function MapOverlay({ map }: { map: kakao.maps.Map | null }) {
       zoomCreated: map.getLevel(),
     };
     useMapStore.getState().addStroke(stroke);
+  };
+
+  const labelAt = (point: Point) => {
+    const { labels: current } = useMapStore.getState();
+    // 위에 그려진 것부터 찾는다.
+    for (let i = current.length - 1; i >= 0; i--) {
+      const label = current[i]!;
+      if (hitsLabel(point, label, toScreen(label.location))) return label;
+    }
+    return null;
   };
 
   /** 지우개는 위에 그려진 것부터 지운다: 라벨 → 핀 → 획. */
@@ -161,18 +238,27 @@ export function MapOverlay({ map }: { map: kakao.maps.Map | null }) {
         }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
-        onPointerUp={commitStroke}
-        onPointerCancel={commitStroke}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
       />
 
       {draft && (
         <DraftInput
+          key={draft.editingLabelId ?? 'new'}
           point={draft.point}
-          placeholder={draft.kind === 'place' ? '장소 이름 후 Enter' : '메모 입력 후 Enter'}
+          initialText={draft.initialText ?? ''}
+          placeholder={
+            draft.kind === 'place'
+              ? '장소 이름 후 Enter'
+              : draft.editingLabelId
+                ? '메모 수정 후 Enter'
+                : '메모 입력 후 Enter'
+          }
           onCancel={() => setDraft(null)}
           onCommit={(text) => {
             const store = useMapStore.getState();
-            if (draft.kind === 'place') store.addStop([createPlace(draft.coord, text)]);
+            if (draft.editingLabelId) store.updateLabel(draft.editingLabelId, { text });
+            else if (draft.kind === 'place') store.addStop([createPlace(draft.coord, text)]);
             else store.addLabel(createLabel(draft.coord, text));
             setDraft(null);
           }}
@@ -185,15 +271,17 @@ export function MapOverlay({ map }: { map: kakao.maps.Map | null }) {
 function DraftInput({
   point,
   placeholder,
+  initialText,
   onCommit,
   onCancel,
 }: {
   point: Point;
   placeholder: string;
+  initialText: string;
   onCommit: (text: string) => void;
   onCancel: () => void;
 }) {
-  const [text, setText] = useState('');
+  const [text, setText] = useState(initialText);
   const inputRef = useRef<HTMLInputElement>(null);
 
   /* 뜬 직후의 blur는 사용자가 다른 곳을 누른 게 아니라 클릭이 끝나면서 포커스가
@@ -205,7 +293,11 @@ function DraftInput({
       settledRef.current = true;
     }, 300);
     inputRef.current?.focus();
+    // 고치는 경우엔 전체를 잡아 둔다. 바로 다시 쓰거나 지우기 편하다.
+    if (initialText) inputRef.current?.select();
     return () => clearTimeout(timer);
+    // 마운트 시 한 번만. initialText는 key로 새 인스턴스를 만들어 반영한다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (

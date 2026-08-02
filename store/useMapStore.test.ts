@@ -81,6 +81,36 @@ describe('라벨', () => {
     expect(useMapStore.getState().labels).toHaveLength(0);
   });
 
+  it('글자를 고칠 수 있고 되돌릴 수 있다', () => {
+    const label = createLabel({ lat: 37.5, lng: 127 }, '여기서 계단으로');
+    useMapStore.getState().addLabel(label);
+
+    useMapStore.getState().updateLabel(label.id, { text: '여기서 엘리베이터로' });
+    expect(useMapStore.getState().labels[0]!.text).toBe('여기서 엘리베이터로');
+
+    useMapStore.getState().undo();
+    expect(useMapStore.getState().labels[0]!.text).toBe('여기서 계단으로');
+  });
+
+  it('위치를 옮길 수 있다', () => {
+    const label = createLabel({ lat: 37.5, lng: 127 }, '메모');
+    useMapStore.getState().addLabel(label);
+
+    useMapStore.getState().updateLabel(label.id, { location: { lat: 37.6, lng: 127.1 } });
+    expect(useMapStore.getState().labels[0]!.location).toEqual({ lat: 37.6, lng: 127.1 });
+    // 글자는 건드리지 않는다.
+    expect(useMapStore.getState().labels[0]!.text).toBe('메모');
+  });
+
+  it('없는 라벨을 고치려 하면 아무 일도 없다', () => {
+    useMapStore.getState().addLabel(createLabel({ lat: 37.5, lng: 127 }, '메모'));
+    const before = useMapStore.getState().labels;
+
+    useMapStore.getState().updateLabel('없는-id', { text: '바뀜' });
+    expect(useMapStore.getState().labels).toBe(before);
+    expect(useMapStore.getState().history).toHaveLength(1);
+  });
+
   it('생성된 라벨은 고유 id와 기본 스타일을 가진다', () => {
     const a = createLabel({ lat: 37.5, lng: 127 }, 'A');
     const b = createLabel({ lat: 37.5, lng: 127 }, 'B');
