@@ -59,6 +59,9 @@ Railway는 Nixpacks가 Next.js를 자동 감지해 `npm install` → `npm run bu
 실행합니다. **이 순서는 로컬에서 검증해 뒀습니다** — `PORT` 환경변수를 주입해 실행했을 때
 랜딩·API·뷰어·OG 썸네일·저장·삭제까지 전부 정상 동작합니다.
 
+저장소에 `railway.json`, `.nvmrc`, `package.json`의 `engines`가 들어 있어 빌드 방식과
+Node 버전이 고정돼 있습니다. Railway 화면에서 따로 설정할 것은 없습니다.
+
 #### 1. 프로젝트 생성
 
 1. https://railway.app 에서 GitHub 계정으로 로그인
@@ -172,3 +175,20 @@ Railway와 Vercel 모두 `main`에 push하면 자동으로 다시 배포합니�
 
 **`SUPABASE_SERVICE_ROLE_KEY`는 RLS를 통과하는 마스터 키입니다.** `NEXT_PUBLIC_` 접두어를
 절대 붙이지 마세요. 붙는 순간 브라우저 번들에 박혀 누구나 DB 전체를 읽고 쓸 수 있습니다.
+
+## 빌드가 실패할 때
+
+실제로 겪은 두 가지입니다. 둘 다 저장소에 설정을 넣어 막아 뒀으니, 비슷한 증상이 다시
+보이면 그 설정이 사라졌는지 먼저 확인하세요.
+
+**`EBUSY: resource busy or locked, rmdir '/app/node_modules/.cache'`**
+
+`npm ci`는 `node_modules`를 통째로 지우는데, Railway는 그 안의 `.cache`를 빌드 캐시로
+마운트한다. 마운트된 디렉터리는 지울 수 없어서 설치가 거기서 죽는다.
+그래서 `railway.json`의 buildCommand는 `npm ci`가 아니라 `npm install`을 쓴다.
+
+**`npm warn EBADENGINE ... current: { node: 'v18...' }`**
+
+Railway가 Node 18을 골랐다는 뜻이다. `@supabase/*`는 22 이상, `@tailwindcss/oxide`는
+20 이상을 요구하므로 그대로 두면 설치는 넘어가도 이후에 깨진다.
+`.nvmrc`(`22`)와 `package.json`의 `engines.node`가 버전을 고정한다.
