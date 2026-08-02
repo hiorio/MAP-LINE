@@ -1,16 +1,25 @@
 import { strokeRenderAlpha, strokeRenderWidth } from '@/lib/geo/projection';
 import type { Point } from '@/lib/geo/rdp';
-import { flattenStops, type LatLng, type MapLabel, type Place, type Stop, type Stroke } from '@/lib/map/types';
+import {
+  flattenStops,
+  stopCentroid,
+  type LatLng,
+  type MapLabel,
+  type Place,
+  type Stop,
+  type Stroke,
+} from '@/lib/map/types';
 
 /**
- * 오버레이 한 장에 획 → 핀 → 라벨 순으로 그린다.
+ * 오버레이 한 장에 화살표 → 획 → 핀 → 라벨 순으로 그린다.
  *
  * 설계안 §12.2는 PinLayer/SegmentLayer를 별도 컴포넌트로 두지만, 레이어마다 캔버스를
  * 나누면 팬·줌 동기화와 좌표 재투영을 그 수만큼 반복해야 한다. 캔버스는 하나로 두고
  * 그리는 함수만 분리하는 편이 비용과 코드 양 모두 유리하다.
  *
- * 단계 사이를 잇는 자동 연결선은 그리지 않는다. 한 단계에 후보가 여러 개이면 선이
- * 어느 후보를 가리키는지 알 수 없어 오히려 잘못된 정보를 준다. 동선은 손그림으로 그린다.
+ * 단계 사이 화살표는 후보 하나가 아니라 후보들의 중간지점에서 출발한다. 특정 후보에서
+ * 선을 뽑으면 나머지 후보가 동선에서 빠진 것처럼 보이지만, 무리의 가운데에서 출발하면
+ * "이 단계에서 다음 단계로"만 말하게 되어 어느 후보를 고르든 틀리지 않는다.
  */
 export interface Scene {
   stops: readonly Stop[];
@@ -39,6 +48,9 @@ export function drawScene(
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
+  // 손그림보다 아래에 깔아 둔다. 사용자가 직접 그린 선이 주인공이다.
+  drawStopArrows(ctx, scene.stops, project);
+
   for (const stroke of scene.strokes) {
     const points = stroke.path.map(project);
     if (points.length < 2) continue;
@@ -60,6 +72,73 @@ export function drawScene(
     drawPin(ctx, place, stopNumber, project(place.location));
   }
   for (const label of scene.labels) drawLabel(ctx, label, project(label.location));
+}
+
+/* ------------------------------------------------------------------ 화살표 */
+
+const ARROW_COLOR = '#8A8A83';
+const ARROW_WIDTH = 2.5;
+const ARROW_HEAD_PX = 10;
+/** 화살표가 핀 안쪽에서 시작·끝나면 지저분하다. 양끝을 이만큼 물려 놓는다. */
+const ARROW_TRIM_PX = PIN_RADIUS + 6;
+/** 두 단계가 이보다 가까우면 화살표가 머리만 남아 오히려 지저분하다. */
+const ARROW_MIN_PX = ARROW_TRIM_PX * 2 + 12;
+
+function drawStopArrows(
+  ctx: CanvasRenderingContext2D,
+  stops: readonly Stop[],
+  project: Projector,
+) {
+  const centers = stops.map((stop) => {
+    const centroid = stopCentroid(stop);
+    return centroid ? project(centroid) : null;
+  });
+
+  ctx.save();
+  ctx.strokeStyle = ARROW_COLOR;
+  ctx.fillStyle = ARROW_COLOR;
+  ctx.lineWidth = ARROW_WIDTH;
+
+  for (let i = 1; i < centers.length; i++) {
+    const from = centers[i - 1];
+    const to = centers[i];
+    if (!from || !to) continue;
+
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const length = Math.hypot(dx, dy);
+    if (length < ARROW_MIN_PX) continue;
+
+    const ux = dx / length;
+    const uy = dy / length;
+    const start = { x: from.x + ux * ARROW_TRIM_PX, y: from.y + uy * ARROW_TRIM_PX };
+    const end = { x: to.x - ux * ARROW_TRIM_PX, y: to.y - uy * ARROW_TRIM_PX };
+
+    ctx.beginPath();
+    ctx.moveTo(start.x, start.y);
+    ctx.lineTo(end.x, end.y);
+    ctx.stroke();
+
+    drawArrowHead(ctx, end, ux, uy);
+  }
+  ctx.restore();
+}
+
+/** 진행 방향 끝에 채운 삼각형을 얹는다. 어느 쪽으로 가는지가 화살표의 존재 이유다. */
+function drawArrowHead(ctx: CanvasRenderingContext2D, at: Point, ux: number, uy: number) {
+  const spread = 0.42; // 라디안. 너무 벌리면 화살표가 아니라 갈매기로 보인다.
+  const cos = Math.cos(spread);
+  const sin = Math.sin(spread);
+
+  const left = { x: -ux * cos + uy * sin, y: -uy * cos - ux * sin };
+  const right = { x: -ux * cos - uy * sin, y: -uy * cos + ux * sin };
+
+  ctx.beginPath();
+  ctx.moveTo(at.x, at.y);
+  ctx.lineTo(at.x + left.x * ARROW_HEAD_PX, at.y + left.y * ARROW_HEAD_PX);
+  ctx.lineTo(at.x + right.x * ARROW_HEAD_PX, at.y + right.y * ARROW_HEAD_PX);
+  ctx.closePath();
+  ctx.fill();
 }
 
 /* ---------------------------------------------------------------------- 핀 */

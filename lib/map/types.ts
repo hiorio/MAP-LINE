@@ -82,6 +82,28 @@ export function flattenStops(stops: readonly Stop[]): { place: Place; stopNumber
   );
 }
 
+/**
+ * 단계의 대표 위치. 후보들의 평균 좌표다.
+ *
+ * 단계 사이 화살표를 그릴 때 쓴다. 후보가 여럿일 때 특정 후보에서 선을 뽑으면 나머지
+ * 후보는 동선에서 빠진 것처럼 보인다. 무리의 가운데에서 출발시키면 "이 단계에서
+ * 다음 단계로"만 말하게 되어 어느 후보를 고르든 틀리지 않는다.
+ *
+ * 한 동네 안에 흩어진 후보들이므로 구면 보정 없이 산술평균으로 충분하다.
+ */
+export function stopCentroid(stop: Stop): LatLng | null {
+  if (stop.candidates.length === 0) return null;
+
+  const sum = stop.candidates.reduce(
+    (acc, place) => ({ lat: acc.lat + place.location.lat, lng: acc.lng + place.location.lng }),
+    { lat: 0, lng: 0 },
+  );
+  return {
+    lat: sum.lat / stop.candidates.length,
+    lng: sum.lng / stop.candidates.length,
+  };
+}
+
 export const PIN_COLOR = '#E24B4A';
 
 export const STROKE_COLORS = ['#E24B4A', '#2D6BE4', '#2FA35B', '#2C2C2A'] as const;
