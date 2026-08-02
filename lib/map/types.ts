@@ -35,6 +35,15 @@ export interface PlaceCandidate {
   roadAddress?: string;
   category?: string;
   location: LatLng;
+  /** 검색 기준점에서의 거리(m). 기준점을 넘겼을 때만 있다. */
+  distanceM?: number;
+}
+
+/** 거리 표기. 1km 미만은 m, 그 이상은 소수점 한 자리 km. */
+export function formatDistance(meters: number): string {
+  if (!Number.isFinite(meters) || meters < 0) return '';
+  if (meters < 1000) return `${Math.round(meters)}m`;
+  return `${(meters / 1000).toFixed(1)}km`;
 }
 
 export interface Place {

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { TRAVEL_MODES, type PlaceCandidate, type TravelMode } from '@/lib/map/types';
+import { TRAVEL_MODES, formatDistance, type PlaceCandidate, type TravelMode } from '@/lib/map/types';
 import { placeFromCandidate, useMapStore } from '@/store/useMapStore';
 
 type Status = { kind: 'idle' } | { kind: 'loading' } | { kind: 'error'; message: string };
@@ -46,9 +46,21 @@ export function PlacePanel({
     }
   };
 
+  /** 지금 보고 있는 지도 중심. 넘기면 가까운 곳부터 나온다. */
+  const currentCenter = () => {
+    const center = map?.getCenter();
+    return center ? { lat: center.getLat(), lng: center.getLng() } : null;
+  };
+
   const search = () => {
     if (!query.trim()) return;
-    void run(() => fetch(`/api/search?q=${encodeURIComponent(query.trim())}`));
+    const center = currentCenter();
+    const params = new URLSearchParams({ q: query.trim() });
+    if (center) {
+      params.set('lat', String(center.lat));
+      params.set('lng', String(center.lng));
+    }
+    void run(() => fetch(`/api/search?${params}`));
   };
 
   /**
@@ -62,7 +74,7 @@ export function PlacePanel({
       fetch('/api/parse-share', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text, center: currentCenter() }),
       }),
     );
     return true;
@@ -123,11 +135,18 @@ export function PlacePanel({
                 }}
                 className="w-full px-4 py-3 text-left"
               >
-                <span className="text-sm font-medium">{candidate.name}</span>
-                {candidate.category && (
-                  <span className="ml-2 text-xs text-ink/40">{candidate.category}</span>
-                )}
+                <span className="flex items-baseline gap-2">
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                    {candidate.name}
+                  </span>
+                  {candidate.distanceM !== undefined && (
+                    <span className="shrink-0 text-xs tabular-nums text-ink/45">
+                      {formatDistance(candidate.distanceM)}
+                    </span>
+                  )}
+                </span>
                 <span className="mt-0.5 block text-xs text-ink/55">
+                  {candidate.category && <span className="text-ink/40">{candidate.category} · </span>}
                   {candidate.roadAddress ?? candidate.address ?? '주소 정보 없음'}
                 </span>
               </button>

@@ -55,4 +55,13 @@ describe('toCandidate', () => {
     const result = toCandidate({ ...document, category_group_name: '', category_name: '음식점 > 카페' });
     expect(result?.category).toBe('음식점 > 카페');
   });
+
+  it('기준 좌표를 넘겼을 때만 오는 distance를 숫자로 읽는다', () => {
+    expect(toCandidate({ ...document, distance: '1532' })?.distanceM).toBe(1532);
+  });
+
+  it('distance가 없으면 키 자체를 넣지 않는다', () => {
+    expect(toCandidate(document)).not.toHaveProperty('distanceM');
+    expect(toCandidate({ ...document, distance: '' })).not.toHaveProperty('distanceM');
+  });
 });

@@ -1,14 +1,16 @@
 import { NextResponse } from 'next/server';
 import { MissingRestKeyError, searchPlaces } from '@/lib/kakao/localSearch';
 import { parseShareText } from '@/lib/kakao/parseShareText';
+import { readCenterParams } from '@/lib/kakao/searchParams';
 
 /** 프랜차이즈 동명 지점을 자동 확정하면 엉뚱한 지점이 담긴다. 항상 고르게 한다. */
 const CANDIDATE_COUNT = 3;
 
 export async function POST(request: Request) {
   let text: unknown;
+  let center: unknown;
   try {
-    ({ text } = (await request.json()) as { text?: unknown });
+    ({ text, center } = (await request.json()) as { text?: unknown; center?: unknown });
   } catch {
     return NextResponse.json({ error: '잘못된 요청 본문입니다.' }, { status: 400 });
   }
@@ -27,7 +29,13 @@ export async function POST(request: Request) {
 
   try {
     // URL은 버리고, 뽑아낸 이름·지역으로 Kakao Local에 정식 재검색을 건다.
-    const places = await searchPlaces(parsed.query, CANDIDATE_COUNT);
+    // 지도 중심을 함께 넘겨 동명 지점 중 가까운 것이 위로 오게 한다.
+    const coordinate = center as { lat?: unknown; lng?: unknown } | undefined;
+    const places = await searchPlaces(
+      parsed.query,
+      CANDIDATE_COUNT,
+      readCenterParams(coordinate?.lat, coordinate?.lng),
+    );
     return NextResponse.json({ parsed, places });
   } catch (cause) {
     if (cause instanceof MissingRestKeyError) {

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { MissingRestKeyError, searchPlaces } from '@/lib/kakao/localSearch';
+import { readCenterParams } from '@/lib/kakao/searchParams';
 
 /**
  * Kakao 키워드 검색 프록시.
@@ -7,13 +8,16 @@ import { MissingRestKeyError, searchPlaces } from '@/lib/kakao/localSearch';
  * 사용량을 소진시킬 수 있고 그 비용은 우리 비즈월렛에서 나간다.
  */
 export async function GET(request: Request) {
-  const query = new URL(request.url).searchParams.get('q')?.trim();
+  const params = new URL(request.url).searchParams;
+  const query = params.get('q')?.trim();
   if (!query) {
     return NextResponse.json({ error: '검색어가 없습니다.' }, { status: 400 });
   }
 
   try {
-    return NextResponse.json({ places: await searchPlaces(query) });
+    // 지금 보고 있는 지도 중심을 넘기면 가까운 곳부터 나온다.
+    const places = await searchPlaces(query, 5, readCenterParams(params.get('lat'), params.get('lng')));
+    return NextResponse.json({ places });
   } catch (cause) {
     if (cause instanceof MissingRestKeyError) {
       return NextResponse.json(

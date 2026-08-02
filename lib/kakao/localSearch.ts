@@ -1,5 +1,5 @@
 import { fromKakaoXY } from '@/lib/geo/projection';
-import type { PlaceCandidate } from '@/lib/map/types';
+import type { LatLng, PlaceCandidate } from '@/lib/map/types';
 import { recordKakaoCall } from './usage';
 
 /**
@@ -20,6 +20,8 @@ interface KakaoPlaceDocument {
   category_name?: string;
   x?: string;
   y?: string;
+  /** 기준 좌표를 넘겼을 때만 채워진다. 단위는 m. */
+  distance?: string;
 }
 
 export class MissingRestKeyError extends Error {
@@ -29,13 +31,31 @@ export class MissingRestKeyError extends Error {
   }
 }
 
-export async function searchPlaces(query: string, size = 5): Promise<PlaceCandidate[]> {
+export async function searchPlaces(
+  query: string,
+  size = 5,
+  /**
+   * 검색 기준점. 보통 지금 보고 있는 지도의 중심이다.
+   *
+   * 넘기면 거리순으로 정렬한다. "스타벅스"처럼 같은 이름이 전국에 흩어져 있는 질의에서
+   * 지금 보고 있는 동네의 지점이 위로 올라온다. 반경은 걸지 않는다 — 걸면 멀리 있는
+   * 장소를 일부러 찾을 때 결과가 통째로 사라진다.
+   */
+  center?: LatLng,
+): Promise<PlaceCandidate[]> {
   const key = process.env.KAKAO_REST_KEY;
   if (!key) throw new MissingRestKeyError();
 
   const url = new URL(KEYWORD_ENDPOINT);
   url.searchParams.set('query', query);
   url.searchParams.set('size', String(Math.min(Math.max(size, 1), 15)));
+
+  if (center) {
+    // 좌표는 x=경도, y=위도 순서다.
+    url.searchParams.set('x', String(center.lng));
+    url.searchParams.set('y', String(center.lat));
+    url.searchParams.set('sort', 'distance');
+  }
 
   // 집계 때문에 검색이 느려지거나 막히면 안 된다. 기다리지 않는다.
   void recordKakaoCall('search');
@@ -67,6 +87,7 @@ export function toCandidate(document: KakaoPlaceDocument): PlaceCandidate | null
   const address = document.address_name?.trim();
   const roadAddress = document.road_address_name?.trim();
   const category = (document.category_group_name || document.category_name)?.trim();
+  const distanceM = Number(document.distance);
 
   return {
     kakaoPlaceId: document.id ?? '',
@@ -74,6 +95,7 @@ export function toCandidate(document: KakaoPlaceDocument): PlaceCandidate | null
     ...(address ? { address } : {}),
     ...(roadAddress ? { roadAddress } : {}),
     ...(category ? { category } : {}),
+    ...(Number.isFinite(distanceM) && document.distance ? { distanceM } : {}),
     location,
   };
 }
