@@ -30,6 +30,16 @@ const WARN_RATIO = 0.8;
 const warned = new Set<string>();
 
 /**
+ * 마지막 기록 실패. 집계가 조용히 멈춘 상태를 밖에서 알아볼 수 있게 남긴다.
+ * 이 값이 있으면 화면에 보이는 사용량이 실제보다 적다는 뜻이다.
+ */
+let lastRecordError: { at: string; message: string } | null = null;
+
+export function lastRecordFailure() {
+  return lastRecordError;
+}
+
+/**
  * 호출 1건을 기록한다.
  *
  * 실패해도 throw하지 않는다. 사용량 집계 때문에 검색이나 썸네일 생성이 막히면 안 된다.
@@ -40,9 +50,13 @@ export async function recordKakaoCall(api: KakaoApi): Promise<void> {
 
   const { data, error } = await supabase.rpc('record_api_call', { p_api: api });
   if (error) {
+    // 집계 실패는 검색을 막지 않는다. 다만 조용히 넘어가면 쿼터 수치가 실제보다
+    // 낮게 보여 초과를 놓치므로, 최근 실패를 남겨 /api/usage가 알려 주게 한다.
+    lastRecordError = { at: new Date().toISOString(), message: error.message };
     console.error('[kakao-quota] 사용량 기록 실패', error);
     return;
   }
+  lastRecordError = null;
 
   const used = typeof data === 'number' ? data : 0;
   const quota = DAILY_QUOTA[api];
@@ -63,17 +77,39 @@ export interface UsageRow {
   calls: number;
 }
 
-export async function readUsage(days = 7) {
+/**
+ * 사용량 조회 결과.
+ *
+ * `configured`(환경 변수가 있는가)와 `reachable`(질의가 실제로 성공했는가)을 나눠서
+ * 돌려준다. 하나로 뭉치면 DB가 죽었을 때도 "설정됨 + 빈 목록"으로 보여서, 사용량이
+ * 0인 것인지 DB가 안 붙는 것인지 구분할 수 없다. 실제로 배포 환경에서 잘못된 자격
+ * 증명을 그대로 두고 정상이라고 오판한 적이 있다.
+ */
+export interface UsageResult {
+  configured: boolean;
+  reachable: boolean;
+  rows: UsageRow[];
+  error?: string;
+}
+
+export async function readUsage(days = 7): Promise<UsageResult> {
   const supabase = getServiceClient();
-  if (!supabase) return { configured: false as const, rows: [] as UsageRow[] };
+  if (!supabase) {
+    return {
+      configured: false,
+      reachable: false,
+      rows: [],
+      error: 'Supabase 환경 변수가 없습니다.',
+    };
+  }
 
   const { data, error } = await supabase.rpc('get_api_usage', { p_days: days });
   if (error) {
     console.error('[kakao-quota] 사용량 조회 실패', error);
-    return { configured: true as const, rows: [] as UsageRow[] };
+    return { configured: true, reachable: false, rows: [], error: error.message };
   }
 
-  return { configured: true as const, rows: (data ?? []) as UsageRow[] };
+  return { configured: true, reachable: true, rows: (data ?? []) as UsageRow[] };
 }
 
 /** 오늘 사용량을 쿼터와 함께 정리한다. */
