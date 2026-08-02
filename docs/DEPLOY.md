@@ -79,7 +79,15 @@ Railway는 Nixpacks가 Next.js를 자동 감지해 `npm install` → `npm run bu
 | `SUPABASE_SERVICE_ROLE_KEY` | `.env.local`과 동일 |
 | `NEXT_PUBLIC_SITE_URL` | **3단계에서 도메인을 만든 뒤 채웁니다** |
 
-`PORT`는 Railway가 자동으로 넣어 줍니다. 직접 설정하지 마세요.
+`PORT`도 함께 넣습니다.
+
+```
+PORT=3000
+```
+
+`next start`는 `PORT`가 없으면 3000을 쓰므로 값 자체는 같지만, 다음 단계에서 도메인이
+포워딩할 **Target Port를 직접 입력해야 하므로** 양쪽을 같은 값으로 못 박아 둔다.
+어긋나면 앱은 정상인데 502만 돌아온다.
 
 `NEXT_PUBLIC_SUPABASE_ANON_KEY`는 현재 코드에서 쓰지 않으므로 넣지 않아도 됩니다.
 
@@ -91,8 +99,8 @@ Railway는 Nixpacks가 Next.js를 자동 감지해 `npm install` → `npm run bu
 서비스 > `Settings` > `Networking` > `Generate Domain`을 누르면
 `https://map-line-production-xxxx.up.railway.app` 형태의 주소가 생깁니다.
 
-Railway는 내부적으로 포트를 물어볼 수 있는데, 그때는 `3000`이 아니라
-**서비스가 실제로 듣는 포트를 자동 감지**하게 두면 됩니다(`PORT`를 우리가 쓰고 있습니다).
+**Target Port를 입력하라는 란이 뜨면 `3000`을 넣습니다.** 앞 단계에서 `PORT=3000`을
+설정했으므로 앱이 듣는 포트와 일치합니다. 두 값이 다르면 배포는 성공했는데 접속만 502가 됩니다.
 
 #### 4. 배포 후 반드시 할 두 가지
 
