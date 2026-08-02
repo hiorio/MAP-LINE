@@ -67,6 +67,12 @@ export function MapOverlay({ map }: { map: kakao.maps.Map | null }) {
 
   const handlePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
     if (!map) return;
+
+    /* 뒤따르는 mousedown이 포커스를 캔버스로 옮기지 못하게 막는다.
+       막지 않으면 바로 아래에서 띄우는 입력창이 뜨자마자 blur되어 스스로 취소한다.
+       합성 pointerdown만으로는 재현되지 않고 실제 마우스로만 드러나는 경로다. */
+    event.preventDefault();
+
     const point = eventPoint(event);
 
     if (mode === 'erase') return eraseAt(point);
@@ -74,7 +80,6 @@ export function MapOverlay({ map }: { map: kakao.maps.Map | null }) {
     if (mode === 'place') return setDraft({ kind: 'place', point, coord: toCoord(point) });
     if (mode !== 'draw') return;
 
-    event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
     const { color, width } = useMapStore.getState();
     liveRef.current = { points: [point], color, width };
@@ -187,17 +192,41 @@ function DraftInput({
   onCancel: () => void;
 }) {
   const [text, setText] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  /* 뜬 직후의 blur는 사용자가 다른 곳을 누른 게 아니라 클릭이 끝나면서 포커스가
+     되돌아간 것이다. 그걸 취소로 받으면 입력창이 뜨자마자 사라진다.
+     짧은 유예 동안은 blur를 무시하고 포커스를 되찾는다. */
+  const settledRef = useRef(false);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      settledRef.current = true;
+    }, 300);
+    inputRef.current?.focus();
+    return () => clearTimeout(timer);
+  }, []);
 
   return (
     <input
+      ref={inputRef}
       autoFocus
       value={text}
       onChange={(e) => setText(e.target.value)}
       onKeyDown={(e) => {
+        // 한글 입력 중 조합을 확정하는 Enter도 keydown으로 들어온다. 그걸 제출로 받으면
+        // 마지막 글자가 빠진 채 저장된다. 조합이 끝난 Enter만 제출로 본다.
+        if (e.nativeEvent.isComposing) return;
         if (e.key === 'Enter' && text.trim()) onCommit(text.trim());
         if (e.key === 'Escape') onCancel();
       }}
-      onBlur={() => (text.trim() ? onCommit(text.trim()) : onCancel())}
+      onBlur={() => {
+        if (!settledRef.current) {
+          inputRef.current?.focus();
+          return;
+        }
+        if (text.trim()) onCommit(text.trim());
+        else onCancel();
+      }}
       placeholder={placeholder}
       className="absolute z-20 h-9 w-48 -translate-x-1/2 -translate-y-1/2 rounded-lg border border-ink bg-white px-2 text-sm shadow-lg outline-none"
       style={{ left: point.x, top: point.y }}

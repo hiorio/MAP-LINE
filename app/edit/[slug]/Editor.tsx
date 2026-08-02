@@ -5,6 +5,7 @@ import { KakaoMap } from '@/components/map/KakaoMap';
 import { MapOverlay } from '@/components/map/MapOverlay';
 import { PlacePanel } from '@/components/panels/PlacePanel';
 import { EditorToolbar } from '@/components/toolbar/EditorToolbar';
+import { SearchBar } from '@/components/toolbar/SearchBar';
 import { loadDocument, saveDocument, type SaveMode } from '@/lib/map/persistence';
 import { DEFAULT_CENTER, DEFAULT_LEVEL, type LatLng } from '@/lib/map/types';
 import { useMapStore } from '@/store/useMapStore';
@@ -52,9 +53,10 @@ export function Editor({ slug }: { slug: string }) {
             <MapOverlay map={map} />
           </>
         )}
-        {searchOpen && <PlacePanel onClose={() => setSearchOpen(false)} />}
+        {!searchOpen && <SearchBar onOpen={() => setSearchOpen(true)} />}
+        {searchOpen && <PlacePanel map={map} onClose={() => setSearchOpen(false)} />}
       </div>
-      <EditorToolbar onOpenSearch={() => setSearchOpen(true)} />
+      <EditorToolbar />
     </div>
   );
 }

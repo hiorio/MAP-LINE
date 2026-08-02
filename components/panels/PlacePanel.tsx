@@ -6,13 +6,24 @@ import { placeFromCandidate, useMapStore } from '@/store/useMapStore';
 
 type Status = { kind: 'idle' } | { kind: 'loading' } | { kind: 'error'; message: string };
 
-export function PlacePanel({ onClose }: { onClose: () => void }) {
+export function PlacePanel({
+  onClose,
+  map,
+}: {
+  onClose: () => void;
+  map: kakao.maps.Map | null;
+}) {
   const [query, setQuery] = useState('');
   const [candidates, setCandidates] = useState<PlaceCandidate[]>([]);
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
 
   const places = useMapStore((s) => s.places);
   const addPlace = useMapStore((s) => s.addPlace);
+
+  /** 검색해서 담은 장소는 화면 밖일 때가 대부분이다. 담았으면 거기로 데려다 준다. */
+  const focus = (location: { lat: number; lng: number }) => {
+    map?.setCenter(new kakao.maps.LatLng(location.lat, location.lng));
+  };
 
   const run = async (request: () => Promise<Response>) => {
     setStatus({ kind: 'loading' });
@@ -64,7 +75,10 @@ export function PlacePanel({ onClose }: { onClose: () => void }) {
           autoFocus
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && search()}
+          // 한글 조합을 확정하는 Enter까지 검색으로 받으면 미완성 질의가 날아간다.
+          onKeyDown={(e) => {
+            if (!e.nativeEvent.isComposing && e.key === 'Enter') search();
+          }}
           onPaste={(e) => {
             if (handlePaste(e.clipboardData.getData('text'))) e.preventDefault();
           }}
@@ -101,8 +115,11 @@ export function PlacePanel({ onClose }: { onClose: () => void }) {
                 type="button"
                 onClick={() => {
                   addPlace(placeFromCandidate(candidate));
+                  focus(candidate.location);
                   setCandidates([]);
                   setQuery('');
+                  // 담자마자 지도에서 확인할 수 있게 패널을 닫는다.
+                  onClose();
                 }}
                 className="w-full px-4 py-3 text-left"
               >
@@ -119,7 +136,7 @@ export function PlacePanel({ onClose }: { onClose: () => void }) {
         </ul>
       )}
 
-      {places.length > 0 && <PlaceList />}
+      {places.length > 0 && <PlaceList onFocus={focus} />}
 
       {places.length === 0 && candidates.length === 0 && status.kind === 'idle' && (
         <p className="px-4 py-6 text-sm leading-relaxed text-ink/50">
@@ -133,7 +150,7 @@ export function PlacePanel({ onClose }: { onClose: () => void }) {
 }
 
 /** 배열 순서가 곧 핀 번호이자 연결선의 방향이다. */
-function PlaceList() {
+function PlaceList({ onFocus }: { onFocus: (location: { lat: number; lng: number }) => void }) {
   const places = useMapStore((s) => s.places);
   const movePlace = useMapStore((s) => s.movePlace);
   const removePlace = useMapStore((s) => s.removePlace);
@@ -151,7 +168,13 @@ function PlaceList() {
               <span className="grid size-6 shrink-0 place-items-center rounded-full bg-coral text-xs font-semibold text-white">
                 {index + 1}
               </span>
-              <span className="min-w-0 flex-1 truncate text-sm">{place.name}</span>
+              <button
+                type="button"
+                onClick={() => onFocus(place.location)}
+                className="min-w-0 flex-1 truncate text-left text-sm"
+              >
+                {place.name}
+              </button>
               <button
                 type="button"
                 aria-label="위로"

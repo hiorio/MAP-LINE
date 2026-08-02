@@ -12,7 +12,7 @@ const MODES: { id: EditorMode; label: string; icon: string }[] = [
   { id: 'erase', label: '지우개', icon: '🧽' },
 ];
 
-export function EditorToolbar({ onOpenSearch }: { onOpenSearch: () => void }) {
+export function EditorToolbar() {
   const mode = useMapStore((s) => s.mode);
   const setMode = useMapStore((s) => s.setMode);
   const undo = useMapStore((s) => s.undo);
@@ -23,16 +23,6 @@ export function EditorToolbar({ onOpenSearch }: { onOpenSearch: () => void }) {
       {mode === 'draw' && <StrokeOptions />}
 
       <div className="flex h-14 items-center gap-1 overflow-x-auto px-2">
-        <button
-          type="button"
-          onClick={onOpenSearch}
-          className="h-9 shrink-0 rounded-lg border border-hairline px-3 text-sm"
-        >
-          🔍 검색
-        </button>
-
-        <span className="mx-1 h-6 w-px shrink-0 bg-hairline" />
-
         {MODES.map(({ id, label, icon }) => (
           <button
             key={id}
