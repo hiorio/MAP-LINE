@@ -4,6 +4,8 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { KakaoMap } from '@/components/map/KakaoMap';
 import { useMapCanvas } from '@/components/map/useMapCanvas';
+import { PlaceStrip } from '@/components/panels/PlaceStrip';
+import { focusPlaces } from '@/lib/map/focusPlaces';
 import { readEditToken } from '@/lib/map/persistence';
 import type { StoredMapDocument } from '@/lib/map/getMapDocument';
 
@@ -46,7 +48,10 @@ export function Viewer({ document }: { document: StoredMapDocument }) {
         <ViewerCanvas map={map} document={document} />
       </div>
 
-      <PlaceStrip document={document} map={map} />
+      <PlaceStrip
+        places={document.places}
+        onFocus={(place) => focusPlaces(map, [place.location])}
+      />
 
       {/* 설계안 §7.4 — 뷰어에서 생성으로 유도하는 전환 지점 */}
       <Link
@@ -84,32 +89,3 @@ function ViewerCanvas({
   );
 }
 
-/** 탭하면 해당 핀으로 지도를 옮긴다. */
-function PlaceStrip({
-  document,
-  map,
-}: {
-  document: StoredMapDocument;
-  map: kakao.maps.Map | null;
-}) {
-  if (document.places.length === 0) return null;
-
-  return (
-    <ol className="z-30 flex shrink-0 gap-2 overflow-x-auto border-t border-hairline bg-white px-3 py-2">
-      {document.places.map((place, index) => (
-        <li key={place.id}>
-          <button
-            type="button"
-            onClick={() => map?.setCenter(new kakao.maps.LatLng(place.location.lat, place.location.lng))}
-            className="flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-hairline px-3 text-sm"
-          >
-            <span className="grid size-5 place-items-center rounded-full bg-coral text-[11px] font-semibold text-white">
-              {index + 1}
-            </span>
-            {place.name}
-          </button>
-        </li>
-      ))}
-    </ol>
-  );
-}

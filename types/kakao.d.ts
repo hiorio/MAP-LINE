@@ -21,6 +21,12 @@ declare namespace kakao.maps {
     coordsFromContainerPoint(point: Point): LatLng;
   }
 
+  class LatLngBounds {
+    constructor(sw?: LatLng, ne?: LatLng);
+    extend(latlng: LatLng): void;
+    isEmpty(): boolean;
+  }
+
   interface MapOptions {
     center: LatLng;
     level?: number;
@@ -31,6 +37,7 @@ declare namespace kakao.maps {
     constructor(container: HTMLElement, options: MapOptions);
     getCenter(): LatLng;
     setCenter(latlng: LatLng): void;
+    setBounds(bounds: LatLngBounds): void;
     getLevel(): number;
     setLevel(level: number): void;
     getProjection(): Projection;

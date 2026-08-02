@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { KakaoMap } from '@/components/map/KakaoMap';
 import { MapOverlay } from '@/components/map/MapOverlay';
 import { PlacePanel } from '@/components/panels/PlacePanel';
+import { PlaceStrip } from '@/components/panels/PlaceStrip';
+import { focusPlaces } from '@/lib/map/focusPlaces';
 import { EditorToolbar } from '@/components/toolbar/EditorToolbar';
 import { SearchBar } from '@/components/toolbar/SearchBar';
 import { loadDocument, saveDocument, type SaveMode } from '@/lib/map/persistence';
@@ -56,8 +58,39 @@ export function Editor({ slug }: { slug: string }) {
         {!searchOpen && <SearchBar onOpen={() => setSearchOpen(true)} />}
         {searchOpen && <PlacePanel map={map} onClose={() => setSearchOpen(false)} />}
       </div>
+      {!searchOpen && <EditorPlaceStrip map={map} onOpenList={() => setSearchOpen(true)} />}
       <EditorToolbar />
     </div>
+  );
+}
+
+/**
+ * 담은 장소를 항상 보이게 둔다. 검색 패널 안에만 있으면 닫는 순간 무엇을 담았는지
+ * 알 수 없고, 확인하려면 매번 패널을 다시 열어야 한다.
+ */
+function EditorPlaceStrip({
+  map,
+  onOpenList,
+}: {
+  map: kakao.maps.Map | null;
+  onOpenList: () => void;
+}) {
+  const places = useMapStore((s) => s.places);
+
+  return (
+    <PlaceStrip
+      places={places}
+      onFocus={(place) => focusPlaces(map, [place.location])}
+      trailing={
+        <button
+          type="button"
+          onClick={onOpenList}
+          className="h-9 shrink-0 rounded-lg border border-hairline px-3 text-sm"
+        >
+          순서 편집
+        </button>
+      }
+    />
   );
 }
 

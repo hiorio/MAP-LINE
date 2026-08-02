@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { focusPlaces } from '@/lib/map/focusPlaces';
 import { TRAVEL_MODES, formatDistance, type PlaceCandidate, type TravelMode } from '@/lib/map/types';
 import { placeFromCandidate, useMapStore } from '@/store/useMapStore';
 
@@ -17,16 +18,37 @@ export function PlacePanel({
   const [candidates, setCandidates] = useState<PlaceCandidate[]>([]);
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
 
+  /** 검색 결과에서 고른 것들. 한 번에 여러 곳을 담기 위한 것이다. */
+  const [selected, setSelected] = useState<PlaceCandidate[]>([]);
+
   const places = useMapStore((s) => s.places);
   const addPlace = useMapStore((s) => s.addPlace);
 
-  /** 검색해서 담은 장소는 화면 밖일 때가 대부분이다. 담았으면 거기로 데려다 준다. */
-  const focus = (location: { lat: number; lng: number }) => {
-    map?.setCenter(new kakao.maps.LatLng(location.lat, location.lng));
+  const isSelected = (candidate: PlaceCandidate) =>
+    selected.some((s) => s.kakaoPlaceId === candidate.kakaoPlaceId && s.name === candidate.name);
+
+  const toggle = (candidate: PlaceCandidate) => {
+    setSelected((current) =>
+      isSelected(candidate)
+        ? current.filter((s) => !(s.kakaoPlaceId === candidate.kakaoPlaceId && s.name === candidate.name))
+        : [...current, candidate],
+    );
+  };
+
+  /** 고른 곳을 순서대로 담고, 전부 보이는 화면으로 옮긴 뒤 패널을 닫는다. */
+  const commitSelection = () => {
+    if (selected.length === 0) return;
+    for (const candidate of selected) addPlace(placeFromCandidate(candidate));
+    focusPlaces(map, selected.map((candidate) => candidate.location));
+    setSelected([]);
+    setCandidates([]);
+    setQuery('');
+    onClose();
   };
 
   const run = async (request: () => Promise<Response>) => {
     setStatus({ kind: 'loading' });
+    setSelected([]);
     try {
       const response = await request();
       const body = (await response.json()) as { places?: PlaceCandidate[]; error?: string };
@@ -125,16 +147,23 @@ export function PlacePanel({
             <li key={`${candidate.kakaoPlaceId}-${candidate.name}`}>
               <button
                 type="button"
-                onClick={() => {
-                  addPlace(placeFromCandidate(candidate));
-                  focus(candidate.location);
-                  setCandidates([]);
-                  setQuery('');
-                  // 담자마자 지도에서 확인할 수 있게 패널을 닫는다.
-                  onClose();
-                }}
-                className="w-full px-4 py-3 text-left"
+                onClick={() => toggle(candidate)}
+                aria-pressed={isSelected(candidate)}
+                className={`flex w-full items-start gap-3 px-4 py-3 text-left ${
+                  isSelected(candidate) ? 'bg-coral/5' : ''
+                }`}
               >
+                <span
+                  aria-hidden
+                  className={`mt-0.5 grid size-5 shrink-0 place-items-center rounded-md border text-[11px] font-semibold ${
+                    isSelected(candidate)
+                      ? 'border-coral bg-coral text-white'
+                      : 'border-hairline text-transparent'
+                  }`}
+                >
+                  ✓
+                </span>
+                <span className="min-w-0 flex-1">
                 <span className="flex items-baseline gap-2">
                   <span className="min-w-0 flex-1 truncate text-sm font-medium">
                     {candidate.name}
@@ -149,20 +178,34 @@ export function PlacePanel({
                   {candidate.category && <span className="text-ink/40">{candidate.category} · </span>}
                   {candidate.roadAddress ?? candidate.address ?? '주소 정보 없음'}
                 </span>
+                </span>
               </button>
             </li>
           ))}
         </ul>
       )}
 
-      {places.length > 0 && <PlaceList onFocus={focus} />}
+      {places.length > 0 && <PlaceList onFocus={(location) => focusPlaces(map, [location])} />}
 
       {places.length === 0 && candidates.length === 0 && status.kind === 'idle' && (
         <p className="px-4 py-6 text-sm leading-relaxed text-ink/50">
           장소를 검색하거나, 카카오맵·네이버지도의 공유 텍스트를 그대로 붙여넣으세요.
           <br />
-          지도에서 직접 찍으려면 <b>📍 장소</b> 모드로 원하는 지점을 탭하세요.
+          지도에서 직접 찍으려면 <b>📍 핀</b> 모드로 원하는 지점을 탭하세요.
         </p>
+      )}
+
+      {/* 고른 게 있을 때만 나타난다. 목록을 스크롤해도 계속 보이도록 아래에 붙는다. */}
+      {selected.length > 0 && (
+        <div className="sticky bottom-0 border-t border-hairline bg-white p-3">
+          <button
+            type="button"
+            onClick={commitSelection}
+            className="flex h-11 w-full items-center justify-center rounded-xl bg-ink text-sm font-medium text-white"
+          >
+            {selected.length}곳 담기
+          </button>
+        </div>
       )}
     </div>
   );
