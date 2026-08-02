@@ -8,9 +8,14 @@ interface KakaoMapProps {
   center: LatLng;
   level: number;
   onReady: (map: kakao.maps.Map) => void;
+  /**
+   * 지도 타일이 들어 있는 요소. 꾹 누르기 감지가 여기에 붙는다.
+   * 캔버스가 아니라 이 요소여야 지도의 팬·줌을 막지 않고 지켜볼 수 있다.
+   */
+  onContainer?: (container: HTMLDivElement | null) => void;
 }
 
-export function KakaoMap({ center, level, onReady }: KakaoMapProps) {
+export function KakaoMap({ center, level, onReady, onContainer }: KakaoMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const onReadyRef = useRef(onReady);
   const [error, setError] = useState<string | null>(null);
@@ -61,5 +66,13 @@ export function KakaoMap({ center, level, onReady }: KakaoMapProps) {
      카카오 SDK는 이 컨테이너 안에 z-index가 붙은 레이어를 여러 개 만든다. 컨테이너가
      z-index:auto면 그 자식들이 상위 스태킹 컨텍스트에 그대로 참여해 드로잉 캔버스보다
      위에 깔리고, 그리기 모드에서 pointerdown이 캔버스에 닿지 않는다. W0에서 실제로 겪었다. */
-  return <div ref={containerRef} className="absolute inset-0 z-0" />;
+  return (
+    <div
+      ref={(node) => {
+        containerRef.current = node;
+        onContainer?.(node);
+      }}
+      className="absolute inset-0 z-0"
+    />
+  );
 }

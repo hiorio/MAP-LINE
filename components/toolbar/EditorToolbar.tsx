@@ -4,11 +4,15 @@ import { useEffect, useState } from 'react';
 import { STROKE_COLORS, STROKE_WIDTHS } from '@/lib/map/types';
 import { useMapStore, type EditorMode } from '@/store/useMapStore';
 
+/**
+ * 핀과 메모는 모드가 아니다. 지도를 꾹 눌러 그 자리에서 고른다.
+ *
+ * 모드로 두면 "지도를 옮기려고 눌렀는데 핀이 꽂히는" 일이 계속 생긴다.
+ * 지도에 손가락을 대는 기본 동작은 언제나 이동이어야 한다.
+ */
 const MODES: { id: EditorMode; label: string; icon: string }[] = [
   { id: 'pan', label: '이동', icon: '✋' },
-  { id: 'place', label: '핀', icon: '📍' },
   { id: 'draw', label: '그리기', icon: '✏️' },
-  { id: 'label', label: '라벨', icon: 'T' },
   { id: 'erase', label: '지우개', icon: '🧽' },
 ];
 

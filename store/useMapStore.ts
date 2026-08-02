@@ -17,7 +17,8 @@ import {
   type Stroke,
 } from '@/lib/map/types';
 
-export type EditorMode = 'pan' | 'draw' | 'erase' | 'label' | 'place';
+/** 핀·메모는 모드가 아니라 지도를 꾹 눌러 그 자리에서 고른다. */
+export type EditorMode = 'pan' | 'draw' | 'erase';
 export type SaveState = 'idle' | 'dirty' | 'saving' | 'saved';
 
 /**

@@ -19,6 +19,8 @@ const MAX_WAIT_MS = 10_000;
 
 export function Editor({ slug }: { slug: string }) {
   const [map, setMap] = useState<kakao.maps.Map | null>(null);
+  // 꾹 누르기 감지는 캔버스가 아니라 지도 컨테이너에 붙어야 팬을 막지 않는다.
+  const [mapContainer, setMapContainer] = useState<HTMLElement | null>(null);
   const [initial, setInitial] = useState<{ center: LatLng; level: number } | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   /** 검색 결과를 새 단계가 아니라 이 단계의 후보로 담을 때 쓴다. */
@@ -58,8 +60,13 @@ export function Editor({ slug }: { slug: string }) {
       <div className="relative flex-1">
         {initial && (
           <>
-            <KakaoMap center={initial.center} level={initial.level} onReady={setMap} />
-            <MapOverlay map={map} />
+            <KakaoMap
+              center={initial.center}
+              level={initial.level}
+              onReady={setMap}
+              onContainer={setMapContainer}
+            />
+            <MapOverlay map={map} container={mapContainer} />
           </>
         )}
         {!searchOpen && <SearchBar onOpen={() => setSearchOpen(true)} />}
