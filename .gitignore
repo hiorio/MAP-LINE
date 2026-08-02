@@ -8,6 +8,10 @@ dist/
 .env.local
 .env*.local
 
+# Supabase CLI가 연결 정보와 임시 파일을 여기에 둔다. 마이그레이션만 커밋한다.
+supabase/.branches
+supabase/.temp
+
 .DS_Store
 *.log
 npm-debug.log*

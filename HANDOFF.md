@@ -78,9 +78,16 @@ Route Handler를 경유하면 되므로 끝까지 안 쓸 수도 있습니다.
 | `0005_api_usage.sql` | 카카오 API 사용량 집계 테이블 |
 | `0006_upsert_save.sql` | 저장을 업서트로 전환, 클라이언트 id 보존 |
 
-**새 마이그레이션을 추가하면 사용자에게 SQL Editor 실행을 안내해야 합니다.**
-`supabase` CLI를 연결하지 않았으므로 자동 적용되지 않습니다. 적용 후
-`npx vitest run lib/map/mapDocument.integration.test.ts`로 검증하세요.
+**마이그레이션 적용은 [docs/MIGRATIONS.md](docs/MIGRATIONS.md)를 따릅니다.**
+Supabase CLI를 붙여 두었으므로 `npm run db:push` 한 줄이면 밀린 것만 적용됩니다.
+단, 사용자가 한 번은 `supabase login` → `npm run db:link` → `migration repair`를 해야 합니다
+(이력 테이블이 비어 있어 그냥 push하면 0001부터 전부 재실행됩니다).
+
+적용 후 `npx vitest run lib/map/mapDocument.integration.test.ts`로 검증하세요.
+
+**마이그레이션은 두 번 돌려도 안전해야 합니다.** 특히 데이터 백필이 위험합니다 —
+`0007`의 `stop_index` 백필은 처음에 재실행하면 한 단계의 후보들을 쪼개 놓는 형태였고,
+널 허용 컬럼으로 만든 뒤 널만 채우는 방식으로 고쳤습니다.
 
 ### D. 배포할 때 (아직 안 함)
 

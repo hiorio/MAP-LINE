@@ -10,11 +10,19 @@
 -- 연결선(segments)은 더 이상 그리지 않는다. 한 단계에 후보가 여럿이면 선이 어느
 -- 후보를 가리키는지 알 수 없어 잘못된 정보를 준다. 동선은 손그림으로 그린다.
 
+-- 컬럼을 널 허용으로 먼저 만들고 널만 채운 뒤 기본값을 건다.
+--
+-- 처음부터 `not null default 0`으로 만들면 백필 조건이 `stop_index = 0`이 될 수밖에 없고,
+-- 이 파일이 한 번 더 돌면 이미 0번 단계인 후보들이 order_no를 따라 제각각 다른 단계로
+-- 쪼개진다. 널만 채우면 두 번째 실행부터는 대상이 0건이라 아무 일도 일어나지 않는다.
 alter table places
-  add column if not exists stop_index int not null default 0;
+  add column if not exists stop_index int;
 
 -- 기존 데이터는 장소 하나가 곧 한 단계였다. 그대로 옮긴다.
-update places set stop_index = order_no where stop_index = 0;
+update places set stop_index = order_no where stop_index is null;
+
+alter table places alter column stop_index set default 0;
+alter table places alter column stop_index set not null;
 
 create index if not exists places_map_stop_idx on places(map_id, stop_index, order_no);
 
