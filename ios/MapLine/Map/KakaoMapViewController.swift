@@ -100,11 +100,17 @@ extension KakaoMapViewController: MapControllerDelegate {
         // 획을 담을 레이어와 스타일을 미리 만들어 둔다. zOrder는 기본 지물보다 위다.
         _ = map.getShapeManager().addShapeLayer(layerID: Self.shapeLayerID, zOrder: 10_001)
         registerStrokeStyle(on: map)
+
+        // UI 테스트가 지도 준비를 기다릴 수 있게 상태를 접근성 식별자로 내건다.
+        // 고정 시간 대기는 러너가 느린 날 깨진다.
+        view.accessibilityIdentifier = "mapReady"
     }
 
     func addViewFailed(_ viewName: String, viewInfoName: String) {
         // 앱 키가 없거나 번들 ID가 콘솔에 등록되지 않으면 여기로 온다.
         NSLog("[KakaoMap] 뷰 추가 실패: \(viewName). 앱 키와 번들 ID 등록을 확인하세요.")
+        // 실패도 상태로 내건다. 테스트가 "느린 것"과 "안 되는 것"을 구별해야 한다.
+        view.accessibilityIdentifier = "mapFailed"
     }
 
     func containerDidResized(_ size: CGSize) {

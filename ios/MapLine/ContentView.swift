@@ -24,6 +24,7 @@ struct ContentView: View {
                         .clipShape(Capsule())
                         .shadow(radius: 4, y: 2)
                 }
+                .accessibilityIdentifier("drawToggle")
 
                 Text(isDrawing ? "지도가 잠깁니다" : "지도를 옮겨 보세요")
                     .font(.caption)

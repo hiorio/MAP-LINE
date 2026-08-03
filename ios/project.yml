@@ -65,6 +65,21 @@ targets:
       base:
         CODE_SIGNING_ALLOWED: NO
 
+  # 스파이크의 판정을 맡는다. 지도를 띄우고 선을 그어 스크린샷을 남긴다.
+  # 유닛 테스트와 나눠 두는 이유: 이쪽은 시뮬레이터 렌더링과 앱 키에 기대므로
+  # 환경 탓으로 깨질 수 있다. 도메인 규칙 검증까지 같이 빨개지면 안 된다.
+  MapLineUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: MapLineUITests
+    dependencies:
+      - target: MapLine
+    settings:
+      base:
+        CODE_SIGNING_ALLOWED: NO
+        TEST_TARGET_NAME: MapLine
+
 schemes:
   MapLine:
     build:
@@ -74,3 +89,13 @@ schemes:
     test:
       targets:
         - MapLineTests
+
+  # 별도 스킴으로 둔다. 도메인 테스트는 항상 돌리고, 이건 필요할 때만 돌린다.
+  MapLineUI:
+    build:
+      targets:
+        MapLine: all
+        MapLineUITests: [test]
+    test:
+      targets:
+        - MapLineUITests
