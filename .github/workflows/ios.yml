@@ -1,0 +1,75 @@
+# iOS 빌드·테스트.
+#
+# 개발 환경이 윈도우라 맥이 없다. 이 저장소가 public이므로 GitHub의 macOS 러너를
+# 무료로 쓸 수 있고, 여기가 사실상 유일한 컴파일러다. 그래서 실패해도 로그만으로
+# 원인을 알 수 있게 단계를 잘게 나누고 시뮬레이터 목록도 찍어 둔다.
+name: iOS
+
+on:
+  push:
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios.yml'
+  pull_request:
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 도구 버전 확인
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: XcodeGen 설치
+        run: brew install xcodegen
+
+      - name: 프로젝트 생성
+        working-directory: ios
+        run: |
+          xcodegen generate
+          ls -la MapLine.xcodeproj
+
+      - name: 시뮬레이터 목록
+        # 기기 이름은 Xcode 버전마다 달라진다. 대상 지정이 틀렸을 때 여기를 보면 된다.
+        run: xcrun simctl list devices available | sed -n '/iOS/,$p'
+
+      - name: 빌드
+        working-directory: ios
+        env:
+          # 앱 키가 없어도 빌드는 된다. 지도 타일만 뜨지 않는다.
+          KAKAO_NATIVE_APP_KEY: ${{ secrets.KAKAO_NATIVE_APP_KEY }}
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project MapLine.xcodeproj \
+            -scheme MapLine \
+            -destination 'generic/platform=iOS Simulator' \
+            -skipPackagePluginValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            KAKAO_NATIVE_APP_KEY="$KAKAO_NATIVE_APP_KEY"
+
+      - name: 도메인 테스트
+        working-directory: ios
+        env:
+          KAKAO_NATIVE_APP_KEY: ${{ secrets.KAKAO_NATIVE_APP_KEY }}
+        run: |
+          set -o pipefail
+          DEVICE=$(xcrun simctl list devices available --json \
+            | python3 -c "import json,sys; d=json.load(sys.stdin)['devices']; \
+              print(next(x['udid'] for k,v in d.items() if 'iOS' in k for x in v))")
+          echo "시뮬레이터: $DEVICE"
+          xcodebuild test \
+            -project MapLine.xcodeproj \
+            -scheme MapLine \
+            -destination "id=$DEVICE" \
+            CODE_SIGNING_ALLOWED=NO \
+            KAKAO_NATIVE_APP_KEY="$KAKAO_NATIVE_APP_KEY"

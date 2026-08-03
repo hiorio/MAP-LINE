@@ -1,0 +1,69 @@
+# XcodeGen 설정.
+#
+# .xcodeproj를 손으로 쓰지 않고 이 파일에서 만들어 낸다. pbxproj는 사람이 읽기도
+# 고치기도 어렵고 충돌이 잦은데, 여기서는 무엇이 바뀌었는지 diff로 읽힌다.
+# CI에서 `xcodegen generate` 한 줄로 프로젝트를 만든 뒤 빌드한다.
+#
+# 번들 ID는 아직 정해지지 않았다. bundleIdPrefix만 바꾸면 전부 따라온다.
+name: MapLine
+options:
+  bundleIdPrefix: com.mapline
+  deploymentTarget:
+    iOS: "15.0"
+  createIntermediateGroups: true
+
+packages:
+  KakaoMapsSDK:
+    url: https://github.com/kakao-mapsSDK/KakaoMapsSDK-SPM
+    from: 2.12.17
+
+targets:
+  MapLine:
+    type: application
+    platform: iOS
+    sources:
+      - path: MapLine
+    dependencies:
+      # 정적 라이브러리 쪽을 쓴다. 동적(KakaoMapsSDK-SPM-Dynamic)은 앱 실행 시
+      # 프레임워크 임베드가 따로 필요해 스파이크에는 군더더기다.
+      - package: KakaoMapsSDK
+        product: KakaoMapsSDK-SPM
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mapline.editor
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5.9"
+        TARGETED_DEVICE_FAMILY: "1"
+        # 서명은 CI(시뮬레이터 빌드)에서 필요 없다. 실기기 배포 때 켠다.
+        CODE_SIGNING_ALLOWED: NO
+    info:
+      path: MapLine/Info.plist
+      properties:
+        CFBundleDisplayName: MAP-LINE
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        # 앱 키는 저장소에 넣지 않는다. Config.xcconfig(gitignore)나 CI 시크릿에서 온다.
+        KakaoNativeAppKey: $(KAKAO_NATIVE_APP_KEY)
+
+  MapLineTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: MapLineTests
+    dependencies:
+      - target: MapLine
+    settings:
+      base:
+        CODE_SIGNING_ALLOWED: NO
+
+schemes:
+  MapLine:
+    build:
+      targets:
+        MapLine: all
+        MapLineTests: [test]
+    test:
+      targets:
+        - MapLineTests

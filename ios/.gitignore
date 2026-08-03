@@ -1,0 +1,13 @@
+# XcodeGen이 project.yml에서 만들어 내는 것. 커밋하지 않는다.
+*.xcodeproj/
+*.xcworkspace/
+
+# 앱 키가 들어가는 파일. 절대 커밋하지 않는다.
+Config.xcconfig
+
+DerivedData/
+build/
+.swiftpm/
+*.xcuserstate
+xcuserdata/
+.DS_Store
