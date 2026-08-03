@@ -41,6 +41,8 @@ declare namespace kakao.maps {
     getLevel(): number;
     setLevel(level: number): void;
     getProjection(): Projection;
+    /** 지도가 들어 있는 DOM 요소. 오버레이가 같은 요소의 터치를 지켜볼 때 쓴다. */
+    getNode(): HTMLElement;
     setDraggable(draggable: boolean): void;
     setZoomable(zoomable: boolean): void;
     relayout(): void;
