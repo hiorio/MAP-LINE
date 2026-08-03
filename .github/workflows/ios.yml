@@ -49,13 +49,47 @@ jobs:
           KAKAO_NATIVE_APP_KEY: ${{ secrets.KAKAO_NATIVE_APP_KEY }}
         run: |
           set -o pipefail
+          # 시크릿이 아직 없으면 배관 검증용 표식을 넣는다. 그래야 "키가 없는 것"과
+          # "경로가 끊긴 것"을 구별할 수 있다. 둘 다 빈 문자열로 끝나면 알 수가 없다.
+          KEY="${KAKAO_NATIVE_APP_KEY:-PLUMBING_CHECK_SENTINEL}"
+          echo "KEY_SENT=$KEY" >> "$GITHUB_ENV"
           xcodebuild build \
             -project MapLine.xcodeproj \
             -scheme MapLine \
             -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build \
             -skipPackagePluginValidation \
             CODE_SIGNING_ALLOWED=NO \
-            KAKAO_NATIVE_APP_KEY="$KAKAO_NATIVE_APP_KEY"
+            KAKAO_NATIVE_APP_KEY="$KEY"
+
+      - name: 앱 키가 실제로 번들에 들어갔는지 확인
+        working-directory: ios
+        run: |
+          APP=$(find build/Build/Products -name 'MapLine.app' -maxdepth 3 | head -1)
+          if [ -z "$APP" ]; then echo "빌드 결과를 찾지 못했다"; exit 1; fi
+          echo "앱: $APP"
+
+          VALUE=$(plutil -extract KakaoNativeAppKey raw -o - "$APP/Info.plist" 2>/dev/null || echo "")
+          if [ -z "$VALUE" ]; then
+            echo "❌ Info.plist에 KakaoNativeAppKey가 비어 있다. 치환이 안 됐다."
+            plutil -p "$APP/Info.plist" | head -30
+            exit 1
+          fi
+          if [ "$VALUE" = '$(KAKAO_NATIVE_APP_KEY)' ]; then
+            echo "❌ 치환되지 않고 변수 이름 그대로 들어갔다."
+            exit 1
+          fi
+          if [ "$VALUE" != "$KEY_SENT" ]; then
+            echo "❌ 넘긴 값과 번들에 든 값이 다르다 (길이 ${#VALUE} vs ${#KEY_SENT})"
+            exit 1
+          fi
+
+          # 실제 키는 로그에 남기지 않는다. 길이만 보고도 배관은 확인된다.
+          if [ "$VALUE" = "PLUMBING_CHECK_SENTINEL" ]; then
+            echo "✅ 배관 정상. 아직 시크릿은 비어 있다 (표식이 그대로 왔다)."
+          else
+            echo "✅ 배관 정상. 실제 키가 들어갔다 (길이 ${#VALUE})."
+          fi
 
       - name: 도메인 테스트
         working-directory: ios
