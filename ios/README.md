@@ -64,14 +64,29 @@ cd ios && xcodegen generate && open MapLine.xcodeproj
 3. **네이티브 앱 키** — 저장소의 Settings > Secrets에 `KAKAO_NATIVE_APP_KEY`로
    넣습니다. 코드에 하드코딩하지 않습니다. JS 키가 아니라 **네이티브 앱 키**입니다
 
-## 아직 확인하지 못한 것
+## SDK 시그니처를 확인하는 법
 
-이 코드는 윈도우에서 작성됐고 **한 번도 컴파일되지 않았습니다.** CI가 첫 컴파일러입니다.
-특히 아래는 문서만 보고 쓴 부분이라 이름이 틀렸을 수 있습니다.
+맥이 없으면 자동완성도 헤더 점프도 없습니다. 문서에도 생성자 인자까지는 안 나옵니다.
+추측하지 말고 **SDK 바이너리에서 직접 읽으세요.** SPM 저장소에 xcframework가 통째로
+들어 있습니다.
 
-- `import KakaoMapsSDK` — SPM 제품명은 `KakaoMapsSDK-SPM`인데 모듈명은 다를 수 있음
-- `PolylineStyle` / `PerLevelPolylineStyle` / `PolylineShapeOptions`의 정확한 시그니처
-- `setGestureEnable(type:enable:)`의 열거형 이름
-- `MapPoint.wgsCoord`의 프로퍼티명
+```bash
+# Swift API 전체 (클래스, 메서드, 생성자 시그니처)
+curl -sL "https://raw.githubusercontent.com/kakao-mapsSDK/KakaoMapsSDK-SPM/2.12.17/BinaryFramework/KakaoMapsSDK.xcframework/ios-arm64/KakaoMapsSDK.framework/Modules/KakaoMapsSDK.swiftmodule/arm64-apple-ios.swiftinterface"
 
-CI 로그를 보고 맞춰 나갑니다.
+# 열거형 (GestureType 등)
+curl -sL ".../Headers/ApiEnums.h"
+
+# 구조체 (GeoCoordinate 등)
+curl -sL ".../Headers/ApiStructs.h"
+```
+
+## 밟은 함정
+
+**`PolylineShape`과 `MapPolylineShape`은 다릅니다.**
+
+- `PolylineShape` — 기준점 대비 **모델 좌표(CGPoint)**. 지도를 옮기면 따라오지 않음
+- `MapPolylineShape` — **위경도(MapPoint)**. 우리가 쓸 것
+
+이름이 비슷해서 헷갈리기 쉽고, 잘못 고르면 컴파일은 되는데 그림이 지도에 안 붙습니다.
+`Polygon`/`MapPolygon`도 같은 짝입니다.

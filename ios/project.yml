@@ -7,7 +7,7 @@
 # 번들 ID는 아직 정해지지 않았다. bundleIdPrefix만 바꾸면 전부 따라온다.
 name: MapLine
 options:
-  bundleIdPrefix: com.mapline
+  bundleIdPrefix: com.hiorio
   deploymentTarget:
     iOS: "15.0"
   createIntermediateGroups: true
@@ -30,7 +30,7 @@ targets:
         product: KakaoMapsSDK-SPM
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.mapline.editor
+        PRODUCT_BUNDLE_IDENTIFIER: com.hiorio.mapline
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: "1"
         SWIFT_VERSION: "5.9"

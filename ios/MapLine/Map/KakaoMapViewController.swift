@@ -23,6 +23,7 @@ final class KakaoMapViewController: UIViewController {
 
     private static let viewName = "mapview"
     private static let shapeLayerID = "strokes"
+    private static let strokeStyleID = "strokeStyle"
 
     /// 그려 둔 획들. 저장·공유는 다음 단계이고 지금은 메모리에만 둔다.
     private(set) var strokes: [GeoStroke] = []
@@ -96,8 +97,9 @@ extension KakaoMapViewController: MapControllerDelegate {
     func addViewSucceeded(_ viewName: String, viewInfoName: String) {
         guard let map = kakaoMap else { return }
         map.viewRect = view.bounds
-        // 획을 담을 레이어를 미리 만들어 둔다. zOrder는 기본 지물보다 위다.
+        // 획을 담을 레이어와 스타일을 미리 만들어 둔다. zOrder는 기본 지물보다 위다.
         _ = map.getShapeManager().addShapeLayer(layerID: Self.shapeLayerID, zOrder: 10_001)
+        registerStrokeStyle(on: map)
     }
 
     func addViewFailed(_ viewName: String, viewInfoName: String) {
@@ -136,29 +138,40 @@ extension KakaoMapViewController: DrawingOverlayViewDelegate {
         let epsilon = angularEpsilon(map: map, pixels: 2)
         let stroke = GeoStroke(
             path: simplifyPath(coords, epsilon: epsilon),
-            zoomCreated: Int(map.zoomLevel)
+            zoomCreated: map.zoomLevel
         )
         strokes.append(stroke)
         render(stroke, on: map)
     }
 
+    /// 획을 SDK 도형으로 등록한다.
+    ///
+    /// `PolylineShape`이 아니라 **`MapPolylineShape`**을 쓴다. 앞의 것은 기준점 대비
+    /// 모델 좌표(CGPoint)를 받아서 지도를 옮기면 같이 움직이지 않는다. 위경도로 이루어진
+    /// 선은 `Map`이 붙은 쪽이다. 이걸 헷갈리면 컴파일은 되는데 그림이 지도에 안 붙는다.
     private func render(_ stroke: GeoStroke, on map: KakaoMap) {
         guard let layer = map.getShapeManager().getShapeLayer(layerID: Self.shapeLayerID) else { return }
 
-        let style = PolylineStyle(styles: [
-            PerLevelPolylineStyle(bodyColor: UIColor.systemBlue, bodyWidth: 6, zoomLevel: 0)
-        ])
-        let styleSet = PolylineStyleSet(styleSetID: "strokeStyle", styles: [style])
-        map.getShapeManager().addPolylineStyleSet(styleSet)
+        let points = stroke.path.map { MapPoint(longitude: $0.lng, latitude: $0.lat) }
+        let options = MapPolylineShapeOptions(
+            shapeID: stroke.id.uuidString,
+            styleID: Self.strokeStyleID,
+            zOrder: 1
+        )
+        options.polylines = [MapPolyline(line: points, styleIndex: 0)]
 
-        let points = stroke.path.map {
-            MapPoint(longitude: $0.lng, latitude: $0.lat)
-        }
-        let options = PolylineShapeOptions(shapeID: stroke.id.uuidString, styleID: "strokeStyle", zOrder: 1)
-        options.polylines = [Polyline(line: points, styleIndex: 0)]
-
-        let shape = layer.addPolylineShape(options)
+        let shape = layer.addMapPolylineShape(options)
         shape?.show()
+    }
+
+    /// 획 스타일을 한 번만 등록한다. 획마다 등록하면 같은 ID를 계속 덮어쓴다.
+    private func registerStrokeStyle(on map: KakaoMap) {
+        let perLevel = PerLevelPolylineStyle(bodyColor: .systemBlue, bodyWidth: 6, level: 0)
+        let styleSet = PolylineStyleSet(
+            styleSetID: Self.strokeStyleID,
+            styles: [PolylineStyle(styles: [perLevel])]
+        )
+        map.getShapeManager().addPolylineStyleSet(styleSet)
     }
 
     /// 화면 픽셀 몇 개에 해당하는 각도. RDP 임계값을 줌에 맞추기 위해 쓴다.
