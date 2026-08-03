@@ -35,6 +35,10 @@ jobs:
       - name: 프로젝트 생성
         working-directory: ios
         run: |
+          # Config.xcconfig는 맥에서 직접 빌드할 때 쓰는 로컬 파일이라 저장소에 없다.
+          # project.yml이 이 경로를 참조하므로 CI에서는 빈 파일을 만들어 둔다.
+          # 실제 값은 xcodebuild 인자로 넘기고, 명령줄 인자가 xcconfig보다 우선한다.
+          [ -f Config.xcconfig ] || echo "// CI에서 생성됨" > Config.xcconfig
           xcodegen generate
           ls -la MapLine.xcodeproj
 

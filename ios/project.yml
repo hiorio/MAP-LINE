@@ -17,6 +17,13 @@ packages:
     url: https://github.com/kakao-mapsSDK/KakaoMapsSDK-SPM
     from: 2.12.17
 
+configFiles:
+  # 맥에서 직접 빌드할 때의 앱 키 출처. 웹의 .env.local에 해당하고 gitignore된다.
+  # CI에는 이 파일이 없으므로 워크플로가 빈 파일을 먼저 만들고, 값은 xcodebuild
+  # 인자로 넘긴다. 명령줄 인자가 xcconfig보다 우선한다.
+  Debug: Config.xcconfig
+  Release: Config.xcconfig
+
 targets:
   MapLine:
     type: application
