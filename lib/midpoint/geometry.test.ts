@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  dedupeStations,
+  stationBaseName,
   centroidOf,
   distanceM,
   rankCandidates,
@@ -68,6 +70,36 @@ describe('searchRadiusM', () => {
     const points = [강남역, { lat: 35.1151, lng: 129.0403 }];
     const center = centroidOf(points)!;
     expect(searchRadiusM(center, points)).toBe(20_000);
+  });
+});
+
+describe('stationBaseName / dedupeStations', () => {
+  it('노선 이름을 떼어 낸다', () => {
+    expect(stationBaseName('이촌역 경의중앙선')).toBe('이촌역');
+    expect(stationBaseName('역삼역 2호선')).toBe('역삼역');
+    expect(stationBaseName('강남역 신분당선')).toBe('강남역');
+  });
+
+  it('노선이 안 붙은 이름은 그대로 둔다', () => {
+    expect(stationBaseName('옥수역')).toBe('옥수역');
+  });
+
+  it('같은 역은 하나만 남긴다', () => {
+    // 카카오는 환승역을 노선마다 따로 준다. 사람 입장에서는 같은 곳이다.
+    const places = [
+      { name: '이촌역 경의중앙선' },
+      { name: '이촌역 4호선' },
+      { name: '한남역 경의중앙선' },
+    ];
+    expect(dedupeStations(places).map((p) => p.name)).toEqual([
+      '이촌역 경의중앙선',
+      '한남역 경의중앙선',
+    ]);
+  });
+
+  it('거리순 목록이면 가장 가까운 입구가 남는다', () => {
+    const places = [{ name: '옥수역 3호선' }, { name: '옥수역 경의중앙선' }];
+    expect(dedupeStations(places).map((p) => p.name)).toEqual(['옥수역 3호선']);
   });
 });
 

@@ -50,6 +50,29 @@ export function searchRadiusM(center: LatLng, points: readonly LatLng[]): number
   return Math.min(20_000, Math.max(1_000, Math.round(farthest * 0.6)));
 }
 
+/**
+ * 카카오는 환승역을 노선마다 따로 준다. "이촌역 경의중앙선"과 "이촌역 4호선"이
+ * 별개 항목으로 온다. 사람 입장에서는 같은 곳이다.
+ *
+ * 그대로 두면 세 자리를 같은 역이 다 차지해 고를 것이 없어지고, 실제 경로 호출도
+ * 같은 자리에 세 번 나간다. 환승역일수록 모이기 좋은 곳이라 이 일이 자주 생긴다.
+ */
+export function stationBaseName(name: string): string {
+  // 끝에 붙은 노선 이름을 떼어 낸다. "…경의중앙선", "…2호선", "…신분당선" 모두 선으로 끝난다.
+  return name.replace(/\s+\S*선$/, '').trim() || name;
+}
+
+/** 같은 역은 하나만 남긴다. 목록이 거리순이므로 가장 가까운 입구가 남는다. */
+export function dedupeStations<T extends { name: string }>(places: readonly T[]): T[] {
+  const seen = new Set<string>();
+  return places.filter((place) => {
+    const base = stationBaseName(place.name);
+    if (seen.has(base)) return false;
+    seen.add(base);
+    return true;
+  });
+}
+
 export interface Participant {
   id: string;
   name?: string;

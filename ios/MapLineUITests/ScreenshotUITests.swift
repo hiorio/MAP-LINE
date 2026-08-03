@@ -19,11 +19,11 @@ final class ScreenshotUITests: XCTestCase {
         app.launch()
 
         // 1. 홈
-        XCTAssertTrue(app.buttons["home.midpoint"].waitForExistence(timeout: 20), "홈이 뜨지 않았다")
+        XCTAssertTrue(app.cells["home.midpoint"].waitForExistence(timeout: 20), "홈이 뜨지 않았다")
         shot(app, "1-홈")
 
         // 2. 중간지점 빈 화면
-        app.buttons["home.midpoint"].tap()
+        app.cells["home.midpoint"].tap()
         XCTAssertTrue(app.buttons["midpoint.addPerson"].waitForExistence(timeout: 10))
         shot(app, "2-중간지점-빈화면")
 

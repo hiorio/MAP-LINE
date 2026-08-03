@@ -4,6 +4,7 @@ import { NoRouteError, fetchRoute } from '@/lib/kakao/routing';
 import { recordKakaoCall } from '@/lib/kakao/usage';
 import {
   centroidOf,
+  dedupeStations,
   rankCandidates,
   searchRadiusM,
   shortlist,
@@ -83,7 +84,9 @@ export async function findMidpoint(participants: Participant[]): Promise<Midpoin
   const places = await findStations(center, radius);
   if (places.length === 0) throw new NoMeetingPlaceError();
 
-  const finalists = shortlist(places, participants, FINALISTS);
+  // 환승역은 노선마다 따로 오므로 먼저 합친다. 합치기 전에 추리면 세 자리를
+  // 같은 역이 다 차지해 고를 것이 없어지고 경로 호출도 같은 자리에 세 번 나간다.
+  const finalists = shortlist(dedupeStations(places), participants, FINALISTS);
 
   // 참가자 × 후보를 한꺼번에 띄운다. 순차로 돌면 사람이 기다린다.
   const entries = await Promise.all(

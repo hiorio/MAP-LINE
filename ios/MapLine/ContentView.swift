@@ -23,12 +23,16 @@ struct ContentView: View {
     var body: some View {
         NavigationStack(path: $path) {
             List {
+                // Button이 아니라 NavigationLink를 쓴다. List 안의 Button은 강조색을
+                // 내용 전체에 입혀서 부제까지 파랗게 만든다. 안에서 색을 지정해도
+                // 덮인다. NavigationLink는 목록 스타일을 제대로 받고 화살표도 붙는다.
                 Section {
-                    Button { path.append(.blankMap) } label: {
+                    NavigationLink(value: Route.blankMap) {
                         entry("지도 만들기", "빈 지도에서 시작합니다", "map")
                     }
                     .accessibilityIdentifier("home.blankMap")
-                    Button { path.append(.midpoint) } label: {
+
+                    NavigationLink(value: Route.midpoint) {
                         entry(
                             "중간지점 찾기",
                             "여러 곳에서 오는 사람들이 모일 자리",
