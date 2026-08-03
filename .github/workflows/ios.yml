@@ -51,6 +51,8 @@ jobs:
         env:
           # 앱 키가 없어도 빌드는 된다. 지도 타일만 뜨지 않는다.
           KAKAO_NATIVE_APP_KEY: ${{ secrets.KAKAO_NATIVE_APP_KEY }}
+          # 공유 익스텐션이 장소를 물어볼 서버. 배포 주소가 바뀌면 변수만 고친다.
+          API_BASE_URL: ${{ vars.API_BASE_URL || 'https://map-line-production.up.railway.app' }}
         run: |
           set -o pipefail
           # 시크릿이 아직 없으면 배관 검증용 표식을 넣는다. 그래야 "키가 없는 것"과
@@ -64,7 +66,8 @@ jobs:
             -derivedDataPath build \
             -skipPackagePluginValidation \
             CODE_SIGNING_ALLOWED=NO \
-            KAKAO_NATIVE_APP_KEY="$KEY"
+            KAKAO_NATIVE_APP_KEY="$KEY" \
+            API_BASE_URL="$API_BASE_URL"
 
       - name: 앱 키가 실제로 번들에 들어갔는지 확인
         working-directory: ios
@@ -107,6 +110,8 @@ jobs:
         working-directory: ios
         env:
           KAKAO_NATIVE_APP_KEY: ${{ secrets.KAKAO_NATIVE_APP_KEY }}
+          # 공유 익스텐션이 장소를 물어볼 서버. 배포 주소가 바뀌면 변수만 고친다.
+          API_BASE_URL: ${{ vars.API_BASE_URL || 'https://map-line-production.up.railway.app' }}
         run: |
           set -o pipefail
           xcodebuild test \
@@ -114,7 +119,8 @@ jobs:
             -scheme MapLine \
             -destination "id=$DEVICE" \
             CODE_SIGNING_ALLOWED=NO \
-            KAKAO_NATIVE_APP_KEY="$KAKAO_NATIVE_APP_KEY"
+            KAKAO_NATIVE_APP_KEY="$KAKAO_NATIVE_APP_KEY" \
+            API_BASE_URL="$API_BASE_URL"
 
       # 스파이크의 판정. 지도를 띄우고 선을 그어 스크린샷을 남긴다.
       # 시뮬레이터 렌더링과 앱 키에 기대는 단계라 실패해도 워크플로를 세우지 않는다.
@@ -125,6 +131,8 @@ jobs:
         working-directory: ios
         env:
           KAKAO_NATIVE_APP_KEY: ${{ secrets.KAKAO_NATIVE_APP_KEY }}
+          # 공유 익스텐션이 장소를 물어볼 서버. 배포 주소가 바뀌면 변수만 고친다.
+          API_BASE_URL: ${{ vars.API_BASE_URL || 'https://map-line-production.up.railway.app' }}
         run: |
           set -o pipefail
           xcodebuild test \
@@ -133,7 +141,8 @@ jobs:
             -destination "id=$DEVICE" \
             -resultBundlePath ../ui-result.xcresult \
             CODE_SIGNING_ALLOWED=NO \
-            KAKAO_NATIVE_APP_KEY="$KAKAO_NATIVE_APP_KEY"
+            KAKAO_NATIVE_APP_KEY="$KAKAO_NATIVE_APP_KEY" \
+            API_BASE_URL="$API_BASE_URL"
 
       - name: 스크린샷 꺼내기
         if: always()

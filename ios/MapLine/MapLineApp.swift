@@ -15,14 +15,3 @@ struct MapLineApp: App {
         }
     }
 }
-
-enum AppConfig {
-    /// 카카오 네이티브 앱 키.
-    ///
-    /// 저장소에 넣지 않는다. Config.xcconfig(gitignore)나 CI 시크릿이 Info.plist로
-    /// 흘려보낸 값을 읽는다. 비어 있으면 지도 타일이 뜨지 않고 addViewFailed가 온다.
-    static var kakaoNativeAppKey: String {
-        let key = Bundle.main.object(forInfoDictionaryKey: "KakaoNativeAppKey") as? String
-        return key?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    }
-}

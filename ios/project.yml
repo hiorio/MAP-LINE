@@ -30,7 +30,12 @@ targets:
     platform: iOS
     sources:
       - path: MapLine
+      # 앱과 공유 익스텐션이 같은 모델·저장소·설정을 쓴다. 익스텐션은 별도 프로세스라
+      # 코드를 공유하려면 양쪽 타깃에 같은 소스를 넣어야 한다.
+      - path: Shared
     dependencies:
+      - target: ShareExtension
+        embed: true
       # 정적 라이브러리 쪽을 쓴다. 동적(KakaoMapsSDK-SPM-Dynamic)은 앱 실행 시
       # 프레임워크 임베드가 따로 필요해 스파이크에는 군더더기다.
       - package: KakaoMapsSDK
@@ -53,11 +58,55 @@ targets:
           - UIInterfaceOrientationPortrait
         # 앱 키는 저장소에 넣지 않는다. Config.xcconfig(gitignore)나 CI 시크릿에서 온다.
         KakaoNativeAppKey: $(KAKAO_NATIVE_APP_KEY)
+        ApiBaseURL: $(API_BASE_URL)
+    entitlements:
+      path: MapLine/MapLine.entitlements
+      properties:
+        # 익스텐션이 담은 장소를 앱이 읽으려면 둘이 같은 컨테이너를 봐야 한다.
+        com.apple.security.application-groups:
+          - group.com.hiorio.mapline
+
+  # 다른 앱에서 "공유"로 넘어온 장소를 보관함에 담는다.
+  ShareExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: ShareExtension
+      - path: Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.hiorio.mapline.share
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5.9"
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGNING_ALLOWED: NO
+    info:
+      path: ShareExtension/Info.plist
+      properties:
+        CFBundleDisplayName: 보관함에 담기
+        ApiBaseURL: $(API_BASE_URL)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            # 텍스트와 링크만 받는다. TRUEPREDICATE는 앱스토어 심사에서 막힌다.
+            # 어느 지도 앱이 무엇을 넘기는지 달라서 둘 다 열어 둔다.
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsText: true
+              NSExtensionActivationSupportsWebURLWithMaxCount: 1
+    entitlements:
+      path: ShareExtension/ShareExtension.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.hiorio.mapline
 
   MapLineTests:
     type: bundle.unit-test
     platform: iOS
     sources:
+      # Shared는 여기에 넣지 않는다. MapLine 타깃이 이미 품고 있고
+      # @testable import로 닿는다. 양쪽에 넣으면 같은 타입이 두 벌 생겨 이름이 겹친다.
       - path: MapLineTests
     dependencies:
       - target: MapLine
