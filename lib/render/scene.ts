@@ -158,24 +158,29 @@ function drawStopArrows(
 
     const { end, ux, uy } = shape.kind === 'arrow' ? shape.arrow : shape;
 
-    ctx.beginPath();
     if (shape.kind === 'arrow') {
+      ctx.beginPath();
       ctx.moveTo(shape.arrow.start.x, shape.arrow.start.y);
       ctx.lineTo(end.x, end.y);
+      ctx.stroke();
     } else {
-      tracePolyline(ctx, shape.points);
-    }
-    ctx.stroke();
-
-    // 핀에서 경로 끝까지 이어 주는 선. 대중교통은 역까지의 도보가 좌표로 오지 않는다.
-    if (shape.kind === 'path' && shape.connectors.length > 0) {
-      ctx.lineWidth = ACCESS_STYLE.width;
-      ctx.setLineDash([...ACCESS_STYLE.dash]);
-      for (const { from, to } of shape.connectors) {
-        ctx.beginPath();
-        ctx.moveTo(from.x, from.y);
-        ctx.lineTo(to.x, to.y);
+      // 대중교통이면 탈것 구간마다 하나씩이다.
+      for (const segment of shape.segments) {
+        tracePolyline(ctx, segment);
         ctx.stroke();
+      }
+
+      // 좌표가 오지 않는 도보 구간. 걷는 것은 언제나 같은 모양으로 그린다.
+      if (shape.connectors.length > 0) {
+        ctx.strokeStyle = ACCESS_STYLE.color;
+        ctx.lineWidth = ACCESS_STYLE.width;
+        ctx.setLineDash([...ACCESS_STYLE.dash]);
+        for (const { from, to } of shape.connectors) {
+          ctx.beginPath();
+          ctx.moveTo(from.x, from.y);
+          ctx.lineTo(to.x, to.y);
+          ctx.stroke();
+        }
       }
     }
 

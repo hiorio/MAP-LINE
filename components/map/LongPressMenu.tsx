@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import type { Point } from '@/lib/geo/rdp';
 import { formatDistance, type LatLng, type PlaceCandidate } from '@/lib/map/types';
+import { anchorMenuStyle } from '@/lib/ui/anchorMenu';
 
 /**
  * 지도를 꾹 눌렀을 때 나오는 선택지.
@@ -14,6 +15,8 @@ import { formatDistance, type LatLng, type PlaceCandidate } from '@/lib/map/type
 interface Props {
   point: Point;
   coord: LatLng;
+  /** 메뉴가 밖으로 밀려 나가지 않도록 가둘 영역 */
+  container: { width: number; height: number };
   onPickPlace: (candidate: PlaceCandidate) => void;
   onDropPin: () => void;
   onAddLabel: () => void;
@@ -22,9 +25,13 @@ interface Props {
 
 type Status = 'loading' | 'ready' | 'failed';
 
+/** w-64. anchorMenuStyle이 가로 위치를 계산하려면 숫자로도 알아야 한다. */
+const MENU_WIDTH = 256;
+
 export function LongPressMenu({
   point,
   coord,
+  container,
   onPickPlace,
   onDropPin,
   onAddLabel,
@@ -74,8 +81,8 @@ export function LongPressMenu({
       />
 
       <div
-        className="absolute z-40 w-64 -translate-x-1/2 overflow-hidden rounded-xl border border-hairline bg-white shadow-2xl"
-        style={anchorStyle(point)}
+        className="absolute z-40 w-64 overflow-hidden rounded-xl border border-hairline bg-white shadow-2xl"
+        style={anchorMenuStyle({ point, menuWidth: MENU_WIDTH, container })}
       >
         {address && (
           <p className="truncate border-b border-hairline px-3 py-2 text-[11px] text-ink/45">
@@ -133,10 +140,3 @@ export function LongPressMenu({
   );
 }
 
-/** 누른 지점 위에 띄우되, 화면 위쪽이면 아래로 뒤집는다. */
-function anchorStyle(point: Point): React.CSSProperties {
-  const flipDown = point.y < 260;
-  return flipDown
-    ? { left: point.x, top: point.y + 16 }
-    : { left: point.x, top: point.y - 16, transform: 'translate(-50%, -100%)' };
-}

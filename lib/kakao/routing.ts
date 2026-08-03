@@ -109,14 +109,22 @@ export function parseTransit(body: unknown): Parsed {
     const stepRecord = asRecord(step);
     const stepProps = asRecord(stepRecord['properties']);
 
+    // 좌표를 붙이기 전후를 재서 이 구간이 몇 개를 차지하는지 남긴다.
+    // 나중에 다시 잘라 내야 탈것 구간과 사이의 환승 도보를 달리 그릴 수 있다.
+    const before = points.length;
+    const path = asRecord(stepRecord['path']);
+    for (const point of asArray(path['points'])) appendPoint(points, point);
+    const pointCount = points.length - before;
+
     const guidance = stepProps['guidance'];
     const type = stepProps['type'];
     if (typeof guidance === 'string' && guidance !== '') {
-      legs.push({ type: typeof type === 'string' ? type : 'UNKNOWN', guidance });
+      legs.push({
+        type: typeof type === 'string' ? type : 'UNKNOWN',
+        guidance,
+        pointCount,
+      });
     }
-
-    const path = asRecord(stepRecord['path']);
-    for (const point of asArray(path['points'])) appendPoint(points, point);
   }
 
   if (points.length < 2) throw new NoRouteError(status);

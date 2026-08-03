@@ -35,7 +35,13 @@ describe('legShapes', () => {
 
     const [shape] = legShapes([stop('s1', a), stop('s2', b)], legs, project);
     expect(shape?.kind).toBe('path');
-    expect(shape?.kind === 'path' && shape.points).toHaveLength(3);
+    expect(shape?.kind === 'path' && shape.segments).toEqual([
+      [
+        { x: 0, y: 0 },
+        { x: 200, y: 10 },
+        { x: 400, y: 0 },
+      ],
+    ]);
   });
 
   it('경로가 핀에서 멀리 떨어져 시작·끝나면 접근선을 잇는다', () => {
@@ -95,6 +101,45 @@ describe('legShapes', () => {
     const [shape] = legShapes([stop('s1', a), stop('s2', b)], [{ mode: 'walk' }], project);
     expect(shape?.kind).toBe('arrow');
     expect(shape?.mode).toBe('straight');
+  });
+
+  it('환승이 있으면 탈것 구간을 나누고 사이를 도보로 잇는다', () => {
+    // 지하철 → 걸어서 환승 → 버스. 가운데 도보는 좌표가 오지 않는다.
+    const a = place('a', 0, 0);
+    const b = place('b', 0, 1000);
+    const path = route(
+      [
+        { lat: 0, lng: 100 }, { lat: 0, lng: 300 },
+        { lat: 0, lng: 500 }, { lat: 0, lng: 900 },
+      ],
+      'a',
+      'b',
+    );
+    path.legs = [
+      { type: 'SUBWAY', guidance: '9호선', pointCount: 2 },
+      { type: 'BUS', guidance: '간선 143', pointCount: 2 },
+    ];
+
+    const [shape] = legShapes([stop('s1', a), stop('s2', b)], [{ mode: 'transit', route: path }], project);
+    if (shape?.kind !== 'path') throw new Error('path여야 한다');
+
+    expect(shape.segments).toHaveLength(2);
+    expect(shape.segments[0]).toEqual([{ x: 100, y: 0 }, { x: 300, y: 0 }]);
+    expect(shape.segments[1]).toEqual([{ x: 500, y: 0 }, { x: 900, y: 0 }]);
+    // 환승 도보 + 출발지 접근 + 도착지 접근
+    expect(shape.connectors).toContainEqual({ from: { x: 300, y: 0 }, to: { x: 500, y: 0 } });
+    expect(shape.connectors).toHaveLength(3);
+  });
+
+  it('구간 정보가 없는 예전 경로는 한 줄로 둔다', () => {
+    // 잘못 자르느니 이어진 채로 두는 편이 낫다.
+    const a = place('a', 0, 0);
+    const b = place('b', 0, 400);
+    const path = route([{ lat: 0, lng: 2 }, { lat: 0, lng: 200 }, { lat: 0, lng: 398 }], 'a', 'b');
+    path.legs = [{ type: 'SUBWAY', guidance: '9호선' }];
+
+    const [shape] = legShapes([stop('s1', a), stop('s2', b)], [{ mode: 'transit', route: path }], project);
+    expect(shape?.kind === 'path' && shape.segments).toHaveLength(1);
   });
 
   it('구간 모양은 단계 사이 자리와 어긋나지 않는다', () => {

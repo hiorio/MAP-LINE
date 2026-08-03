@@ -103,16 +103,19 @@ function stopArrowMarkup(
         `<line x1="${n(start.x)}" y1="${n(start.y)}" x2="${n(end.x)}" y2="${n(end.y)}" ` +
         `stroke="${style.color}" stroke-width="${style.width}"${dash}/>`;
     } else {
-      const d = shape.points.map((p, i) => `${i === 0 ? 'M' : 'L'}${n(p.x)} ${n(p.y)}`).join('');
-      out +=
-        `<path d="${d}" fill="none" stroke="${style.color}" ` +
-        `stroke-width="${style.width}"${dash}/>`;
+      // 대중교통이면 탈것 구간마다 하나씩이다.
+      for (const segment of shape.segments) {
+        const d = segment.map((p, i) => `${i === 0 ? 'M' : 'L'}${n(p.x)} ${n(p.y)}`).join('');
+        out +=
+          `<path d="${d}" fill="none" stroke="${style.color}" ` +
+          `stroke-width="${style.width}"${dash}/>`;
+      }
 
-      // 핀에서 경로 끝까지 이어 주는 선. 대중교통은 역까지의 도보가 좌표로 오지 않는다.
+      // 좌표가 오지 않는 도보 구간. 걷는 것은 언제나 같은 모양으로 그린다.
       for (const { from, to } of shape.connectors) {
         out +=
           `<line x1="${n(from.x)}" y1="${n(from.y)}" x2="${n(to.x)}" y2="${n(to.y)}" ` +
-          `stroke="${style.color}" stroke-width="${ACCESS_STYLE.width}" ` +
+          `stroke="${ACCESS_STYLE.color}" stroke-width="${ACCESS_STYLE.width}" ` +
           `stroke-dasharray="${ACCESS_STYLE.dash.join(' ')}"/>`;
       }
     }

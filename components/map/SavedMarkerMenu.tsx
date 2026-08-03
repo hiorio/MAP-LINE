@@ -3,6 +3,7 @@
 import type { Point } from '@/lib/geo/rdp';
 import type { SavedPlace } from '@/lib/map/savedPlaces';
 import type { Stop } from '@/lib/map/types';
+import { anchorMenuStyle } from '@/lib/ui/anchorMenu';
 
 /**
  * 보관함 마커를 탭했을 때 나오는 선택지.
@@ -14,16 +15,22 @@ interface Props {
   point: Point;
   place: SavedPlace;
   stops: readonly Stop[];
+  /** 메뉴가 밖으로 밀려 나가지 않도록 가둘 영역 */
+  container: { width: number; height: number };
   onAddAsStop: () => void;
   onAddToStop: (stopId: string) => void;
   onRemove: () => void;
   onClose: () => void;
 }
 
+/** w-60 */
+const MENU_WIDTH = 240;
+
 export function SavedMarkerMenu({
   point,
   place,
   stops,
+  container,
   onAddAsStop,
   onAddToStop,
   onRemove,
@@ -39,8 +46,8 @@ export function SavedMarkerMenu({
       />
 
       <div
-        className="absolute z-40 w-60 -translate-x-1/2 overflow-hidden rounded-xl border border-hairline bg-white shadow-2xl"
-        style={anchorStyle(point)}
+        className="absolute z-40 w-60 overflow-hidden rounded-xl border border-hairline bg-white shadow-2xl"
+        style={anchorMenuStyle({ point, menuWidth: MENU_WIDTH, container })}
       >
         <div className="border-b border-hairline px-3 py-2">
           <p className="truncate text-sm font-medium">{place.name}</p>
@@ -88,10 +95,3 @@ export function SavedMarkerMenu({
   );
 }
 
-/** 누른 지점 위에 띄우되, 화면 위쪽이면 아래로 뒤집는다. */
-function anchorStyle(point: Point): React.CSSProperties {
-  const flipDown = point.y < 240;
-  return flipDown
-    ? { left: point.x, top: point.y + 16 }
-    : { left: point.x, top: point.y - 16, transform: 'translate(-50%, -100%)' };
-}

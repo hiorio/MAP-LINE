@@ -74,14 +74,19 @@ export function KakaoMap({ center, level, onReady, onContainer }: KakaoMapProps)
      - user-select: 글자 선택 자체
      - -webkit-user-select: iOS/안드로이드 웹뷰는 접두사 붙은 쪽을 본다
      - -webkit-touch-callout: 길게 눌렀을 때 뜨는 "복사/공유" 팝업
-     - -webkit-tap-highlight-color: 탭할 때 잠깐 덮이는 회색 사각형 */
+     - -webkit-tap-highlight-color: 탭할 때 잠깐 덮이는 회색 사각형
+
+     touch-action: none을 주는 이유:
+     카카오 SDK는 팬·줌을 직접 구현한다. 브라우저에게도 기본 터치 동작이 남아 있으면
+     두 손가락 제스처를 브라우저가 가로채 페이지 전체를 확대해 버린다. 지도 라이브러리가
+     흔히 쓰는 방법대로 이 영역의 기본 터치 동작을 전부 넘겨받는다. */
   return (
     <div
       ref={(node) => {
         containerRef.current = node;
         onContainer?.(node);
       }}
-      className="absolute inset-0 z-0 select-none [-webkit-touch-callout:none] [-webkit-user-select:none] [-webkit-tap-highlight-color:transparent]"
+      className="absolute inset-0 z-0 touch-none select-none [-webkit-touch-callout:none] [-webkit-user-select:none] [-webkit-tap-highlight-color:transparent]"
     />
   );
 }

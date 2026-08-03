@@ -68,6 +68,14 @@ export function useLongPress({
     let timer: ReturnType<typeof setTimeout> | null = null;
     let start: Point | null = null;
     let capturing = false;
+    /**
+     * 화면에 닿아 있는 손가락들.
+     *
+     * 두 손가락으로 확대·축소하면 각 손가락은 제자리에서 벌어지기만 해서 이동 허용치에
+     * 안 걸린다. 그래서 줌이 끝나고 손을 떼는 순간 메뉴가 떴다. 꾹 누르기는 손가락
+     * 하나짜리 동작이므로 둘째가 닿는 순간 취소한다.
+     */
+    const active = new Set<number>();
 
     const localPoint = (event: PointerEvent): Point => {
       const rect = target.getBoundingClientRect();
@@ -84,6 +92,13 @@ export function useLongPress({
     const onDown = (event: PointerEvent) => {
       // 마우스는 왼쪽 버튼만. 오른쪽 클릭은 브라우저 메뉴에 맡긴다.
       if (event.pointerType === 'mouse' && event.button !== 0) return;
+
+      active.add(event.pointerId);
+      // 손가락이 둘 이상이면 확대·축소다. 이미 재던 것도 없던 일로 한다.
+      if (active.size > 1) {
+        clear();
+        return;
+      }
 
       const point = localPoint(event);
 
@@ -107,7 +122,7 @@ export function useLongPress({
     };
 
     const onMove = (event: PointerEvent) => {
-      if (!start) return;
+      if (!start || active.size > 1) return;
       const point = localPoint(event);
 
       if (capturing) {
@@ -126,6 +141,7 @@ export function useLongPress({
     };
 
     const onUp = (event: PointerEvent) => {
+      active.delete(event.pointerId);
       if (capturing) {
         event.preventDefault();
         event.stopPropagation();

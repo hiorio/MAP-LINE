@@ -100,8 +100,62 @@ describe('parseTransit', () => {
 
   it('노선 안내 문구를 배지로 남긴다', () => {
     expect(parseTransit(transitBody).legs).toEqual([
-      { type: 'SUBWAY', guidance: '2호선 (강남 > 역삼)' },
+      { type: 'SUBWAY', guidance: '2호선 (강남 > 역삼)', pointCount: 2 },
     ]);
+  });
+
+  it('구간마다 좌표가 몇 개인지 남긴다', () => {
+    // 이걸 남기지 않으면 어디까지가 지하철이고 어디부터 버스인지 알 수 없어,
+    // 사이의 환승 도보를 따로 그릴 수 없다.
+    const body = {
+      status: 'OK',
+      routes: [
+        {
+          properties: { totalDistance: 3000, totalTime: 1800 },
+          steps: [
+            {
+              properties: { guidance: '9호선', type: 'SUBWAY' },
+              path: { points: [[127.0, 37.5], [127.01, 37.51]] },
+            },
+            {
+              properties: { guidance: '간선 143', type: 'BUS' },
+              path: { points: [[127.02, 37.52], [127.03, 37.53], [127.04, 37.54]] },
+            },
+          ],
+        },
+      ],
+    };
+
+    const parsed = parseTransit(body);
+    expect(parsed.points).toHaveLength(5);
+    expect(parsed.legs?.map((leg) => leg.pointCount)).toEqual([2, 3]);
+  });
+
+  it('이음매에서 중복 좌표가 빠져도 개수가 어긋나지 않는다', () => {
+    // 앞 구간의 끝점이 다음 구간의 시작점으로 다시 오면 하나를 버린다.
+    // 개수를 붙인 좌표만으로 세지 않으면 자를 때 한 칸씩 밀린다.
+    const body = {
+      status: 'OK',
+      routes: [
+        {
+          properties: { totalDistance: 100, totalTime: 100 },
+          steps: [
+            {
+              properties: { guidance: '9호선', type: 'SUBWAY' },
+              path: { points: [[127.0, 37.5], [127.01, 37.51]] },
+            },
+            {
+              properties: { guidance: '간선 143', type: 'BUS' },
+              path: { points: [[127.01, 37.51], [127.02, 37.52]] },
+            },
+          ],
+        },
+      ],
+    };
+
+    const parsed = parseTransit(body);
+    expect(parsed.points).toHaveLength(3);
+    expect(parsed.legs?.map((leg) => leg.pointCount)).toEqual([2, 1]);
   });
 
   it('좌표도 함께 담는다', () => {

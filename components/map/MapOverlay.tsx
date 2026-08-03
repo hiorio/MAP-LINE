@@ -170,6 +170,12 @@ export function MapOverlay({
     onCapturedUp: () => finishCapture(),
   });
 
+  /** 메뉴를 가둘 영역. 지도 컨테이너가 곧 오버레이가 놓이는 영역이다. */
+  const menuBounds = () => ({
+    width: container?.clientWidth ?? 0,
+    height: container?.clientHeight ?? 0,
+  });
+
   const finishCapture = () => {
     const capture = captureRef.current;
     if (!capture) return;
@@ -314,6 +320,7 @@ export function MapOverlay({
         <LongPressMenu
           point={menu.point}
           coord={menu.coord}
+          container={menuBounds()}
           onClose={() => setMenu(null)}
           onPickPlace={(candidate: PlaceCandidate) => {
             useMapStore.getState().addStop([
@@ -342,6 +349,7 @@ export function MapOverlay({
           point={savedMenu.point}
           place={savedMenu.place}
           stops={stops}
+          container={menuBounds()}
           onClose={() => setSavedMenu(null)}
           onAddAsStop={() => {
             useMapStore.getState().addStop([placeFromSaved(savedMenu.place)]);

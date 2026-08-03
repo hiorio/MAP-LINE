@@ -5,6 +5,7 @@ import {
   type LatLng,
   type Stop,
   type StopLeg,
+  type TransitLeg,
   type TravelMode,
 } from '@/lib/map/types';
 
@@ -86,9 +87,11 @@ export function candidateLinks(stops: readonly Stop[], project: Projector): Cand
  * 도보와 대중교통은 같은 파랑을 쓰되 선 모양으로 가른다. 둘 다 "이동"이라 색이
  * 따로 놀 이유가 없고, 촘촘한 점선과 굵은 실선은 멀리서도 구분된다.
  */
+const WALK_STYLE = { color: '#2D6BE4', width: 3.5, dash: [1.5, 6] as [number, number] };
+
 export const MODE_STYLE: Record<TravelMode, { color: string; width: number; dash?: [number, number] }> = {
   straight: { color: ARROW_COLOR, width: ARROW_WIDTH },
-  walk: { color: '#2D6BE4', width: 3.5, dash: [1.5, 6] },
+  walk: WALK_STYLE,
   transit: { color: '#2D6BE4', width: 4.5 },
   bicycle: { color: '#2FA35B', width: 3.5, dash: [8, 5] },
 };
@@ -113,15 +116,20 @@ export type LegShape =
   | {
       kind: 'path';
       mode: TravelMode;
-      points: Point[];
       /**
-       * 핀과 경로 끝 사이를 잇는 선.
+       * 좌표가 있는 궤적. 대중교통이면 탈것 구간마다 하나씩이다.
+       * `mode`의 스타일(대중교통은 굵은 실선)로 그린다.
+       */
+      segments: Point[][];
+      /**
+       * 좌표가 오지 않는 도보 구간. 언제나 도보 스타일(파란 점선)로 그린다.
        *
        * 대중교통 응답은 **탈것 구간의 좌표만** 준다. 땀땀 본점에서 세컨브레스커피까지
        * 1,682m 중 882m가 도보인데 좌표로 오는 것은 지하철 800m뿐이다. 그대로 그리면
        * 선이 신논현역에서 시작해 언주역에서 끝나 핀 어디에도 닿지 않는다.
-       * 정확한 골목까지 그리려면 도보 길찾기를 두 번 더 불러야 하는데, 역까지 걸어간다는
-       * 사실을 전하는 데 구간마다 호출을 세 배로 늘릴 값어치는 없다. 곧게 이어 둔다.
+       * 여기 들어가는 것은 출발지에서 첫 역까지, 환승하며 역과 역 사이, 마지막 역에서
+       * 도착지까지다. 정확한 골목까지 그리려면 도보 길찾기를 그만큼 더 불러야 하는데,
+       * 걸어간다는 사실을 전하는 데 그만한 값어치는 없다. 곧게 이어 둔다.
        */
       connectors: { from: Point; to: Point }[];
       end: Point;
@@ -133,12 +141,12 @@ export type LegShape =
 const ACCESS_MIN_PX = ARROW_TRIM_PX + 6;
 
 /**
- * 접근선의 모양. 본 경로보다 가늘고 성긴 점선이다.
+ * 좌표 없이 이어 그리는 도보 구간의 모양.
  *
- * 실제로 걷는 길이 아니라 "여기서 저 역까지 걸어간다"는 표시다. 본 경로와 같은
- * 굵기로 그리면 지하철이 가게 문 앞까지 오는 것처럼 읽힌다.
+ * 도보 모드와 똑같이 그린다. 그래야 "파란 점선이면 걷는 것"이 지도 전체에서 한결같다.
+ * 실선으로 그리면 지하철이 가게 문 앞까지 오는 것처럼 읽힌다.
  */
-export const ACCESS_STYLE = { width: 2, dash: [2, 5] as [number, number] };
+export const ACCESS_STYLE = WALK_STYLE;
 
 export function legShapes(
   stops: readonly Stop[],
@@ -155,7 +163,12 @@ export function legShapes(
 
     if (route && leg) {
       const points = route.points.map(project);
-      const shape = pathShape(leg.mode, points, legEndpoints(stops, i), project);
+      const shape = pathShape(
+        leg.mode,
+        splitSegments(points, route.legs),
+        legEndpoints(stops, i),
+        project,
+      );
       if (shape) {
         shapes.push(shape);
         continue;
@@ -168,20 +181,51 @@ export function legShapes(
   return shapes;
 }
 
+/**
+ * 이어 붙여 온 좌표를 탈것 구간별로 다시 자른다.
+ *
+ * 대중교통이 아니면 자를 것이 없어 통째로 하나다. 구간 정보가 없는 예전 지도도
+ * 마찬가지로 한 줄로 둔다. 잘못 자르느니 이어진 채로 두는 편이 낫다.
+ */
+function splitSegments(points: Point[], legs: readonly TransitLeg[] | undefined): Point[][] {
+  if (!legs || legs.length === 0) return points.length >= 2 ? [points] : [];
+  if (!legs.every((leg) => typeof leg.pointCount === 'number')) {
+    return points.length >= 2 ? [points] : [];
+  }
+
+  const segments: Point[][] = [];
+  let cursor = 0;
+  for (const leg of legs) {
+    const count = leg.pointCount ?? 0;
+    const slice = points.slice(cursor, cursor + count);
+    cursor += count;
+    if (slice.length >= 2) segments.push(slice);
+  }
+  return segments;
+}
+
 function pathShape(
   mode: TravelMode,
-  points: Point[],
+  segments: Point[][],
   ends: ReturnType<typeof legEndpoints>,
   project: Projector,
 ): Extract<LegShape, { kind: 'path' }> | null {
-  const first = points[0];
-  const last = points.at(-1);
-  if (!first || !last || points.length < 2) return null;
+  const first = segments[0]?.[0];
+  const lastSegment = segments.at(-1);
+  const last = lastSegment?.at(-1);
+  if (!first || !lastSegment || !last) return null;
 
   const connectors: { from: Point; to: Point }[] = [];
   // 화살촉은 마지막으로 그린 선의 끝에 얹어야 한다. 접근선이 붙으면 그쪽이 끝이다.
-  let tailFrom = points.at(-2) ?? first;
+  let tailFrom = lastSegment.at(-2) ?? first;
   let tailTo = last;
+
+  // 탈것과 탈것 사이는 환승하며 걷는 구간이다. 좌표가 오지 않으므로 곧게 잇는다.
+  for (let i = 1; i < segments.length; i++) {
+    const from = segments[i - 1]!.at(-1)!;
+    const to = segments[i]![0]!;
+    if (gap(from, to) > 1) connectors.push({ from, to });
+  }
 
   if (ends) {
     const origin = project(ends.from.location);
@@ -201,10 +245,10 @@ function pathShape(
   const dx = tailTo.x - tailFrom.x;
   const dy = tailTo.y - tailFrom.y;
   const length = Math.hypot(dx, dy);
-  const heading = length > 0.5 ? { ux: dx / length, uy: dy / length } : lastHeading(points);
+  const heading = length > 0.5 ? { ux: dx / length, uy: dy / length } : lastHeading(lastSegment);
   if (!heading) return null;
 
-  return { kind: 'path', mode, points, connectors, end: tailTo, ux: heading.ux, uy: heading.uy };
+  return { kind: 'path', mode, segments, connectors, end: tailTo, ux: heading.ux, uy: heading.uy };
 }
 
 function gap(a: Point, b: Point): number {

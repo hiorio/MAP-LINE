@@ -60,6 +60,14 @@ export interface TransitLeg {
   type: string;
   /** "2호선 (강남 > 역삼)" 같은 카카오가 준 안내 문구 */
   guidance: string;
+  /**
+   * 이 구간이 `RoutePath.points`에서 차지하는 좌표 개수.
+   *
+   * 대중교통 경로는 탈것 구간의 좌표만 이어 붙인 한 줄이다. 어디까지가 지하철이고
+   * 어디부터 버스인지 알 수 없으면 사이의 환승 도보를 구분해 그릴 수 없다.
+   * 개수를 남겨 두면 다시 잘라 낼 수 있다.
+   */
+  pointCount?: number;
 }
 
 /**
