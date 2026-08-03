@@ -122,12 +122,13 @@ jobs:
             KAKAO_NATIVE_APP_KEY="$KAKAO_NATIVE_APP_KEY" \
             API_BASE_URL="$API_BASE_URL"
 
-      # 스파이크의 판정. 지도를 띄우고 선을 그어 스크린샷을 남긴다.
-      # 시뮬레이터 렌더링과 앱 키에 기대는 단계라 실패해도 워크플로를 세우지 않는다.
-      # 결과는 아티팩트의 그림으로 판단한다.
-      - name: 획 고정 확인 (UI 테스트)
-        id: uitest
-        continue-on-error: true
+      # 화면 확인. 지도를 띄우고 선을 긋고, 홈부터 중간지점까지 걸어가며 찍는다.
+      #
+      # 처음에는 continue-on-error로 뒀다. 시뮬레이터 렌더링에 기대는 단계라
+      # 환경 탓으로 깨질까 봐였는데, 실제로는 그 설정이 진짜 실패를 초록으로 덮었다.
+      # 홈 화면을 넣으면서 지도 테스트가 통째로 깨졌는데도 워크플로는 통과라고 했다.
+      # 시뮬레이터에서 지도가 잘 뜨는 것도 확인됐으니 이제 실패는 실패로 둔다.
+      - name: 화면 확인 (UI 테스트)
         working-directory: ios
         env:
           KAKAO_NATIVE_APP_KEY: ${{ secrets.KAKAO_NATIVE_APP_KEY }}

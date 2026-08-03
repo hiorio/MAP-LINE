@@ -21,6 +21,12 @@ final class StrokeAnchorUITests: XCTestCase {
         let app = XCUIApplication()
         app.launch()
 
+        // 앱이 홈에서 시작하도록 바뀌었다. 지도로 들어가야 엔진이 뜬다.
+        // 예전에는 지도가 첫 화면이라 바로 기다리면 됐다.
+        let toMap = app.descendants(matching: .any).matching(identifier: "home.blankMap").firstMatch
+        XCTAssertTrue(toMap.waitForExistence(timeout: 20), "홈이 뜨지 않았다")
+        toMap.tap()
+
         try waitForMap(app)
 
         // 1. 그리기를 켜고 화면 가운데를 가로지르는 선을 긋는다.

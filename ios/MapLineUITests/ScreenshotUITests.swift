@@ -19,11 +19,16 @@ final class ScreenshotUITests: XCTestCase {
         app.launch()
 
         // 1. 홈
-        XCTAssertTrue(app.cells["home.midpoint"].waitForExistence(timeout: 20), "홈이 뜨지 않았다")
+        //
+        // 요소 종류를 찍어 고르지 않는다. SwiftUI가 List의 행을 cell로 낼지 button으로
+        // 낼지는 버전과 스타일에 따라 다르고, 틀리면 "없다"고만 나와 원인을 알기 어렵다.
+        // 식별자로만 찾으면 종류가 무엇이든 걸린다.
+        let toMidpoint = app.descendants(matching: .any).matching(identifier: "home.midpoint").firstMatch
+        XCTAssertTrue(toMidpoint.waitForExistence(timeout: 20), "홈이 뜨지 않았다")
         shot(app, "1-홈")
 
         // 2. 중간지점 빈 화면
-        app.cells["home.midpoint"].tap()
+        toMidpoint.tap()
         XCTAssertTrue(app.buttons["midpoint.addPerson"].waitForExistence(timeout: 10))
         shot(app, "2-중간지점-빈화면")
 
