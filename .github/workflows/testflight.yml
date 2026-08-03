@@ -47,8 +47,14 @@ jobs:
           KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
         run: |
-          mkdir -p ~/private_keys
-          printf '%s' "$PRIVATE_KEY" > ~/private_keys/AuthKey_${KEY_ID}.p8
+          # 도구마다 키를 찾는 자리가 다르다. altool은 ~/.appstoreconnect/private_keys를,
+          # xcodebuild는 넘겨준 경로를 본다. 어디를 보든 걸리도록 양쪽에 둔다.
+          for dir in ~/private_keys ~/.appstoreconnect/private_keys; do
+            mkdir -p "$dir"
+            printf '%s' "$PRIVATE_KEY" > "$dir/AuthKey_${KEY_ID}.p8"
+            chmod 600 "$dir/AuthKey_${KEY_ID}.p8"
+          done
+
           # 내용은 절대 찍지 않는다. 형식만 확인한다.
           head -1 ~/private_keys/AuthKey_${KEY_ID}.p8 | grep -q "BEGIN PRIVATE KEY" \
             && echo "✅ 키 형식 정상" \
@@ -69,13 +75,31 @@ jobs:
             exit 0
           fi
 
-          RAW=$(xcrun altool --list-providers --apiKey "$KEY_ID" --apiIssuer "$ISSUER_ID" --output-format json 2>/dev/null || true)
-          COUNT=$(printf '%s' "$RAW" | jq '.providers | length' 2>/dev/null || echo 0)
+          # stderr를 버리지 않는다. 실패했을 때 왜인지가 거기 있다.
+          set +e
+          RAW=$(xcrun altool --list-providers --apiKey "$KEY_ID" --apiIssuer "$ISSUER_ID" --output-format json 2>altool.err)
+          STATUS=$?
+          set -e
 
-          if [ "$COUNT" = "0" ] || [ -z "$COUNT" ]; then
-            echo "❌ API 키로 팀을 찾지 못했다."
-            echo "   developer.apple.com > Account > Membership 의 Team ID(10자리)를"
-            echo "   저장소 Variables에 APPLE_TEAM_ID로 넣으면 이 단계를 건너뛴다."
+          echo "--- altool 종료 코드: $STATUS ---"
+          if [ -s altool.err ]; then
+            echo "--- altool 오류 출력 ---"
+            # 키 값이 섞여 나올 일은 없지만 혹시 몰라 길이를 제한한다.
+            head -c 2000 altool.err
+            echo ""
+          fi
+          if [ -n "$RAW" ]; then
+            echo "--- 응답에서 팀 정보만 ---"
+            printf '%s' "$RAW" | jq -r '.providers // [] | .[] | "\(.WWDRTeamID) \(.ProviderShortname)"' 2>/dev/null || echo "(JSON 파싱 실패)"
+          fi
+
+          COUNT=$(printf '%s' "$RAW" | jq '.providers | length' 2>/dev/null || echo 0)
+          if [ "$COUNT" = "0" ] || [ -z "$COUNT" ] || [ "$COUNT" = "null" ]; then
+            echo ""
+            echo "❌ API 키로 팀을 찾지 못했다. 위 오류 출력을 보라."
+            echo "   빠른 우회: developer.apple.com > Account > Membership 의 Team ID(10자리)를"
+            echo "   저장소 Settings > Secrets and variables > Actions > Variables 탭에"
+            echo "   APPLE_TEAM_ID 로 넣으면 이 단계를 통째로 건너뛴다."
             exit 1
           fi
 
