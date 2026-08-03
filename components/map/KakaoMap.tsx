@@ -65,14 +65,23 @@ export function KakaoMap({ center, level, onReady, onContainer }: KakaoMapProps)
   /* z-index를 명시하는 이유:
      카카오 SDK는 이 컨테이너 안에 z-index가 붙은 레이어를 여러 개 만든다. 컨테이너가
      z-index:auto면 그 자식들이 상위 스태킹 컨텍스트에 그대로 참여해 드로잉 캔버스보다
-     위에 깔리고, 그리기 모드에서 pointerdown이 캔버스에 닿지 않는다. W0에서 실제로 겪었다. */
+     위에 깔리고, 그리기 모드에서 pointerdown이 캔버스에 닿지 않는다. W0에서 실제로 겪었다.
+
+     선택 관련 속성을 끄는 이유:
+     지도를 꾹 누르면 브라우저가 그 자리의 글자를 드래그 선택으로 잡아 파랗게 칠한다.
+     카카오가 지명·상호를 DOM 텍스트로 그리기 때문이다. 웹뷰의 한계가 아니라 어느
+     브라우저에서나 나오는 기본 동작이고, 아래 네 줄로 전부 막힌다.
+     - user-select: 글자 선택 자체
+     - -webkit-user-select: iOS/안드로이드 웹뷰는 접두사 붙은 쪽을 본다
+     - -webkit-touch-callout: 길게 눌렀을 때 뜨는 "복사/공유" 팝업
+     - -webkit-tap-highlight-color: 탭할 때 잠깐 덮이는 회색 사각형 */
   return (
     <div
       ref={(node) => {
         containerRef.current = node;
         onContainer?.(node);
       }}
-      className="absolute inset-0 z-0"
+      className="absolute inset-0 z-0 select-none [-webkit-touch-callout:none] [-webkit-user-select:none] [-webkit-tap-highlight-color:transparent]"
     />
   );
 }

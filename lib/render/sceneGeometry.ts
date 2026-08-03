@@ -76,13 +76,21 @@ export function candidateLinks(stops: readonly Stop[], project: Projector): Cand
   return links;
 }
 
-/** 이동수단별 선 모양. 색은 자동 연결선과 같은 계열로 두어 손그림을 가리지 않는다. */
+/**
+ * 이동수단별 선 모양.
+ *
+ * 직선은 "아직 정하지 않았다"에 가까우므로 회색으로 물러나 있는다. 실제 경로는
+ * 사람이 수단까지 정해 확정한 동선이라 눈에 들어와야 한다. 회색으로 뒀더니 지도의
+ * 도로에 묻혀 안 보였다.
+ *
+ * 도보와 대중교통은 같은 파랑을 쓰되 선 모양으로 가른다. 둘 다 "이동"이라 색이
+ * 따로 놀 이유가 없고, 촘촘한 점선과 굵은 실선은 멀리서도 구분된다.
+ */
 export const MODE_STYLE: Record<TravelMode, { color: string; width: number; dash?: [number, number] }> = {
   straight: { color: ARROW_COLOR, width: ARROW_WIDTH },
-  // 걷는 길은 촘촘한 점선. 지도의 실선 도로와 겹쳐도 구분된다.
-  walk: { color: ARROW_COLOR, width: 3, dash: [1, 6] },
-  bicycle: { color: '#2FA35B', width: 3, dash: [8, 5] },
-  transit: { color: '#2D6BE4', width: 4 },
+  walk: { color: '#2D6BE4', width: 3.5, dash: [1.5, 6] },
+  transit: { color: '#2D6BE4', width: 4.5 },
+  bicycle: { color: '#2FA35B', width: 3.5, dash: [8, 5] },
 };
 
 export interface StopArrow {

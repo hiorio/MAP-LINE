@@ -19,10 +19,17 @@ const COORD_TO_ADDRESS_ENDPOINT = 'https://dapi.kakao.com/v2/local/geo/coord2add
 /** 음식점·카페·관광명소. 모임 코스에 담기는 것의 대부분이다. */
 const CATEGORY_CODES = ['FD6', 'CE7', 'AT4'] as const;
 
-/** 손가락으로 짚은 지점 주변. 좁으면 아무것도 안 잡히고 넓으면 엉뚱한 게 섞인다. */
+/**
+ * 손가락으로 짚은 지점 주변. 좁으면 아무것도 안 잡히고 넓으면 엉뚱한 게 섞인다.
+ *
+ * 반경은 60m를 유지한다. 좁히면 한적한 동네에서 아무것도 안 잡혀 "여기에 핀"밖에
+ * 못 하게 된다. 대신 보여 주는 개수를 줄인다. 이 메뉴는 "짚은 자리가 어디인가"를
+ * 묻는 것이지 주변 검색 결과가 아니다. 강남 한복판에서 60m 안에 가게가 수십 곳이라
+ * 여섯 개를 늘어놓으면 고르는 일이 되어 버린다. 가까운 순으로 잘라 넷만 둔다.
+ */
 const RADIUS_M = 60;
 const PER_CATEGORY = 5;
-export const NEARBY_LIMIT = 6;
+export const NEARBY_LIMIT = 4;
 
 interface KakaoCategoryDocument {
   id?: string;

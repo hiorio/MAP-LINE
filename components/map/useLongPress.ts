@@ -26,10 +26,26 @@ interface Options {
   onCapturedUp?: (point: Point) => void;
 }
 
+/**
+ * 꾹 누르기로 인정하는 시간.
+ *
+ * 450ms로 뒀더니 실기기에서 그냥 톡 누른 것도 메뉴가 떴다. 손가락으로 지도의 한 점을
+ * 겨냥해 누르는 동작은 마우스 클릭보다 느려서 300~500ms가 예사다. 눌러야 뜬다는 걸
+ * 몸으로 알 만큼은 길어야 하고, 기다린다는 느낌이 들 만큼 길면 안 된다.
+ */
+const DEFAULT_DELAY_MS = 650;
+
+/**
+ * 손가락이 이만큼 움직이면 지도를 끄는 중으로 본다.
+ *
+ * 8px은 너무 빡빡했다. 마우스와 달리 손가락은 가만히 누르고 있어도 몇 픽셀씩 떤다.
+ */
+const DEFAULT_MOVE_TOLERANCE_PX = 14;
+
 export function useLongPress({
   target,
-  delayMs = 450,
-  moveTolerancePx = 8,
+  delayMs = DEFAULT_DELAY_MS,
+  moveTolerancePx = DEFAULT_MOVE_TOLERANCE_PX,
   onLongPress,
   shouldCapture,
   onCapturedDown,
@@ -51,7 +67,6 @@ export function useLongPress({
 
     let timer: ReturnType<typeof setTimeout> | null = null;
     let start: Point | null = null;
-    let fired = false;
     let capturing = false;
 
     const localPoint = (event: PointerEvent): Point => {
@@ -71,7 +86,6 @@ export function useLongPress({
       if (event.pointerType === 'mouse' && event.button !== 0) return;
 
       const point = localPoint(event);
-      fired = false;
 
       if (handlers.current.shouldCapture?.(point)) {
         capturing = true;
@@ -85,8 +99,9 @@ export function useLongPress({
 
       start = point;
       timer = setTimeout(() => {
-        fired = true;
         timer = null;
+        // CSS로 막아도 눌리기 전에 잡힌 선택이 남아 있을 수 있다. 메뉴를 띄우기 전에 지운다.
+        window.getSelection()?.removeAllRanges();
         handlers.current.onLongPress(point);
       }, delayMs);
     };
@@ -125,9 +140,15 @@ export function useLongPress({
     target.addEventListener('pointermove', onMove, options);
     target.addEventListener('pointerup', onUp, options);
     target.addEventListener('pointercancel', onUp, options);
-    // 꾹 눌러 컨텍스트 메뉴가 뜬 뒤 브라우저 기본 메뉴까지 뜨면 겹친다.
+    /**
+     * 지도 위에서는 브라우저 기본 메뉴를 언제나 막는다.
+     *
+     * 예전에는 우리 메뉴가 뜬 뒤(fired)에만 막았다. 그때는 우리가 450ms로 먼저
+     * 떴으니 그걸로 충분했다. 지금은 650ms라 안드로이드 크롬의 기본 길게 누르기
+     * (대략 500ms)가 **먼저** 뜬다. 조건을 두면 남의 메뉴가 우리 메뉴를 덮는다.
+     */
     const onContextMenu = (event: Event) => {
-      if (fired) event.preventDefault();
+      event.preventDefault();
     };
     target.addEventListener('contextmenu', onContextMenu);
 

@@ -249,8 +249,12 @@ export function drawSavedMarker(ctx: CanvasRenderingContext2D, name: string, at:
   ctx.restore();
 }
 
+/**
+ * 보관함 마커는 반지름 8px로 작게 그린다. 그림 그대로를 판정 범위로 쓰면 손가락으로는
+ * 거의 못 맞힌다. 한 번 눌러 메뉴가 뜨는 게 이 마커의 쓸모이므로 넉넉하게 잡는다.
+ */
 export function hitsSavedMarker(point: Point, at: Point): boolean {
-  return Math.hypot(point.x - at.x, point.y - at.y) <= SAVED_RADIUS + 5;
+  return Math.hypot(point.x - at.x, point.y - at.y) <= SAVED_RADIUS + 14;
 }
 
 /* -------------------------------------------------------------------- 라벨 */
