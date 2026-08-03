@@ -1,0 +1,145 @@
+# TestFlight 업로드.
+#
+# 실기기에서만 확인되는 것들이 쌓여 있다 — 손그림 손맛, 공유 익스텐션이 카카오맵에서
+# 실제로 받는 값, App Group 저장. 시뮬레이터로는 여기까지가 한계다.
+#
+# 서명은 인증서 저장소를 따로 두지 않는다(fastlane match 같은 방식). 대신 xcodebuild가
+# App Store Connect API 키로 직접 인증서와 프로파일을 발급받게 한다. 관리할 것이 줄고,
+# 키가 저장소에 들어가지 않는다.
+name: TestFlight
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  upload:
+    runs-on: macos-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 필요한 값이 다 있는지 먼저 본다
+        env:
+          KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+          TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+        run: |
+          # 30분짜리 빌드를 다 돌리고 마지막에 "값이 없다"로 실패하면 시간이 아깝다.
+          missing=""
+          [ -z "$KEY_ID" ]      && missing="$missing APP_STORE_CONNECT_KEY_ID(secret)"
+          [ -z "$ISSUER_ID" ]   && missing="$missing APP_STORE_CONNECT_ISSUER_ID(secret)"
+          [ -z "$PRIVATE_KEY" ] && missing="$missing APP_STORE_CONNECT_PRIVATE_KEY(secret)"
+          [ -z "$TEAM_ID" ]     && missing="$missing APPLE_TEAM_ID(variable)"
+          if [ -n "$missing" ]; then
+            echo "❌ 빠진 값:$missing"
+            echo ""
+            echo "APPLE_TEAM_ID는 비밀이 아니라 variable에 넣는다."
+            echo "  저장소 > Settings > Secrets and variables > Actions > Variables 탭"
+            echo "  값은 App Store Connect > 사용자 및 액세스 > 멤버십 의 팀 ID(10자리)"
+            exit 1
+          fi
+          echo "✅ 값은 다 있다"
+
+      - name: 도구 버전
+        run: xcodebuild -version
+
+      - name: API 키를 xcodebuild가 찾는 자리에 둔다
+        env:
+          KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/private_keys
+          printf '%s' "$PRIVATE_KEY" > ~/private_keys/AuthKey_${KEY_ID}.p8
+          # 내용은 절대 찍지 않는다. 형식만 확인한다.
+          head -1 ~/private_keys/AuthKey_${KEY_ID}.p8 | grep -q "BEGIN PRIVATE KEY" \
+            && echo "✅ 키 형식 정상" \
+            || { echo "❌ .p8 내용이 아니다. BEGIN/END 줄까지 통째로 넣었는지 확인하라"; exit 1; }
+
+      - name: XcodeGen 설치
+        run: brew install xcodegen
+
+      - name: 프로젝트 생성
+        working-directory: ios
+        env:
+          TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+        run: |
+          # 서명에 팀이 필요하다. 로컬 빌드용 xcconfig 자리를 그대로 쓴다.
+          cat > Config.xcconfig <<EOF
+          DEVELOPMENT_TEAM = $TEAM_ID
+          EOF
+          xcodegen generate
+
+      - name: 아카이브
+        working-directory: ios
+        env:
+          KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          KAKAO_NATIVE_APP_KEY: ${{ secrets.KAKAO_NATIVE_APP_KEY }}
+          API_BASE_URL: ${{ vars.API_BASE_URL || 'https://map-line-production.up.railway.app' }}
+        run: |
+          set -o pipefail
+          # 빌드 번호는 올라가기만 하면 된다. 같은 번호를 두 번 올리면 거부당한다.
+          xcodebuild archive \
+            -project MapLine.xcodeproj \
+            -scheme MapLine \
+            -destination 'generic/platform=iOS' \
+            -archivePath ../MapLine.xcarchive \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath ~/private_keys/AuthKey_${KEY_ID}.p8 \
+            -authenticationKeyID "$KEY_ID" \
+            -authenticationKeyIssuerID "$ISSUER_ID" \
+            CURRENT_PROJECT_VERSION=${{ github.run_number }} \
+            KAKAO_NATIVE_APP_KEY="$KAKAO_NATIVE_APP_KEY" \
+            API_BASE_URL="$API_BASE_URL"
+
+      - name: 내보내고 올린다
+        env:
+          KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+        run: |
+          set -o pipefail
+          # destination을 upload로 두면 내보내기와 업로드가 한 번에 끝난다.
+          # altool은 오래돼서 쓰지 않는다.
+          cat > ExportOptions.plist <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>teamID</key><string>$TEAM_ID</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>uploadSymbols</key><true/>
+          </dict>
+          </plist>
+          EOF
+
+          xcodebuild -exportArchive \
+            -archivePath MapLine.xcarchive \
+            -exportPath export \
+            -exportOptionsPlist ExportOptions.plist \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath ~/private_keys/AuthKey_${KEY_ID}.p8 \
+            -authenticationKeyID "$KEY_ID" \
+            -authenticationKeyIssuerID "$ISSUER_ID"
+
+      - name: 키를 지운다
+        if: always()
+        run: rm -rf ~/private_keys
+
+      - name: 실패하면 로그를 남긴다
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: |
+            ~/Library/Logs/gym
+            ~/Library/Developer/Xcode/DerivedData/**/Logs
+          if-no-files-found: ignore
+          retention-days: 3
