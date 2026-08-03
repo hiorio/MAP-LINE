@@ -88,6 +88,7 @@ struct MidpointView: View {
             } label: {
                 Label("사람 추가", systemImage: "person.badge.plus")
             }
+            .accessibilityIdentifier("midpoint.addPerson")
         } header: {
             Text("모이는 사람 \(participants.count)명")
         } footer: {
@@ -108,6 +109,7 @@ struct MidpointView: View {
                 }
                 .frame(maxWidth: .infinity)
             }
+            .accessibilityIdentifier("midpoint.find")
             .disabled(!canSearch)
 
             if case .failed(let message) = phase {

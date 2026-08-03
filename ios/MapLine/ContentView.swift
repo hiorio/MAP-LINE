@@ -27,6 +27,7 @@ struct ContentView: View {
                     Button { path.append(.blankMap) } label: {
                         entry("지도 만들기", "빈 지도에서 시작합니다", "map")
                     }
+                    .accessibilityIdentifier("home.blankMap")
                     Button { path.append(.midpoint) } label: {
                         entry(
                             "중간지점 찾기",
@@ -34,6 +35,7 @@ struct ContentView: View {
                             "point.topleft.down.curvedto.point.bottomright.up"
                         )
                     }
+                    .accessibilityIdentifier("home.midpoint")
                 }
             }
             .navigationTitle("MAP-LINE")
