@@ -60,72 +60,29 @@ jobs:
             && echo "✅ 키 형식 정상" \
             || { echo "❌ .p8 내용이 아니다. BEGIN/END 줄까지 통째로 넣었는지 확인하라"; exit 1; }
 
-      - name: 팀 ID 알아내기
-        id: team
-        env:
-          KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-          ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-          OVERRIDE: ${{ vars.APPLE_TEAM_ID }}
-        run: |
-          # 사람에게 물어보지 않는다. 이미 넣어 준 API 키로 알 수 있는 값이다.
-          # 팀이 여럿인 계정만 APPLE_TEAM_ID 변수로 직접 지정하면 된다.
-          if [ -n "$OVERRIDE" ]; then
-            echo "TEAM_ID=$OVERRIDE" >> "$GITHUB_OUTPUT"
-            echo "✅ 변수로 지정된 팀: $OVERRIDE"
-            exit 0
-          fi
-
-          # stderr를 버리지 않는다. 실패했을 때 왜인지가 거기 있다.
-          set +e
-          RAW=$(xcrun altool --list-providers --apiKey "$KEY_ID" --apiIssuer "$ISSUER_ID" --output-format json 2>altool.err)
-          STATUS=$?
-          set -e
-
-          echo "--- altool 종료 코드: $STATUS ---"
-          if [ -s altool.err ]; then
-            echo "--- altool 오류 출력 ---"
-            # 키 값이 섞여 나올 일은 없지만 혹시 몰라 길이를 제한한다.
-            head -c 2000 altool.err
-            echo ""
-          fi
-          if [ -n "$RAW" ]; then
-            echo "--- 응답에서 팀 정보만 ---"
-            printf '%s' "$RAW" | jq -r '.providers // [] | .[] | "\(.WWDRTeamID) \(.ProviderShortname)"' 2>/dev/null || echo "(JSON 파싱 실패)"
-          fi
-
-          COUNT=$(printf '%s' "$RAW" | jq '.providers | length' 2>/dev/null || echo 0)
-          if [ "$COUNT" = "0" ] || [ -z "$COUNT" ] || [ "$COUNT" = "null" ]; then
-            echo ""
-            echo "❌ API 키로 팀을 찾지 못했다. 위 오류 출력을 보라."
-            echo "   빠른 우회: developer.apple.com > Account > Membership 의 Team ID(10자리)를"
-            echo "   저장소 Settings > Secrets and variables > Actions > Variables 탭에"
-            echo "   APPLE_TEAM_ID 로 넣으면 이 단계를 통째로 건너뛴다."
-            exit 1
-          fi
-
-          printf '%s' "$RAW" | jq -r '.providers[] | "  - \(.WWDRTeamID)  \(.ProviderShortname)"'
-
-          if [ "$COUNT" != "1" ]; then
-            echo "❌ 팀이 여러 개다. 위 목록에서 골라 APPLE_TEAM_ID 변수에 넣어라."
-            exit 1
-          fi
-
-          TEAM=$(printf '%s' "$RAW" | jq -r '.providers[0].WWDRTeamID')
-          echo "TEAM_ID=$TEAM" >> "$GITHUB_OUTPUT"
-          echo "✅ 팀 ID를 알아냈다: $TEAM"
-
       - name: XcodeGen 설치
         run: brew install xcodegen
 
       - name: 프로젝트 생성
         working-directory: ios
         env:
-          TEAM_ID: ${{ steps.team.outputs.TEAM_ID }}
+          TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
         run: |
-          # 서명에 팀이 필요하다. 로컬 빌드용 xcconfig 자리를 그대로 쓴다.
-          cat > Config.xcconfig <<EOF
-          DEVELOPMENT_TEAM = $TEAM_ID
-          EOF
+          # 팀 ID를 사람에게 묻지 않는다. -allowProvisioningUpdates와 API 키를 주면
+          # xcodebuild가 인증서·프로파일을 발급받으면서 팀도 스스로 찾는다.
+          #
+          # altool --list-providers로 미리 알아내려 했지만 그 명령은 API 키 인증을
+          # 지원하지 않는다("list-providers does not support APIKey authentication").
+          # Apple ID 비밀번호가 필요한데 그건 CI에 둘 값이 아니다.
+          #
+          # 계정에 팀이 여럿이면 xcodebuild가 고르지 못한다. 그때만 변수로 지정한다.
+          if [ -n "$TEAM_ID" ]; then
+            echo "DEVELOPMENT_TEAM = $TEAM_ID" > Config.xcconfig
+            echo "팀을 변수로 지정했다: $TEAM_ID"
+          else
+            : > Config.xcconfig
+            echo "팀은 xcodebuild가 알아서 찾는다"
+          fi
           xcodegen generate
 
       - name: 아카이브
@@ -155,11 +112,18 @@ jobs:
         env:
           KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-          TEAM_ID: ${{ steps.team.outputs.TEAM_ID }}
+          TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
         run: |
           set -o pipefail
           # destination을 upload로 두면 내보내기와 업로드가 한 번에 끝난다.
           # altool은 오래돼서 쓰지 않는다.
+          # 팀을 모르면 teamID 항목을 아예 빼야 한다. 빈 문자열을 넣으면
+          # "팀 없음"이 아니라 "이름이 빈 팀"으로 읽혀 서명이 실패한다.
+          TEAM_ENTRY=""
+          if [ -n "$TEAM_ID" ]; then
+            TEAM_ENTRY="<key>teamID</key><string>$TEAM_ID</string>"
+          fi
+
           cat > ExportOptions.plist <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -167,12 +131,13 @@ jobs:
           <dict>
             <key>method</key><string>app-store-connect</string>
             <key>destination</key><string>upload</string>
-            <key>teamID</key><string>$TEAM_ID</string>
+            $TEAM_ENTRY
             <key>signingStyle</key><string>automatic</string>
             <key>uploadSymbols</key><true/>
           </dict>
           </plist>
           EOF
+          echo "--- ExportOptions ---"; cat ExportOptions.plist
 
           xcodebuild -exportArchive \
             -archivePath MapLine.xcarchive \
