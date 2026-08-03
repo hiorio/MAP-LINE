@@ -11,6 +11,7 @@ import {
   candidateLinks,
   labelBoxSize,
   legShapes,
+  ACCESS_STYLE,
   ARROW_COLOR,
   HUB_RADIUS,
   LINK_DASH,
@@ -106,6 +107,14 @@ function stopArrowMarkup(
       out +=
         `<path d="${d}" fill="none" stroke="${style.color}" ` +
         `stroke-width="${style.width}"${dash}/>`;
+
+      // 핀에서 경로 끝까지 이어 주는 선. 대중교통은 역까지의 도보가 좌표로 오지 않는다.
+      for (const { from, to } of shape.connectors) {
+        out +=
+          `<line x1="${n(from.x)}" y1="${n(from.y)}" x2="${n(to.x)}" y2="${n(to.y)}" ` +
+          `stroke="${style.color}" stroke-width="${ACCESS_STYLE.width}" ` +
+          `stroke-dasharray="${ACCESS_STYLE.dash.join(' ')}"/>`;
+      }
     }
 
     // 화살촉은 채운 도형이라 점선을 물려주면 테두리가 끊겨 보인다.

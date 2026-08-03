@@ -14,6 +14,7 @@ import {
   candidateLinks,
   labelBoxSize,
   legShapes,
+  ACCESS_STYLE,
   ARROW_COLOR,
   HUB_RADIUS,
   LABEL_PADDING_X,
@@ -165,6 +166,18 @@ function drawStopArrows(
       tracePolyline(ctx, shape.points);
     }
     ctx.stroke();
+
+    // 핀에서 경로 끝까지 이어 주는 선. 대중교통은 역까지의 도보가 좌표로 오지 않는다.
+    if (shape.kind === 'path' && shape.connectors.length > 0) {
+      ctx.lineWidth = ACCESS_STYLE.width;
+      ctx.setLineDash([...ACCESS_STYLE.dash]);
+      for (const { from, to } of shape.connectors) {
+        ctx.beginPath();
+        ctx.moveTo(from.x, from.y);
+        ctx.lineTo(to.x, to.y);
+        ctx.stroke();
+      }
+    }
 
     // 화살촉은 채운 삼각형이라 점선 설정이 남아 있으면 테두리가 끊겨 보인다.
     ctx.setLineDash([]);

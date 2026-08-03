@@ -1,5 +1,5 @@
 import type { Point } from '@/lib/geo/rdp';
-import { drawableRoute } from '@/lib/map/legs';
+import { drawableRoute, legEndpoints } from '@/lib/map/legs';
 import {
   stopCentroid,
   type LatLng,
@@ -110,7 +110,35 @@ export interface StopArrow {
  */
 export type LegShape =
   | { kind: 'arrow'; mode: TravelMode; arrow: StopArrow }
-  | { kind: 'path'; mode: TravelMode; points: Point[]; end: Point; ux: number; uy: number };
+  | {
+      kind: 'path';
+      mode: TravelMode;
+      points: Point[];
+      /**
+       * 핀과 경로 끝 사이를 잇는 선.
+       *
+       * 대중교통 응답은 **탈것 구간의 좌표만** 준다. 땀땀 본점에서 세컨브레스커피까지
+       * 1,682m 중 882m가 도보인데 좌표로 오는 것은 지하철 800m뿐이다. 그대로 그리면
+       * 선이 신논현역에서 시작해 언주역에서 끝나 핀 어디에도 닿지 않는다.
+       * 정확한 골목까지 그리려면 도보 길찾기를 두 번 더 불러야 하는데, 역까지 걸어간다는
+       * 사실을 전하는 데 구간마다 호출을 세 배로 늘릴 값어치는 없다. 곧게 이어 둔다.
+       */
+      connectors: { from: Point; to: Point }[];
+      end: Point;
+      ux: number;
+      uy: number;
+    };
+
+/** 이 정도로 가까우면 경로가 핀에서 시작한 것이나 다름없다. 도보가 여기 해당한다. */
+const ACCESS_MIN_PX = ARROW_TRIM_PX + 6;
+
+/**
+ * 접근선의 모양. 본 경로보다 가늘고 성긴 점선이다.
+ *
+ * 실제로 걷는 길이 아니라 "여기서 저 역까지 걸어간다"는 표시다. 본 경로와 같은
+ * 굵기로 그리면 지하철이 가게 문 앞까지 오는 것처럼 읽힌다.
+ */
+export const ACCESS_STYLE = { width: 2, dash: [2, 5] as [number, number] };
 
 export function legShapes(
   stops: readonly Stop[],
@@ -127,9 +155,9 @@ export function legShapes(
 
     if (route && leg) {
       const points = route.points.map(project);
-      const heading = lastHeading(points);
-      if (heading) {
-        shapes.push({ kind: 'path', mode: leg.mode, points, ...heading });
+      const shape = pathShape(leg.mode, points, legEndpoints(stops, i), project);
+      if (shape) {
+        shapes.push(shape);
         continue;
       }
     }
@@ -138,6 +166,56 @@ export function legShapes(
     if (arrow) shapes.push({ kind: 'arrow', mode: 'straight', arrow });
   }
   return shapes;
+}
+
+function pathShape(
+  mode: TravelMode,
+  points: Point[],
+  ends: ReturnType<typeof legEndpoints>,
+  project: Projector,
+): Extract<LegShape, { kind: 'path' }> | null {
+  const first = points[0];
+  const last = points.at(-1);
+  if (!first || !last || points.length < 2) return null;
+
+  const connectors: { from: Point; to: Point }[] = [];
+  // 화살촉은 마지막으로 그린 선의 끝에 얹어야 한다. 접근선이 붙으면 그쪽이 끝이다.
+  let tailFrom = points.at(-2) ?? first;
+  let tailTo = last;
+
+  if (ends) {
+    const origin = project(ends.from.location);
+    const destination = project(ends.to.location);
+
+    if (gap(origin, first) >= ACCESS_MIN_PX) {
+      connectors.push({ from: towards(origin, first, ARROW_TRIM_PX), to: first });
+    }
+    if (gap(last, destination) >= ACCESS_MIN_PX) {
+      const to = towards(destination, last, ARROW_TRIM_PX);
+      connectors.push({ from: last, to });
+      tailFrom = last;
+      tailTo = to;
+    }
+  }
+
+  const dx = tailTo.x - tailFrom.x;
+  const dy = tailTo.y - tailFrom.y;
+  const length = Math.hypot(dx, dy);
+  const heading = length > 0.5 ? { ux: dx / length, uy: dy / length } : lastHeading(points);
+  if (!heading) return null;
+
+  return { kind: 'path', mode, points, connectors, end: tailTo, ux: heading.ux, uy: heading.uy };
+}
+
+function gap(a: Point, b: Point): number {
+  return Math.hypot(b.x - a.x, b.y - a.y);
+}
+
+/** a에서 b 쪽으로 distance만큼 옮긴 점. 핀 밑에서 선이 시작하지 않게 물린다. */
+function towards(a: Point, b: Point, distance: number): Point {
+  const length = Math.hypot(b.x - a.x, b.y - a.y);
+  if (length <= distance) return a;
+  return { x: a.x + ((b.x - a.x) / length) * distance, y: a.y + ((b.y - a.y) / length) * distance };
 }
 
 /** 마지막 두 점이 만드는 방향. 화살촉을 어디에 얹을지 정한다. */
