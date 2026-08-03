@@ -112,6 +112,25 @@ function makeSample() {
             pinColor: '#E24B4A',
           },
         ],
+        // 후보가 여럿이므로 어느 쪽 기준으로 경로를 그릴지 정해 둔다.
+        primaryId: ids.placeB,
+      },
+    ],
+    legs: [
+      {
+        mode: 'walk',
+        route: {
+          points: [
+            { lat: 37.4979, lng: 127.0276 },
+            { lat: 37.4984, lng: 127.0283 },
+            { lat: 37.499, lng: 127.029 },
+          ],
+          distanceM: 882,
+          durationS: 868,
+          fromPlaceId: ids.placeA,
+          toPlaceId: ids.placeB,
+          fetchedAt: '2026-08-01T00:00:00.000Z',
+        },
       },
     ],
     strokes: [
@@ -525,5 +544,144 @@ describeIfConfigured('updated_at 트리거', () => {
     expect(new Date(after.updatedAt).getTime()).toBeGreaterThan(
       new Date(before.updatedAt).getTime(),
     );
+  });
+
+  describe('대표 후보와 구간', () => {
+    it('대표 후보를 왕복시킨다', async () => {
+      const { slug, editToken } = await createMap();
+      const { ids, document } = makeSample();
+      await save(slug, editToken, document);
+      const { data } = await read(slug);
+
+      expect(data.stops[1].primaryId).toBe(ids.placeB);
+    });
+
+    it('대표를 안 정한 단계에는 primaryId 키가 없다', async () => {
+      // "아직 안 정함"이 뜻을 갖는 상태다. 첫 후보를 말없이 대표로 삼으면 안 된다.
+      const { slug, editToken } = await createMap();
+      const { document } = makeSample();
+      await save(slug, editToken, document);
+      const { data } = await read(slug);
+
+      expect(data.stops[0]).not.toHaveProperty('primaryId');
+    });
+
+    it('대표를 다른 후보로 옮길 수 있다', async () => {
+      // 같은 단계 안에서 대표가 이동하면 업서트 도중 순간적으로 둘이 된다.
+      // unique 인덱스를 걸면 여기서 저장이 통째로 실패한다.
+      const { slug, editToken } = await createMap();
+      const { ids, document } = makeSample();
+      await save(slug, editToken, document);
+
+      const moved = {
+        ...document,
+        stops: document.stops.map((stop, i) =>
+          i === 1 ? { ...stop, primaryId: ids.placeC } : stop,
+        ),
+      };
+      const { error } = await save(slug, editToken, moved);
+      expect(error).toBeNull();
+
+      const { data } = await read(slug);
+      expect(data.stops[1].primaryId).toBe(ids.placeC);
+    });
+
+    it('구간의 모드와 경로를 왕복시킨다', async () => {
+      const { slug, editToken } = await createMap();
+      const { ids, document } = makeSample();
+      await save(slug, editToken, document);
+      const { data } = await read(slug);
+
+      expect(data.legs).toHaveLength(1);
+      expect(data.legs[0].mode).toBe('walk');
+      expect(data.legs[0].route).toMatchObject({
+        distanceM: 882,
+        durationS: 868,
+        fromPlaceId: ids.placeA,
+        toPlaceId: ids.placeB,
+      });
+      expect(data.legs[0].route.points).toEqual(document.legs[0]!.route!.points);
+    });
+
+    it('구간 배열 길이는 단계 수보다 하나 적다', async () => {
+      // 자리로 대응해야 한다. 중간이 비어도 배열이 앞으로 밀리면 안 된다.
+      const { slug, editToken } = await createMap();
+      const { document } = makeSample();
+      await save(slug, editToken, { ...document, legs: [] });
+      const { data } = await read(slug);
+
+      expect(data.legs).toHaveLength(document.stops.length - 1);
+      expect(data.legs[0].mode).toBe('straight');
+      expect(data.legs[0]).not.toHaveProperty('route');
+    });
+
+    it('단계가 하나면 구간은 없다', async () => {
+      const { slug, editToken } = await createMap();
+      const { document } = makeSample();
+      await save(slug, editToken, {
+        ...document,
+        stops: document.stops.slice(0, 1),
+        legs: [],
+      });
+      const { data } = await read(slug);
+
+      expect(data.legs).toEqual([]);
+    });
+
+    it('경로 없이 모드만 저장할 수 있다', async () => {
+      // 길찾기가 실패해도 사용자가 고른 수단은 남아야 한다.
+      const { slug, editToken } = await createMap();
+      const { document } = makeSample();
+      await save(slug, editToken, { ...document, legs: [{ mode: 'transit' }] });
+      const { data } = await read(slug);
+
+      expect(data.legs[0].mode).toBe('transit');
+      expect(data.legs[0]).not.toHaveProperty('route');
+    });
+
+    it('대중교통 구간 배지를 왕복시킨다', async () => {
+      const { slug, editToken } = await createMap();
+      const { ids, document } = makeSample();
+      await save(slug, editToken, {
+        ...document,
+        legs: [
+          {
+            mode: 'transit',
+            route: {
+              points: [
+                { lat: 37.4979, lng: 127.0276 },
+                { lat: 37.499, lng: 127.029 },
+              ],
+              distanceM: 951,
+              durationS: 361,
+              legs: [{ type: 'SUBWAY', guidance: '2호선 (강남 > 역삼)' }],
+              fromPlaceId: ids.placeA,
+              toPlaceId: ids.placeB,
+              fetchedAt: '2026-08-01T00:00:00.000Z',
+            },
+          },
+        ],
+      });
+      const { data } = await read(slug);
+
+      expect(data.legs[0].route.legs).toEqual([
+        { type: 'SUBWAY', guidance: '2호선 (강남 > 역삼)' },
+      ]);
+    });
+
+    it('구간이 사라지면 저장된 행도 지워진다', async () => {
+      const { slug, editToken } = await createMap();
+      const { document } = makeSample();
+      await save(slug, editToken, document);
+
+      // 단계를 하나로 줄이면 구간이 남을 자리가 없다.
+      await save(slug, editToken, { ...document, stops: document.stops.slice(0, 1), legs: [] });
+      const { count } = await supabase
+        .from('stop_legs')
+        .select('*', { count: 'exact', head: true })
+        .eq('map_id', (await supabase.from('maps').select('id').eq('slug', slug).single()).data!.id);
+
+      expect(count).toBe(0);
+    });
   });
 });

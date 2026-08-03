@@ -6,20 +6,21 @@ import {
   type MapLabel,
   type Place,
   type Stop,
+  type StopLeg,
   type Stroke,
 } from '@/lib/map/types';
 import {
   arrowHead,
   candidateLinks,
   labelBoxSize,
-  stopArrows,
+  legShapes,
   ARROW_COLOR,
-  ARROW_WIDTH,
   HUB_RADIUS,
   LABEL_PADDING_X,
   LABEL_PADDING_Y,
   LINK_DASH,
   LINK_WIDTH,
+  MODE_STYLE,
   PIN_RADIUS,
   SAVED_RADIUS,
   type Projector,
@@ -32,12 +33,14 @@ import {
  * 나누면 팬·줌 동기화와 좌표 재투영을 그 수만큼 반복해야 한다. 캔버스는 하나로 두고
  * 그리는 함수만 분리하는 편이 비용과 코드 양 모두 유리하다.
  *
- * 단계 사이 화살표는 후보 하나가 아니라 후보들의 중간지점에서 출발한다. 특정 후보에서
- * 선을 뽑으면 나머지 후보가 동선에서 빠진 것처럼 보이지만, 무리의 가운데에서 출발하면
- * "이 단계에서 다음 단계로"만 말하게 되어 어느 후보를 고르든 틀리지 않는다.
+ * 단계 사이 동선은 두 가지 모습을 갖는다. 이동수단을 고르고 대표 후보까지 정한 구간은
+ * 길찾기로 받은 실제 궤적을 그린다. 그렇지 않으면 후보들의 중간지점을 잇는 직선이다.
+ * 특정 후보에서 선을 뽑으면 나머지 후보가 동선에서 빠진 것처럼 보이지만, 무리의
+ * 가운데에서 출발하면 "이 단계에서 다음 단계로"만 말하게 되어 어느 후보를 고르든 틀리지 않는다.
  */
 export interface Scene {
   stops: readonly Stop[];
+  legs?: readonly StopLeg[];
   strokes: readonly Stroke[];
   labels: readonly MapLabel[];
   /**
@@ -66,7 +69,9 @@ export function drawScene(
 
   // 손그림보다 아래에 깔아 둔다. 사용자가 직접 그린 선이 주인공이다.
   if (scene.showCandidateLinks !== false) drawCandidateLinks(ctx, scene.stops, project);
-  if (scene.showStopArrows !== false) drawStopArrows(ctx, scene.stops, project);
+  if (scene.showStopArrows !== false) {
+    drawStopArrows(ctx, scene.stops, scene.legs ?? [], project);
+  }
 
   for (const stroke of scene.strokes) {
     const points = stroke.path.map(project);
@@ -131,23 +136,38 @@ function drawCandidateLinks(
   ctx.restore();
 }
 
+/**
+ * 단계 사이 동선. 실제 경로를 받아 둔 구간은 그 궤적을, 아니면 직선을 그린다.
+ * 어느 쪽이든 진행 방향 끝에 화살촉을 얹는다. 어디로 가는지가 이 선의 존재 이유다.
+ */
 function drawStopArrows(
   ctx: CanvasRenderingContext2D,
   stops: readonly Stop[],
+  legs: readonly StopLeg[],
   project: Projector,
 ) {
   ctx.save();
-  ctx.strokeStyle = ARROW_COLOR;
-  ctx.fillStyle = ARROW_COLOR;
-  ctx.lineWidth = ARROW_WIDTH;
 
-  for (const { start, end, ux, uy } of stopArrows(stops, project)) {
+  for (const shape of legShapes(stops, legs, project)) {
+    const style = MODE_STYLE[shape.mode];
+    ctx.strokeStyle = style.color;
+    ctx.fillStyle = style.color;
+    ctx.lineWidth = style.width;
+    ctx.setLineDash(style.dash ? [...style.dash] : []);
+
+    const { end, ux, uy } = shape.kind === 'arrow' ? shape.arrow : shape;
+
     ctx.beginPath();
-    ctx.moveTo(start.x, start.y);
-    ctx.lineTo(end.x, end.y);
+    if (shape.kind === 'arrow') {
+      ctx.moveTo(shape.arrow.start.x, shape.arrow.start.y);
+      ctx.lineTo(end.x, end.y);
+    } else {
+      tracePolyline(ctx, shape.points);
+    }
     ctx.stroke();
 
-    // 진행 방향 끝에 채운 삼각형을 얹는다. 어느 쪽으로 가는지가 화살표의 존재 이유다.
+    // 화살촉은 채운 삼각형이라 점선 설정이 남아 있으면 테두리가 끊겨 보인다.
+    ctx.setLineDash([]);
     const [tip, left, right] = arrowHead(end, ux, uy);
     ctx.beginPath();
     ctx.moveTo(tip.x, tip.y);

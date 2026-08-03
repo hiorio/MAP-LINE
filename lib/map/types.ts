@@ -31,6 +31,78 @@ export interface MapLabel {
 export interface Stop {
   id: string;
   candidates: Place[];
+  /**
+   * 대표 후보의 id. 실제 경로를 그릴 때 출발·도착점이 된다.
+   *
+   * 중간지점은 후보들의 평균이라 건물도 길도 아닌 가상의 점이고, 거기서 길찾기를
+   * 시작할 수 없다. 그렇다고 첫 후보를 말없이 쓰면 나머지 후보가 동선에서 빠진 것처럼
+   * 보인다. 어디를 기준으로 그린 경로인지 사람이 정하게 한다.
+   */
+  primaryId?: string;
+}
+
+/**
+ * 단계에서 단계로 어떻게 이동하는가.
+ *
+ * 'straight'가 기본이다. 후보가 아직 여럿이라 어디로 갈지 안 정한 단계에까지
+ * 정확한 경로를 그리면 정해진 것처럼 보인다.
+ */
+export type TravelMode = 'straight' | 'walk' | 'transit' | 'bicycle';
+
+export const TRAVEL_MODES: readonly TravelMode[] = ['straight', 'walk', 'transit', 'bicycle'];
+
+export function isTravelMode(value: unknown): value is TravelMode {
+  return typeof value === 'string' && (TRAVEL_MODES as readonly string[]).includes(value);
+}
+
+/** 대중교통 경로를 이루는 한 구간. 노선 배지로 보여 준다. */
+export interface TransitLeg {
+  type: string;
+  /** "2호선 (강남 > 역삼)" 같은 카카오가 준 안내 문구 */
+  guidance: string;
+}
+
+/**
+ * 길찾기로 받아 온 실제 경로.
+ *
+ * `fromPlaceId`/`toPlaceId`/`fetchedAt`을 함께 담는 이유: 끝점이 바뀌었는데 옛 경로를
+ * 계속 그리면 조용히 틀린 그림이 된다. 어떤 두 지점을 언제 기준으로 구한 것인지 남겨
+ * 두면 다시 구해야 하는지 스스로 판단할 수 있다. 카카오 운영정책이 요구하는
+ * "캐시 후 최신 데이터로 유지"의 근거이기도 하다.
+ */
+export interface RoutePath {
+  points: LatLng[];
+  distanceM: number;
+  durationS: number;
+  /** 대중교통일 때만 있다. */
+  legs?: TransitLeg[];
+  fromPlaceId: string;
+  toPlaceId: string;
+  fetchedAt: string;
+}
+
+/**
+ * 단계 사이 한 구간. `legs[i]`가 `stops[i] → stops[i+1]`에 대응한다.
+ *
+ * 배열 순서를 단계 번호의 유일한 근거로 두는 기존 규칙을 그대로 따른다.
+ * 단계를 재배치하면 끝점이 달라지고, 그러면 `route`의 끝점 id가 어긋나 저절로 버려진다.
+ */
+export interface StopLeg {
+  mode: TravelMode;
+  /** 직선이거나 아직 못 구했으면 없다. */
+  route?: RoutePath;
+}
+
+/**
+ * 이 단계에서 길찾기의 기준이 될 장소.
+ *
+ * 후보가 하나면 고를 것이 없으므로 그것이 곧 대표다. 여럿인데 대표를 안 정했으면
+ * 기준이 없다는 뜻이고, 그때는 경로를 그리지 않는 것이 정직하다.
+ */
+export function stopAnchor(stop: Stop): Place | null {
+  if (stop.candidates.length === 1) return stop.candidates[0] ?? null;
+  if (!stop.primaryId) return null;
+  return stop.candidates.find((place) => place.id === stop.primaryId) ?? null;
 }
 
 /** 검색 결과. 아직 지도에 담기지 않은 후보다. */
@@ -71,6 +143,8 @@ export interface MapDocument {
   center: LatLng;
   zoomLevel: number;
   stops: Stop[];
+  /** 단계 사이 구간. 길이는 항상 max(0, stops.length - 1)이다. */
+  legs: StopLeg[];
   strokes: Stroke[];
   labels: MapLabel[];
   /**

@@ -73,6 +73,8 @@ function ViewerCanvas({
     map,
     scene: {
       stops: document.stops,
+      // 저장된 경로를 그대로 그린다. 보는 쪽에서 길찾기를 부르지 않는다.
+      legs: document.legs ?? [],
       strokes: document.strokes,
       labels: document.labels,
       showCandidateLinks: document.showCandidateLinks,

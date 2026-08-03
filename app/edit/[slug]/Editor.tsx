@@ -12,6 +12,7 @@ import { loadDocument, saveDocument, type SaveMode } from '@/lib/map/persistence
 import { DEFAULT_CENTER, DEFAULT_LEVEL, type LatLng } from '@/lib/map/types';
 import { useMapStore } from '@/store/useMapStore';
 import { useSavedPlacesStore } from '@/store/useSavedPlacesStore';
+import { useLegRoutes } from './useLegRoutes';
 
 /* §6.1 저장 전략. 획 하나마다 저장하면 요청이 폭증한다. */
 const DEBOUNCE_MS = 2_000;
@@ -53,6 +54,8 @@ export function Editor({ slug }: { slug: string }) {
   }, [slug, hydrate]);
 
   useAutosave(slug, map, updatedAtRef, setSaveMode);
+  // 이동수단을 고른 구간의 실제 경로는 편집기에서만 받는다.
+  useLegRoutes();
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden">
@@ -206,6 +209,7 @@ function useAutosave(
   setSaveMode: (mode: SaveMode) => void,
 ) {
   const stops = useMapStore((s) => s.stops);
+  const legs = useMapStore((s) => s.legs);
   const strokes = useMapStore((s) => s.strokes);
   const labels = useMapStore((s) => s.labels);
   const title = useMapStore((s) => s.title);
@@ -231,6 +235,7 @@ function useAutosave(
         center: center ? { lat: center.getLat(), lng: center.getLng() } : DEFAULT_CENTER,
         zoomLevel: map?.getLevel() ?? DEFAULT_LEVEL,
         stops: state.stops,
+        legs: state.legs,
         strokes: state.strokes,
         labels: state.labels,
       },
@@ -254,7 +259,7 @@ function useAutosave(
 
     const timer = setTimeout(flush, delay);
     return () => clearTimeout(timer);
-  }, [stops, strokes, labels, title, showCandidateLinks, showStopArrows, flush]);
+  }, [stops, legs, strokes, labels, title, showCandidateLinks, showStopArrows, flush]);
 
   useEffect(() => {
     // 탭을 닫거나 백그라운드로 보낼 때의 마지막 기회.

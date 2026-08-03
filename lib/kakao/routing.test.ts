@@ -1,0 +1,127 @@
+import { describe, expect, it } from 'vitest';
+import { NoRouteError, parsePath, parseTransit } from './routing';
+
+/** 실제 응답에서 가져온 모양. 강남역 → 역삼역 도보. */
+const walkBody = {
+  status: 'OK',
+  route: {
+    legs: [
+      {
+        properties: { distance: 882, time: 868 },
+        steps: [
+          {
+            path: { points: [[127.0276, 37.4979], [127.0286, 37.4984]] },
+            properties: { distance: 142, guidance: '강남역 12번 출구까지 역사 내 이동', time: 128 },
+          },
+          {
+            // 앞 구간의 끝점이 그대로 다시 온다.
+            path: { points: [[127.0286, 37.4984], [127.0309, 37.4991]] },
+            properties: { distance: 223, guidance: '강남역 12번 출구 진출 후 223m 이동', time: 229 },
+          },
+        ],
+      },
+    ],
+  },
+};
+
+/** 실제 응답 모양. 지하철 경로가 첫 번째로 온다. */
+const transitBody = {
+  status: 'OK',
+  routes: [
+    {
+      properties: { type: 'SUBWAY', totalDistance: 951, totalTime: 361, transfers: 0 },
+      steps: [
+        {
+          properties: { guidance: '2호선 (강남 > 역삼)', type: 'SUBWAY' },
+          path: { points: [[127.028, 37.4980], [127.0364, 37.5006]] },
+        },
+      ],
+    },
+    {
+      properties: { type: 'BUS', totalDistance: 1397, totalTime: 720 },
+      steps: [{ properties: { guidance: '간선 8146', type: 'BUS' }, path: { points: [[1, 1], [2, 2]] } }],
+    },
+  ],
+};
+
+describe('parsePath', () => {
+  it('구간별로 나뉜 좌표를 한 줄로 잇는다', () => {
+    expect(parsePath(walkBody).points).toEqual([
+      { lat: 37.4979, lng: 127.0276 },
+      { lat: 37.4984, lng: 127.0286 },
+      { lat: 37.4991, lng: 127.0309 },
+    ]);
+  });
+
+  it('이음매의 중복 좌표를 버린다', () => {
+    // 구간 경계에서 같은 점이 두 번 오는데, 그대로 두면 길이 계산과 선 그리기에 군더더기다.
+    const points = parsePath(walkBody).points;
+    expect(points).toHaveLength(3);
+  });
+
+  it('거리와 시간을 합산한다', () => {
+    expect(parsePath(walkBody)).toMatchObject({ distanceM: 882, durationS: 868 });
+  });
+
+  it('x가 경도, y가 위도다', () => {
+    // 뒤집으면 경로가 지구 반대편에 그려진다.
+    const first = parsePath(walkBody).points[0]!;
+    expect(first.lng).toBeGreaterThan(120);
+    expect(first.lat).toBeLessThan(90);
+  });
+
+  it('좌표가 없으면 상태를 담아 NoRouteError를 던진다', () => {
+    // 도보는 거리가 멀면 200에 TOO_FAR_AWAY를 준다. 성공으로 착각하면 안 된다.
+    const empty = { status: 'TOO_FAR_AWAY', route: { legs: [], properties: {} } };
+    expect(() => parsePath(empty)).toThrowError(NoRouteError);
+    try {
+      parsePath(empty);
+    } catch (error) {
+      expect((error as NoRouteError).status).toBe('TOO_FAR_AWAY');
+    }
+  });
+
+  it('점이 하나뿐이어도 경로로 치지 않는다', () => {
+    const single = { status: 'OK', route: { legs: [{ properties: {}, steps: [{ path: { points: [[127, 37]] } }] }] } };
+    expect(() => parsePath(single)).toThrowError(NoRouteError);
+  });
+
+  it('망가진 응답에도 터지지 않는다', () => {
+    expect(() => parsePath(null)).toThrowError(NoRouteError);
+    expect(() => parsePath({ route: 'nope' })).toThrowError(NoRouteError);
+  });
+});
+
+describe('parseTransit', () => {
+  it('첫 번째 경로만 쓴다', () => {
+    // 지하철·버스 대안이 여럿 오는데 첫 번째가 카카오의 추천이다.
+    expect(parseTransit(transitBody)).toMatchObject({ distanceM: 951, durationS: 361 });
+  });
+
+  it('노선 안내 문구를 배지로 남긴다', () => {
+    expect(parseTransit(transitBody).legs).toEqual([
+      { type: 'SUBWAY', guidance: '2호선 (강남 > 역삼)' },
+    ]);
+  });
+
+  it('좌표도 함께 담는다', () => {
+    expect(parseTransit(transitBody).points).toHaveLength(2);
+  });
+
+  it('경로가 하나도 없으면 NoRouteError', () => {
+    expect(() => parseTransit({ status: 'NO_RESULT', routes: [] })).toThrowError(NoRouteError);
+  });
+
+  it('안내 문구가 없는 구간은 배지를 만들지 않는다', () => {
+    const body = {
+      status: 'OK',
+      routes: [
+        {
+          properties: { totalDistance: 10, totalTime: 20 },
+          steps: [{ properties: {}, path: { points: [[127, 37], [128, 38]] } }],
+        },
+      ],
+    };
+    expect(parseTransit(body).legs).toBeUndefined();
+  });
+});

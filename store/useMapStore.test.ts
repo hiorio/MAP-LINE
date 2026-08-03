@@ -21,6 +21,7 @@ beforeEach(() => {
   useMapStore.setState({
     ...initial,
     stops: [],
+    legs: [],
     strokes: [],
     labels: [],
     history: [],
@@ -273,5 +274,124 @@ describe('hydrate', () => {
     useMapStore.getState().hydrate({});
     expect(useMapStore.getState().strokes).toEqual([]);
     expect(useMapStore.getState().title).toBe('');
+  });
+});
+
+describe('구간', () => {
+  const at = (lat: number) => createPlace({ lat, lng: 127 }, `장소${lat}`);
+
+  function threeStops() {
+    const store = useMapStore.getState();
+    store.addStop([at(37.5)]);
+    store.addStop([at(37.51)]);
+    store.addStop([at(37.52)]);
+  }
+
+  it('단계를 담으면 구간이 하나 적게 생긴다', () => {
+    threeStops();
+    expect(useMapStore.getState().legs).toEqual([{ mode: 'straight' }, { mode: 'straight' }]);
+  });
+
+  it('단계가 하나면 구간이 없다', () => {
+    useMapStore.getState().addStop([at(37.5)]);
+    expect(useMapStore.getState().legs).toEqual([]);
+  });
+
+  it('단계를 지우면 구간도 줄어든다', () => {
+    threeStops();
+    const [first] = useMapStore.getState().stops;
+    useMapStore.getState().removeStop(first!.id);
+    expect(useMapStore.getState().legs).toHaveLength(1);
+  });
+
+  it('모드를 바꾸면 이전 경로를 버린다', () => {
+    // 도보로 받아 둔 궤적을 대중교통에 그대로 쓰면 잠깐 틀린 선이 보인다.
+    threeStops();
+    useMapStore.setState((s) => ({
+      legs: [
+        {
+          mode: 'walk',
+          route: {
+            points: [{ lat: 37.5, lng: 127 }, { lat: 37.51, lng: 127 }],
+            distanceM: 10,
+            durationS: 10,
+            fromPlaceId: 'a',
+            toPlaceId: 'b',
+            fetchedAt: new Date().toISOString(),
+          },
+        },
+        s.legs[1]!,
+      ],
+    }));
+
+    useMapStore.getState().setLegMode(0, 'transit');
+    expect(useMapStore.getState().legs[0]).toEqual({ mode: 'transit' });
+  });
+
+  it('같은 모드를 다시 고르면 아무 일도 없다', () => {
+    threeStops();
+    const before = useMapStore.getState().legs;
+    useMapStore.getState().setLegMode(0, 'straight');
+    expect(useMapStore.getState().legs).toBe(before);
+  });
+
+  it('길찾기 결과는 되돌리기에 쌓지 않는다', () => {
+    // 사용자가 한 일이 아니라 받아 온 값이다. 되돌리기가 경로만 지우면 이상하다.
+    threeStops();
+    const historyBefore = useMapStore.getState().history.length;
+    useMapStore.getState().setLegMode(0, 'walk');
+    const afterMode = useMapStore.getState().history.length;
+
+    useMapStore.getState().setLegRoute(0, {
+      points: [{ lat: 37.5, lng: 127 }, { lat: 37.51, lng: 127 }],
+      distanceM: 10,
+      durationS: 10,
+      fromPlaceId: 'a',
+      toPlaceId: 'b',
+      fetchedAt: new Date().toISOString(),
+    });
+
+    expect(afterMode).toBe(historyBefore + 1);
+    expect(useMapStore.getState().history).toHaveLength(afterMode);
+    expect(useMapStore.getState().saveState).toBe('dirty');
+  });
+});
+
+describe('대표 후보', () => {
+  function stopWithTwo() {
+    useMapStore.getState().addStop([
+      createPlace({ lat: 37.5, lng: 127 }, '가'),
+      createPlace({ lat: 37.51, lng: 127 }, '나'),
+    ]);
+    return useMapStore.getState().stops[0]!;
+  }
+
+  it('대표를 지정한다', () => {
+    const stop = stopWithTwo();
+    useMapStore.getState().setPrimary(stop.id, stop.candidates[1]!.id);
+    expect(useMapStore.getState().stops[0]!.primaryId).toBe(stop.candidates[1]!.id);
+  });
+
+  it('같은 후보를 다시 누르면 해제된다', () => {
+    const stop = stopWithTwo();
+    const target = stop.candidates[0]!.id;
+    useMapStore.getState().setPrimary(stop.id, target);
+    useMapStore.getState().setPrimary(stop.id, target);
+    expect(useMapStore.getState().stops[0]).not.toHaveProperty('primaryId');
+  });
+
+  it('그 단계에 없는 후보는 대표가 될 수 없다', () => {
+    const stop = stopWithTwo();
+    useMapStore.getState().setPrimary(stop.id, 'zzz');
+    expect(useMapStore.getState().stops[0]).not.toHaveProperty('primaryId');
+  });
+
+  it('대표로 지정한 후보를 빼면 지정도 사라진다', () => {
+    // 없는 곳을 가리키는 대표를 남기면 경로가 조용히 안 그려진다.
+    const stop = stopWithTwo();
+    const target = stop.candidates[0]!.id;
+    useMapStore.getState().setPrimary(stop.id, target);
+    useMapStore.getState().removeCandidate(target);
+    expect(useMapStore.getState().stops[0]).not.toHaveProperty('primaryId');
   });
 });

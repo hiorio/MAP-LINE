@@ -2,8 +2,14 @@
 
 import { useState } from 'react';
 import { focusPlaces } from '@/lib/map/focusPlaces';
+import { drawableRoute, legEndpoints } from '@/lib/map/legs';
 import { isSamePlace } from '@/lib/map/savedPlaces';
-import { formatDistance, type LatLng, type PlaceCandidate } from '@/lib/map/types';
+import {
+  formatDistance,
+  type LatLng,
+  type PlaceCandidate,
+  type TravelMode,
+} from '@/lib/map/types';
 import { createPlace, placeFromCandidate, useMapStore } from '@/store/useMapStore';
 import { useSavedPlacesStore } from '@/store/useSavedPlacesStore';
 
@@ -275,6 +281,7 @@ function StopList({
   const moveStop = useMapStore((s) => s.moveStop);
   const removeStop = useMapStore((s) => s.removeStop);
   const removeCandidate = useMapStore((s) => s.removeCandidate);
+  const setPrimary = useMapStore((s) => s.setPrimary);
 
   return (
     <div className="border-t border-hairline">
@@ -323,6 +330,26 @@ function StopList({
             <ul className="mt-2 space-y-1 pl-8">
               {stop.candidates.map((place) => (
                 <li key={place.id} className="flex items-center gap-2">
+                  {/*
+                    후보가 하나뿐이면 고를 것이 없다. 버튼을 두면 의미 없는 선택처럼 보인다.
+                    이름 뒤에 조사를 붙이면 받침에 따라 을/를이 틀리므로 조사를 쓰지 않는다.
+                  */}
+                  {stop.candidates.length > 1 && (
+                    <button
+                      type="button"
+                      aria-label={`${place.name} 대표로 지정`}
+                      aria-pressed={stop.primaryId === place.id}
+                      title="실제 경로를 그릴 기준"
+                      onClick={() => setPrimary(stop.id, place.id)}
+                      className={`size-6 shrink-0 rounded-full border text-[11px] ${
+                        stop.primaryId === place.id
+                          ? 'border-coral bg-coral text-white'
+                          : 'border-hairline text-ink/35'
+                      }`}
+                    >
+                      &#9679;
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => onFocus(place.location)}
@@ -349,11 +376,88 @@ function StopList({
             >
               + 이 단계에 후보 추가
             </button>
+
+            {/* 이 단계에서 다음 단계로 어떻게 가는가. 마지막 단계 뒤에는 갈 곳이 없다. */}
+            {index < stops.length - 1 && <LegEditor index={index} />}
           </li>
         ))}
       </ol>
     </div>
   );
+}
+
+const MODE_LABELS: { mode: TravelMode; label: string }[] = [
+  { mode: 'straight', label: '직선' },
+  { mode: 'walk', label: '도보' },
+  { mode: 'transit', label: '대중교통' },
+  { mode: 'bicycle', label: '자전거' },
+];
+
+/**
+ * 다음 단계로 가는 방법.
+ *
+ * 직선이 기본이다. 실제 경로는 출발·도착이 확정돼야 뽑을 수 있는데, 후보가 여럿인
+ * 단계는 아직 안 정했다는 뜻이라 기준이 없다. 그럴 때는 무엇이 모자란지 그 자리에서
+ * 알려 준다. 조용히 직선으로 되돌아가면 왜 안 그려지는지 알 수 없다.
+ */
+function LegEditor({ index }: { index: number }) {
+  const stops = useMapStore((s) => s.stops);
+  const leg = useMapStore((s) => s.legs[index]);
+  const setLegMode = useMapStore((s) => s.setLegMode);
+
+  const mode = leg?.mode ?? 'straight';
+  const ready = legEndpoints(stops, index) !== null;
+  const route = drawableRoute(stops, index, leg);
+
+  return (
+    <div className="mt-3 ml-8 border-l-2 border-dashed border-hairline pl-3">
+      <div className="flex flex-wrap items-center gap-1">
+        <span className="mr-1 text-[11px] text-ink/40">{index + 2}번까지</span>
+        {MODE_LABELS.map(({ mode: value, label }) => (
+          <button
+            key={value}
+            type="button"
+            aria-pressed={mode === value}
+            onClick={() => setLegMode(index, value)}
+            className={`h-7 rounded-lg border px-2 text-[11px] ${
+              mode === value ? 'border-ink bg-ink text-white' : 'border-hairline text-ink/70'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {mode !== 'straight' && !ready && (
+        <p className="mt-1.5 text-[11px] text-coral">
+          양쪽 단계에서 대표 후보(&#9679;)를 정해야 실제 경로를 그립니다
+        </p>
+      )}
+
+      {mode !== 'straight' && ready && !route && (
+        <p className="mt-1.5 text-[11px] text-ink/40">경로를 가져오는 중…</p>
+      )}
+
+      {route && (
+        <div className="mt-1.5 text-[11px] text-ink/55">
+          <span className="tabular-nums">
+            {formatDistance(route.distanceM)} · {formatDuration(route.durationS)}
+          </span>
+          {route.legs?.map((transit, i) => (
+            <span key={i} className="ml-1.5 rounded bg-ink/5 px-1.5 py-0.5">
+              {transit.guidance}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function formatDuration(seconds: number): string {
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}분`;
+  return `${Math.floor(minutes / 60)}시간 ${minutes % 60}분`;
 }
 
 /**

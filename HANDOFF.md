@@ -134,6 +134,7 @@ Railway에 올라가 있습니다: https://map-line-production.up.railway.app
 | 뷰어·공유 링크 | `app/m/[slug]/**`, `Editor.tsx`의 `ShareButton` |
 | OG 썸네일 + Storage 캐시 | `app/api/og/[slug]`, `lib/map/ogImage.ts`, `lib/kakao/staticMap.ts`, `0004` |
 | 썸네일에 핀·손그림·화살표·메모 합성 | `lib/render/ogOverlay.ts`, `lib/render/sceneGeometry.ts`, `lib/map/staticProjection.ts`, `nixpacks.toml` |
+| 실제 경로 동선(도보·대중교통·자전거) | `lib/kakao/routing.ts`, `app/api/route`, `lib/map/legs.ts`, `app/edit/[slug]/useLegRoutes.ts`, `0010` |
 | 랜딩 | `app/page.tsx`, `components/DemoMap.tsx` |
 | 사용량 집계·진단 | `lib/kakao/usage.ts`, `app/api/usage`, `0005` |
 | 요청 빈도 제한 | `lib/rateLimit.ts`, `0009` |
@@ -157,9 +158,8 @@ Railway에 올라가 있습니다: https://map-line-production.up.railway.app
 
 - **카카오톡 인앱 브라우저 실기기 테스트** — 유일하게 남은 미검증 항목이자 제일 중요합니다.
   아래 "다음 세션이 제일 먼저 할 일" 참고
-- **실제 경로 좌표** — 단계 사이 화살표가 직선입니다. `/api/route`로 실제 도보·대중교통
-  경로를 받으면 `lib/render/scene.ts`의 `drawStopArrows`가 좌표 배열을 받도록 바꾸면 됩니다.
-  단계마다 후보가 여럿이면 어느 후보 기준으로 경로를 뽑을지 정해야 합니다
+- **자동차 동선** — 도보·대중교통·자전거는 됩니다. 자동차만 뺐습니다. 이유는 아래
+  "길찾기" 항목 참고
 - **신고 링크** — 빈도 제한은 넣었지만 신고 창구는 없습니다
 - **v0.2 중간지점** — 손 안 댐. 알고리즘 설계는 [docs/ROADMAP.md](docs/ROADMAP.md)에 있습니다
 
@@ -237,6 +237,9 @@ npx vitest run lib/map/mapDocument.integration.test.ts     # 스키마 건드린
 - **OG 이미지는 `og:image` URL이 절대 경로여야 크롤러가 읽습니다.** `app/layout.tsx`의 `metadataBase`가 `NEXT_PUBLIC_SITE_URL`로 그 기준을 잡습니다. 배포 시 이걸 안 바꾸면 썸네일이 localhost를 가리켜 카톡 미리보기가 비어 보입니다.
 - **카카오 정적 지도의 `markers` 파라미터는 쓰면 안 됩니다.** 폴리라인 파라미터가 아예 없는 것도 문제지만, 더 나쁜 건 `markers`를 넘기면 카카오가 **`center`를 무시하고 마커에 맞춰 지도를 다시 잡는다**는 점입니다(마커 하나면 그 마커가 무조건 이미지 한가운데에 옵니다). 지도를 만든 사람이 맞춰 둔 화면이 통째로 어긋납니다. 그래서 지도는 표시 없이 받고 핀·화살표·손그림·메모를 전부 직접 합성합니다 — `lib/render/ogOverlay.ts`(SVG 생성) + `lib/map/ogImage.ts`(sharp 합성).
 - **좌표 → 픽셀 대응은 실측해서 `lib/map/staticProjection.ts`에 넣어뒀습니다.** 카카오가 문서로 내놓지 않아 직접 쟀습니다. 성질이 중요한데, **메르카토르가 아닙니다**: 위도 1도당 픽셀 수가 위도와 무관하게 일정하고, 경도만 `cos(위도)`배로 좁아지는 등거리 투영입니다. 레벨이 1 오를 때마다 정확히 절반이 됩니다. 검증은 정적 지도의 `center`를 알려진 각도만큼 옮겼을 때 이미지가 실제로 몇 픽셀 밀리는지 대조했고, 레벨 1·2·3·5·7에서 240px 기준 오차 0px이었습니다. **요청한 레벨과 그린 레벨이 어긋나면 획이 통째로 엉뚱한 배율로 찍히므로 `clampLevel()`을 양쪽에서 같이 쓰세요.**
+- **길찾기는 카카오맵 REST(`dapi.kakao.com/v2/routing`)를 씁니다. 카카오모빌리티(`apis-navi`)가 아닙니다.** 둘은 이름만 비슷하고 정책이 다릅니다. 도보·대중교통·자전거가 각각 하루 1,000건씩 **기존 REST 키로 신청 없이** 열려 있고, 응답에 좌표뿐 아니라 "2호선 (강남 > 역삼)" 같은 안내 문구까지 옵니다. 반면 카카오모빌리티의 자동차 길찾기는 **결과의 자체 DB 저장이 정책상 금지**라(공식 답변 확인) 링크를 나중에 여는 이 제품의 저장 모델과 맞지 않습니다. 그래서 자동차는 일부러 뺐습니다. **넣자는 얘기가 나오면 이 제약부터 확인하세요.**
+- **경로 캐시는 신선도 유지가 조건입니다.** 카카오 개발자 운영정책 제5조 20호는 캐시를 금지하지 않지만, 사용자 환경 개선 목적일 것과 최신 상태로 유지할 것을 요구합니다. 그래서 `stop_legs`에 `from_place_id`/`to_place_id`/`fetched_at`을 함께 남기고, 편집기가 열릴 때 끝점이 어긋났거나 7일(`ROUTE_TTL_DAYS`)이 지난 구간을 다시 받습니다. **길찾기는 편집기에서만 부릅니다.** 조회할 때마다 부르면 인기 있는 지도 하나가 하루치 쿼터를 다 먹습니다.
+- **경로의 출발·도착은 중간지점이 아니라 대표 후보입니다.** 중간지점은 후보들의 평균이라 건물도 길도 아닌 가상의 점이고 길찾기를 시작할 수 없습니다. 후보가 하나뿐인 단계는 그것이 곧 대표이고, 여럿인데 대표를 안 정했으면 경로를 그리지 않고 직선으로 둡니다. "아직 안 정함"은 지워야 할 상태가 아니라 이 제품이 표현하려는 상태입니다.
 - **썸네일의 한글은 서버 글꼴에 달려 있습니다.** SVG 안에 가게 이름과 메모가 한글로 들어가는데 기본 빌드 이미지에는 CJK 글꼴이 없습니다. `nixpacks.toml`의 `fonts-noto-cjk`가 그걸 넣습니다. 이 줄이 빠지면 **핀과 선은 멀쩡한데 글자만 빈칸/두부로 나와서** 알아채기 어렵습니다.
 - **0001의 RLS 정책에는 보안 구멍이 있었고 0002에서 막았습니다.** `create policy maps_read on maps for select using (true)`는 컬럼 단위가 아니라서 anon 키로 `select edit_token from maps`가 통했습니다. 즉 누구나 남의 지도를 편집할 수 있었습니다. `maps_public` 뷰로는 원본 테이블 직접 조회를 막지 못합니다. 0002에서 읽기 정책을 전부 없애 기본 거부로 만들고, `get_map_document`(security definer, edit_token 미반환)로만 읽기를 엽니다. **새 테이블에 읽기 정책을 추가할 때 같은 실수를 반복하지 마세요.**
 - **저장은 지도 전체 스냅샷을 보내지만 DB에는 업서트로 반영됩니다** (0006). 클라이언트가 만든 uuid를 그대로 기본키로 쓰고, 페이로드에 없는 행만 지웁니다. 그래서 `lib/id.ts`의 `createId()`는 **어떤 환경에서도 유효한 uuid를 반환해야 합니다** — 형식이 깨지면 저장이 통째로 실패합니다. PostGIS ↔ `{lat,lng}` 변환은 RPC 안에서 끝나므로 클라이언트는 PostGIS를 모릅니다.

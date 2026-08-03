@@ -35,6 +35,19 @@ export const SEARCH_LIMIT: RateLimitRule = {
 };
 
 /**
+ * 길찾기: 검색보다 훨씬 빡빡하게 잡는다.
+ *
+ * 길찾기는 하루 1,000건인데 검색은 100,000건이다. 같은 한도를 주면 한 사람이
+ * 몇 분 만에 하루치를 다 태울 수 있다. 구간 모드를 바꾸는 건 사람이 드물게 하는
+ * 일이라 이 정도로 충분하다.
+ */
+export const ROUTE_LIMIT: RateLimitRule = {
+  name: 'route',
+  limit: 30,
+  windowSeconds: 60 * 10,
+};
+
+/**
  * 요청자의 IP. Railway·Vercel 모두 프록시를 거치므로 소켓 주소가 아니라 헤더를 본다.
  * `x-forwarded-for`는 쉼표로 이어진 목록이고 맨 앞이 원래 클라이언트다.
  */

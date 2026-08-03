@@ -1,15 +1,21 @@
 import { strokeRenderAlpha, strokeRenderWidth } from '@/lib/geo/projection';
-import { flattenStops, type MapLabel, type Stop, type Stroke } from '@/lib/map/types';
+import {
+  flattenStops,
+  type MapLabel,
+  type Stop,
+  type StopLeg,
+  type Stroke,
+} from '@/lib/map/types';
 import {
   arrowHead,
   candidateLinks,
   labelBoxSize,
-  stopArrows,
+  legShapes,
   ARROW_COLOR,
-  ARROW_WIDTH,
   HUB_RADIUS,
   LINK_DASH,
   LINK_WIDTH,
+  MODE_STYLE,
   PIN_RADIUS,
   type Projector,
 } from './sceneGeometry';
@@ -29,6 +35,7 @@ const FONT = '"Noto Sans CJK KR","Noto Sans KR","Malgun Gothic","Apple SD Gothic
 
 export interface OgOverlayInput {
   stops: readonly Stop[];
+  legs: readonly StopLeg[];
   strokes: readonly Stroke[];
   labels: readonly MapLabel[];
   showCandidateLinks: boolean;
@@ -49,7 +56,7 @@ export function renderOgOverlay(input: OgOverlayInput): string {
 
   // 손그림보다 아래에 깔아 둔다. 사용자가 직접 그린 선이 주인공이다.
   if (input.showCandidateLinks) parts.push(candidateLinkMarkup(input.stops, project));
-  if (input.showStopArrows) parts.push(stopArrowMarkup(input.stops, project));
+  if (input.showStopArrows) parts.push(stopArrowMarkup(input.stops, input.legs, project));
 
   parts.push(strokeMarkup(input.strokes, input.level, project));
   parts.push(pinMarkup(input.stops, project));
@@ -77,16 +84,35 @@ function candidateLinkMarkup(stops: readonly Stop[], project: Projector): string
   return out;
 }
 
-function stopArrowMarkup(stops: readonly Stop[], project: Projector): string {
+/** 단계 사이 동선. 실제 경로가 있으면 궤적을, 없으면 직선을 그린다. */
+function stopArrowMarkup(
+  stops: readonly Stop[],
+  legs: readonly StopLeg[],
+  project: Projector,
+): string {
   let out = '';
-  for (const { start, end, ux, uy } of stopArrows(stops, project)) {
-    out +=
-      `<line x1="${n(start.x)}" y1="${n(start.y)}" x2="${n(end.x)}" y2="${n(end.y)}" ` +
-      `stroke="${ARROW_COLOR}" stroke-width="${ARROW_WIDTH}"/>`;
-    const points = arrowHead(end, ux, uy)
+  for (const shape of legShapes(stops, legs, project)) {
+    const style = MODE_STYLE[shape.mode];
+    const dash = style.dash ? ` stroke-dasharray="${style.dash.join(' ')}"` : '';
+    const { end, ux, uy } = shape.kind === 'arrow' ? shape.arrow : shape;
+
+    if (shape.kind === 'arrow') {
+      const { start } = shape.arrow;
+      out +=
+        `<line x1="${n(start.x)}" y1="${n(start.y)}" x2="${n(end.x)}" y2="${n(end.y)}" ` +
+        `stroke="${style.color}" stroke-width="${style.width}"${dash}/>`;
+    } else {
+      const d = shape.points.map((p, i) => `${i === 0 ? 'M' : 'L'}${n(p.x)} ${n(p.y)}`).join('');
+      out +=
+        `<path d="${d}" fill="none" stroke="${style.color}" ` +
+        `stroke-width="${style.width}"${dash}/>`;
+    }
+
+    // 화살촉은 채운 도형이라 점선을 물려주면 테두리가 끊겨 보인다.
+    const head = arrowHead(end, ux, uy)
       .map((p) => `${n(p.x)},${n(p.y)}`)
       .join(' ');
-    out += `<polygon points="${points}" fill="${ARROW_COLOR}"/>`;
+    out += `<polygon points="${head}" fill="${style.color}"/>`;
   }
   return out;
 }

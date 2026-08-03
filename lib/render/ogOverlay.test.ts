@@ -13,6 +13,7 @@ function place(id: string, lat: number, lng: number) {
 function input(overrides: Partial<OgOverlayInput> = {}): OgOverlayInput {
   return {
     stops: [],
+    legs: [],
     strokes: [],
     labels: [],
     showCandidateLinks: true,

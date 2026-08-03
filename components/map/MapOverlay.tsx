@@ -60,6 +60,7 @@ export function MapOverlay({
   const [savedMenu, setSavedMenu] = useState<{ point: Point; place: SavedPlace } | null>(null);
 
   const stops = useMapStore((s) => s.stops);
+  const legs = useMapStore((s) => s.legs);
   const strokes = useMapStore((s) => s.strokes);
   const labels = useMapStore((s) => s.labels);
   const mode = useMapStore((s) => s.mode);
@@ -81,6 +82,7 @@ export function MapOverlay({
     map,
     scene: {
       stops,
+      legs,
       strokes,
       labels: renderedLabels,
       saved: visibleSaved,

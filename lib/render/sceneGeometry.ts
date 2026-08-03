@@ -1,5 +1,12 @@
 import type { Point } from '@/lib/geo/rdp';
-import { stopCentroid, type LatLng, type Stop } from '@/lib/map/types';
+import { drawableRoute } from '@/lib/map/legs';
+import {
+  stopCentroid,
+  type LatLng,
+  type Stop,
+  type StopLeg,
+  type TravelMode,
+} from '@/lib/map/types';
 
 /**
  * 화살표와 연결선의 순수 기하 계산.
@@ -69,6 +76,15 @@ export function candidateLinks(stops: readonly Stop[], project: Projector): Cand
   return links;
 }
 
+/** 이동수단별 선 모양. 색은 자동 연결선과 같은 계열로 두어 손그림을 가리지 않는다. */
+export const MODE_STYLE: Record<TravelMode, { color: string; width: number; dash?: [number, number] }> = {
+  straight: { color: ARROW_COLOR, width: ARROW_WIDTH },
+  // 걷는 길은 촘촘한 점선. 지도의 실선 도로와 겹쳐도 구분된다.
+  walk: { color: ARROW_COLOR, width: 3, dash: [1, 6] },
+  bicycle: { color: '#2FA35B', width: 3, dash: [8, 5] },
+  transit: { color: '#2D6BE4', width: 4 },
+};
+
 export interface StopArrow {
   start: Point;
   end: Point;
@@ -77,8 +93,69 @@ export interface StopArrow {
   uy: number;
 }
 
-/** 단계와 단계를 잇는 화살표. 양끝을 핀·허브에서 비켜 놓는다. */
-export function stopArrows(stops: readonly Stop[], project: Projector): StopArrow[] {
+/**
+ * 한 구간을 어떻게 그릴지.
+ *
+ * 실제 경로를 받아 둔 구간은 그 궤적을, 아니면 지금까지처럼 중간지점을 잇는 직선
+ * 화살표를 그린다. 후보가 여럿인데 대표를 안 정한 단계는 길찾기의 기준이 없으므로
+ * 자동으로 직선으로 되돌아온다.
+ */
+export type LegShape =
+  | { kind: 'arrow'; mode: TravelMode; arrow: StopArrow }
+  | { kind: 'path'; mode: TravelMode; points: Point[]; end: Point; ux: number; uy: number };
+
+export function legShapes(
+  stops: readonly Stop[],
+  legs: readonly StopLeg[],
+  project: Projector,
+): LegShape[] {
+  // 자리로 짝지어야 하므로 그릴 수 없는 구간도 null로 자리를 지키게 받는다.
+  const arrows = stopArrowSlots(stops, project);
+  const shapes: LegShape[] = [];
+
+  for (let i = 0; i < Math.max(0, stops.length - 1); i++) {
+    const leg = legs[i];
+    const route = drawableRoute(stops, i, leg);
+
+    if (route && leg) {
+      const points = route.points.map(project);
+      const heading = lastHeading(points);
+      if (heading) {
+        shapes.push({ kind: 'path', mode: leg.mode, points, ...heading });
+        continue;
+      }
+    }
+
+    const arrow = arrows[i];
+    if (arrow) shapes.push({ kind: 'arrow', mode: 'straight', arrow });
+  }
+  return shapes;
+}
+
+/** 마지막 두 점이 만드는 방향. 화살촉을 어디에 얹을지 정한다. */
+function lastHeading(points: readonly Point[]): { end: Point; ux: number; uy: number } | null {
+  const end = points.at(-1);
+  if (!end) return null;
+
+  // 끝이 뭉쳐 있으면 방향이 안 나온다. 뒤에서부터 떨어진 점을 찾는다.
+  for (let i = points.length - 2; i >= 0; i--) {
+    const previous = points[i]!;
+    const dx = end.x - previous.x;
+    const dy = end.y - previous.y;
+    const length = Math.hypot(dx, dy);
+    if (length > 0.5) return { end, ux: dx / length, uy: dy / length };
+  }
+  return null;
+}
+
+/**
+ * 단계와 단계를 잇는 화살표를 **자리에 맞춰** 돌려준다. 길이가 stops.length - 1이고,
+ * 그릴 수 없는 구간은 null로 자리를 지킨다. 걸러 내면 뒤 구간의 모드가 앞으로 밀린다.
+ */
+export function stopArrowSlots(
+  stops: readonly Stop[],
+  project: Projector,
+): (StopArrow | null)[] {
   const centers = stops.map((stop) => {
     const centroid = stopCentroid(stop);
     if (!centroid) return null;
@@ -90,16 +167,23 @@ export function stopArrows(stops: readonly Stop[], project: Projector): StopArro
     };
   });
 
-  const arrows: StopArrow[] = [];
+  const arrows: (StopArrow | null)[] = [];
   for (let i = 1; i < centers.length; i++) {
     const from = centers[i - 1];
     const to = centers[i];
-    if (!from || !to) continue;
+    if (!from || !to) {
+      arrows.push(null);
+      continue;
+    }
 
     const dx = to.point.x - from.point.x;
     const dy = to.point.y - from.point.y;
     const length = Math.hypot(dx, dy);
-    if (length < from.trim + to.trim + ARROW_MIN_SHAFT_PX) continue;
+    // 양끝을 비키고 남는 몸통이 너무 짧으면 머리만 남아 오히려 지저분하다.
+    if (length < from.trim + to.trim + ARROW_MIN_SHAFT_PX) {
+      arrows.push(null);
+      continue;
+    }
 
     const ux = dx / length;
     const uy = dy / length;

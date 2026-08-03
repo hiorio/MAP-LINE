@@ -56,6 +56,7 @@ async function composeOverlay(
 
   const svg = renderOgOverlay({
     stops: document.stops,
+    legs: document.legs ?? [],
     strokes: document.strokes,
     labels: document.labels,
     showCandidateLinks: document.showCandidateLinks,
