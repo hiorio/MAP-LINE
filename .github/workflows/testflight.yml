@@ -69,29 +69,24 @@ jobs:
             exit 0
           fi
 
-          RAW=$(xcrun altool --list-providers \
-            --apiKey "$KEY_ID" --apiIssuer "$ISSUER_ID" \
-            --output-format json 2>/dev/null || true)
+          RAW=$(xcrun altool --list-providers --apiKey "$KEY_ID" --apiIssuer "$ISSUER_ID" --output-format json 2>/dev/null || true)
+          COUNT=$(printf '%s' "$RAW" | jq '.providers | length' 2>/dev/null || echo 0)
 
-          COUNT=$(printf '%s' "$RAW" | python3 -c "import json,sys; print(len(json.load(sys.stdin).get('providers',[])))" 2>/dev/null || echo 0)
-          if [ "$COUNT" = "0" ]; then
+          if [ "$COUNT" = "0" ] || [ -z "$COUNT" ]; then
             echo "❌ API 키로 팀을 찾지 못했다."
             echo "   developer.apple.com > Account > Membership 의 Team ID(10자리)를"
             echo "   저장소 Variables에 APPLE_TEAM_ID로 넣으면 이 단계를 건너뛴다."
             exit 1
           fi
 
-          printf '%s' "$RAW" | python3 -c "
-import json,sys
-for p in json.load(sys.stdin)['providers']:
-    print('  -', p.get('WWDRTeamID'), p.get('ProviderShortname'))
-"
+          printf '%s' "$RAW" | jq -r '.providers[] | "  - \(.WWDRTeamID)  \(.ProviderShortname)"'
+
           if [ "$COUNT" != "1" ]; then
             echo "❌ 팀이 여러 개다. 위 목록에서 골라 APPLE_TEAM_ID 변수에 넣어라."
             exit 1
           fi
 
-          TEAM=$(printf '%s' "$RAW" | python3 -c "import json,sys; print(json.load(sys.stdin)['providers'][0]['WWDRTeamID'])")
+          TEAM=$(printf '%s' "$RAW" | jq -r '.providers[0].WWDRTeamID')
           echo "TEAM_ID=$TEAM" >> "$GITHUB_OUTPUT"
           echo "✅ 팀 ID를 알아냈다: $TEAM"
 
