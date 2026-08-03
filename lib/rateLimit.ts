@@ -48,6 +48,18 @@ export const ROUTE_LIMIT: RateLimitRule = {
 };
 
 /**
+ * 중간지점: 한 번에 길찾기가 `참가자 수 × 결선 후보 수`만큼 나간다.
+ *
+ * 6명이면 한 번에 18건이다. 길찾기 하루치가 1,000건이니 이 경로만으로도 50번대에서
+ * 바닥난다. 사람이 모임 하나를 짜며 이걸 열 번 넘게 누를 일은 없다.
+ */
+export const MIDPOINT_LIMIT: RateLimitRule = {
+  name: 'midpoint',
+  limit: 10,
+  windowSeconds: 60 * 10,
+};
+
+/**
  * 요청자의 IP. Railway·Vercel 모두 프록시를 거치므로 소켓 주소가 아니라 헤더를 본다.
  * `x-forwarded-for`는 쉼표로 이어진 목록이고 맨 앞이 원래 클라이언트다.
  */
