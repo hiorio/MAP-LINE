@@ -6,37 +6,47 @@ import SwiftUI
 /// 자리를 먼저 찾을 수도 있다. 뒤쪽에서 자리를 고르면 그대로 지도로 이어진다 —
 /// 중간지점 찾기는 지도 만들기의 시작점이지 별개의 도구가 아니다.
 struct ContentView: View {
-    @State private var route: Route?
+    /// 값으로 쌓는 내비게이션.
+    ///
+    /// `navigationDestination(item:)`은 iOS 17부터라 쓰지 않는다. 경로 배열을 직접
+    /// 들고 있으면 iOS 16에서도 되고, 중간지점 화면이 결과를 고른 뒤 스스로 다음
+    /// 화면을 밀어 넣을 수 있다.
+    @State private var path: [Route] = []
 
     private enum Route: Hashable {
+        case midpoint
         case blankMap
         /// 중간지점에서 고른 자리에서 시작하는 지도.
         case mapAt(name: String, lat: Double, lng: Double)
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             List {
                 Section {
-                    Button { route = .blankMap } label: {
+                    Button { path.append(.blankMap) } label: {
                         entry("지도 만들기", "빈 지도에서 시작합니다", "map")
                     }
-                    NavigationLink {
-                        MidpointView { candidate in
-                            route = .mapAt(
-                                name: candidate.place.name,
-                                lat: candidate.place.location.lat,
-                                lng: candidate.place.location.lng
-                            )
-                        }
-                    } label: {
-                        entry("중간지점 찾기", "여러 곳에서 오는 사람들이 모일 자리", "point.topleft.down.curvedto.point.bottomright.up")
+                    Button { path.append(.midpoint) } label: {
+                        entry(
+                            "중간지점 찾기",
+                            "여러 곳에서 오는 사람들이 모일 자리",
+                            "point.topleft.down.curvedto.point.bottomright.up"
+                        )
                     }
                 }
             }
             .navigationTitle("MAP-LINE")
-            .navigationDestination(item: $route) { destination in
+            .navigationDestination(for: Route.self) { destination in
                 switch destination {
+                case .midpoint:
+                    MidpointView { candidate in
+                        path.append(.mapAt(
+                            name: candidate.place.name,
+                            lat: candidate.place.location.lat,
+                            lng: candidate.place.location.lng
+                        ))
+                    }
                 case .blankMap:
                     MapScreen(center: nil)
                 case .mapAt(let name, let lat, let lng):
