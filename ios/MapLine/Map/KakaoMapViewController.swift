@@ -28,6 +28,10 @@ final class KakaoMapViewController: UIViewController {
     /// 그려 둔 획들. 저장·공유는 다음 단계이고 지금은 메모리에만 둔다.
     private(set) var strokes: [GeoStroke] = []
 
+    /// 처음 보여 줄 자리. 엔진이 뜨기 전에 정해야 한다.
+    /// 뜬 뒤에 옮기면 기본 자리가 한 번 보였다 사라져 화면이 튄다.
+    var initialCenter: (lat: Double, lng: Double) = (lat: 37.4979, lng: 127.0276) // 강남역
+
     // MARK: - 생명주기
 
     override func viewDidLoad() {
@@ -84,11 +88,10 @@ final class KakaoMapViewController: UIViewController {
 
 extension KakaoMapViewController: MapControllerDelegate {
     func addViews() {
-        let defaultPosition = MapPoint(longitude: 127.0276, latitude: 37.4979) // 강남역
         let info = MapviewInfo(
             viewName: Self.viewName,
             viewInfoName: "map",
-            defaultPosition: defaultPosition,
+            defaultPosition: MapPoint(longitude: initialCenter.lng, latitude: initialCenter.lat),
             defaultLevel: 17
         )
         mapController?.addView(info)
