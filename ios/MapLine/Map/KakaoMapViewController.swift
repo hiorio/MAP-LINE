@@ -82,6 +82,27 @@ final class KakaoMapViewController: UIViewController {
             kakaoMap?.setGestureEnable(type: .zoom, enable: !isDrawing)
         }
     }
+
+    /// 이미 떠 있는 지도를 다른 자리로 옮긴다. 중간지점을 고르면 그리로 간다.
+    ///
+    /// 순간이동시키지 않고 미끄러지게 한다. 갑자기 다른 동네가 나오면 어디로 온 건지
+    /// 알 수 없다. 움직이는 걸 보면 방향과 거리가 함께 읽힌다.
+    func move(to lat: Double, lng: Double, level: Int = 16) {
+        guard let map = kakaoMap else {
+            // 엔진이 아직이면 처음 자리를 바꿔 둔다. 뜰 때 거기서 시작한다.
+            initialCenter = (lat: lat, lng: lng)
+            return
+        }
+        let update = CameraUpdate.make(
+            target: MapPoint(longitude: lng, latitude: lat),
+            zoomLevel: level,
+            mapView: map
+        )
+        map.animateCamera(
+            cameraUpdate: update,
+            options: CameraAnimationOptions(autoElevation: false, consecutive: false, durationInMillis: 500)
+        )
+    }
 }
 
 // MARK: - 엔진 준비

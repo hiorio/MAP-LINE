@@ -1,124 +1,203 @@
 import SwiftUI
 
-/// 앱의 첫 화면.
+/// 앱의 첫 화면은 지도다.
 ///
-/// 들어가는 문이 둘이다. 지도를 바로 만들 수도 있고, 여러 곳에서 오는 사람들이 모일
-/// 자리를 먼저 찾을 수도 있다. 뒤쪽에서 자리를 고르면 그대로 지도로 이어진다 —
-/// 중간지점 찾기는 지도 만들기의 시작점이지 별개의 도구가 아니다.
+/// 목록을 먼저 보여 주고 거기서 지도로 들어가는 구조였는데, 이 앱에서 사람이 보고
+/// 싶은 것은 언제나 지도다. 목록은 지도를 가리는 문턱일 뿐이었다. 지도를 깔고 그 위에
+/// 작은 버튼을 얹는다. 목록은 옆에서 꺼내 쓴다.
 struct ContentView: View {
-    /// 값으로 쌓는 내비게이션.
-    ///
-    /// `navigationDestination(item:)`은 iOS 17부터라 쓰지 않는다. 경로 배열을 직접
-    /// 들고 있으면 iOS 16에서도 되고, 중간지점 화면이 결과를 고른 뒤 스스로 다음
-    /// 화면을 밀어 넣을 수 있다.
-    @State private var path: [Route] = []
-
-    private enum Route: Hashable {
-        case midpoint
-        case blankMap
-        /// 중간지점에서 고른 자리에서 시작하는 지도.
-        case mapAt(name: String, lat: Double, lng: Double)
-    }
+    @State private var isDrawing = false
+    @State private var focus: MapFocus?
+    @State private var menuOpen = false
+    @State private var showMidpoint = false
 
     var body: some View {
-        NavigationStack(path: $path) {
-            List {
-                // Button이 아니라 NavigationLink를 쓴다. List 안의 Button은 강조색을
-                // 내용 전체에 입혀서 부제까지 파랗게 만든다. 안에서 색을 지정해도
-                // 덮인다. NavigationLink는 목록 스타일을 제대로 받고 화살표도 붙는다.
-                Section {
-                    NavigationLink(value: Route.blankMap) {
-                        entry("지도 만들기", "빈 지도에서 시작합니다", "map")
-                    }
-                    .accessibilityIdentifier("home.blankMap")
+        ZStack {
+            KakaoMapView(isDrawing: isDrawing, focus: focus)
+                .ignoresSafeArea()
 
-                    NavigationLink(value: Route.midpoint) {
-                        entry(
-                            "중간지점 찾기",
-                            "여러 곳에서 오는 사람들이 모일 자리",
-                            "point.topleft.down.curvedto.point.bottomright.up"
-                        )
-                    }
-                    .accessibilityIdentifier("home.midpoint")
-                }
+            controls
+
+            if menuOpen {
+                SideMenu(
+                    isOpen: $menuOpen,
+                    onDrawCourse: { startDrawing() },
+                    onFindMidpoint: { showMidpoint = true }
+                )
             }
-            .navigationTitle("MAP-LINE")
-            .navigationDestination(for: Route.self) { destination in
-                switch destination {
-                case .midpoint:
-                    MidpointView { candidate in
-                        path.append(.mapAt(
-                            name: candidate.place.name,
-                            lat: candidate.place.location.lat,
-                            lng: candidate.place.location.lng
-                        ))
-                    }
-                case .blankMap:
-                    MapScreen(center: nil)
-                case .mapAt(let name, let lat, let lng):
-                    MapScreen(center: .init(name: name, lat: lat, lng: lng))
+        }
+        .sheet(isPresented: $showMidpoint) {
+            NavigationStack {
+                MidpointView { candidate in
+                    // 고른 자리로 지도를 옮기고 시트를 닫는다. 중간지점 찾기는
+                    // 별개의 도구가 아니라 동선을 시작할 자리를 정하는 단계다.
+                    focus = MapFocus(
+                        name: candidate.place.name,
+                        lat: candidate.place.location.lat,
+                        lng: candidate.place.location.lng
+                    )
+                    showMidpoint = false
                 }
             }
         }
     }
 
-    private func entry(_ title: String, _ subtitle: String, _ symbol: String) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: symbol)
-                .font(.title3)
-                .frame(width: 32)
-                .foregroundStyle(Color.accentColor)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.body.weight(.medium)).foregroundStyle(.primary)
-                Text(subtitle).font(.caption).foregroundStyle(.secondary)
+    // MARK: - 지도 위 조작
+
+    private var controls: some View {
+        VStack {
+            HStack(alignment: .top) {
+                roundButton("line.3.horizontal", label: "메뉴") {
+                    withAnimation(.easeOut(duration: 0.22)) { menuOpen = true }
+                }
+                .accessibilityIdentifier("map.menu")
+
+                Spacer()
+
+                if let focus {
+                    // 어디로 옮겨 왔는지 밝힌다. 지도만 보면 어느 동네인지 모른다.
+                    Text(focus.name)
+                        .font(.footnote.weight(.medium))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(.regularMaterial, in: Capsule())
+                }
             }
+
             Spacer()
+
+            HStack(alignment: .bottom) {
+                Spacer()
+                VStack(spacing: 10) {
+                    roundButton(
+                        "point.topleft.down.curvedto.point.bottomright.up",
+                        label: "중간지점 찾기"
+                    ) { showMidpoint = true }
+                        .accessibilityIdentifier("map.midpoint")
+
+                    roundButton(
+                        "scribble.variable",
+                        label: "동선 만들기",
+                        active: isDrawing
+                    ) { startDrawing() }
+                        .accessibilityIdentifier("map.draw")
+                }
+            }
+
+            if isDrawing {
+                Text("지도가 잠깁니다. 손가락으로 동선을 그리세요.")
+                    .font(.caption)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 9)
+                    .background(.regularMaterial, in: Capsule())
+                    .padding(.top, 10)
+            }
         }
-        .padding(.vertical, 4)
-        .contentShape(Rectangle())
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+    }
+
+    private func roundButton(
+        _ symbol: String,
+        label: String,
+        active: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 18, weight: .medium))
+                .frame(width: 46, height: 46)
+                .background(active ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.regularMaterial))
+                .foregroundStyle(active ? Color.white : Color.primary)
+                .clipShape(Circle())
+                .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
+        }
+        .accessibilityLabel(label)
+    }
+
+    private func startDrawing() {
+        isDrawing.toggle()
     }
 }
 
-/// 지도 화면. 스파이크에서 쓰던 그리기 토글을 그대로 얹는다.
-struct MapScreen: View {
-    struct Center: Hashable {
-        let name: String
-        let lat: Double
-        let lng: Double
-    }
+/// 옆에서 나오는 메뉴.
+///
+/// 예전 첫 화면이 그대로 여기로 들어왔다. 자주 쓰는 것은 지도 위 버튼으로 꺼내 두고,
+/// 여기는 전체 목록을 보는 자리로 둔다.
+struct SideMenu: View {
+    @Binding var isOpen: Bool
+    let onDrawCourse: () -> Void
+    let onFindMidpoint: () -> Void
 
-    let center: Center?
-    @State private var isDrawing = false
+    private let width: CGFloat = 280
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            KakaoMapView(isDrawing: isDrawing, center: center)
-                .ignoresSafeArea(edges: .bottom)
+        ZStack(alignment: .leading) {
+            // 바깥을 누르면 닫힌다. 뒤 지도가 움직이지 않도록 덮어 둔다.
+            Color.black.opacity(0.25)
+                .ignoresSafeArea()
+                .onTapGesture { close() }
 
-            HStack(spacing: 8) {
-                Button { isDrawing.toggle() } label: {
-                    Label(isDrawing ? "그리는 중" : "그리기", systemImage: "pencil.tip")
-                        .font(.subheadline.weight(.medium))
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        .background(isDrawing ? Color.accentColor : Color(.systemBackground))
-                        .foregroundStyle(isDrawing ? Color.white : Color.primary)
-                        .clipShape(Capsule())
-                        .shadow(radius: 4, y: 2)
+            VStack(alignment: .leading, spacing: 0) {
+                Text("MAP-LINE")
+                    .font(.title2.weight(.bold))
+                    .padding(.horizontal, 20)
+                    .padding(.top, 24)
+                    .padding(.bottom, 20)
+
+                item("scribble.variable", "동선 만들기", "지도에 직접 그립니다") {
+                    close()
+                    onDrawCourse()
                 }
-                .accessibilityIdentifier("drawToggle")
+                .accessibilityIdentifier("menu.draw")
 
-                Text(isDrawing ? "지도가 잠깁니다" : "지도를 옮겨 보세요")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(Color(.systemBackground).opacity(0.9))
-                    .clipShape(Capsule())
+                item(
+                    "point.topleft.down.curvedto.point.bottomright.up",
+                    "중간지점 찾기",
+                    "여러 곳에서 오는 사람들이 모일 자리"
+                ) {
+                    close()
+                    onFindMidpoint()
+                }
+                .accessibilityIdentifier("menu.midpoint")
+
+                Spacer()
             }
-            .padding(.bottom, 24)
+            .frame(width: width)
+            .frame(maxHeight: .infinity)
+            .background(Color(.systemBackground))
+            .ignoresSafeArea(edges: .vertical)
+            .transition(.move(edge: .leading))
         }
-        .navigationTitle(center?.name ?? "새 지도")
-        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func item(
+        _ symbol: String,
+        _ title: String,
+        _ subtitle: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: symbol)
+                    .font(.body)
+                    .frame(width: 26)
+                    .foregroundStyle(Color.accentColor)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.body.weight(.medium)).foregroundStyle(.primary)
+                    Text(subtitle).font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        // List 밖의 Button도 강조색을 물려주므로 꺼 둔다. 안에서 지정한 색이 살아야 한다.
+        .buttonStyle(.plain)
+    }
+
+    private func close() {
+        withAnimation(.easeIn(duration: 0.18)) { isOpen = false }
     }
 }

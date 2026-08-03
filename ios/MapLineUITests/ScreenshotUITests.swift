@@ -18,24 +18,35 @@ final class ScreenshotUITests: XCTestCase {
         let app = XCUIApplication()
         app.launch()
 
-        // 1. 홈
+        // 1. 첫 화면은 지도다.
         //
-        // 요소 종류를 찍어 고르지 않는다. SwiftUI가 List의 행을 cell로 낼지 button으로
-        // 낼지는 버전과 스타일에 따라 다르고, 틀리면 "없다"고만 나와 원인을 알기 어렵다.
-        // 식별자로만 찾으면 종류가 무엇이든 걸린다.
-        let toMidpoint = app.descendants(matching: .any).matching(identifier: "home.midpoint").firstMatch
-        XCTAssertTrue(toMidpoint.waitForExistence(timeout: 20), "홈이 뜨지 않았다")
-        shot(app, "1-홈")
+        // 요소 종류를 찍어 고르지 않는다. SwiftUI가 무엇으로 낼지는 버전과 스타일에
+        // 따라 다르고, 틀리면 "없다"고만 나와 원인을 알기 어렵다.
+        let midpointButton = app.descendants(matching: .any).matching(identifier: "map.midpoint").firstMatch
+        XCTAssertTrue(midpointButton.waitForExistence(timeout: 30), "지도 화면이 뜨지 않았다")
+        // 타일이 그려질 틈을 준다.
+        Thread.sleep(forTimeInterval: 3)
+        shot(app, "1-지도")
 
-        // 2. 중간지점 빈 화면
-        toMidpoint.tap()
+        // 2. 옆 메뉴
+        let menu = app.descendants(matching: .any).matching(identifier: "map.menu").firstMatch
+        if menu.exists {
+            menu.tap()
+            Thread.sleep(forTimeInterval: 1)
+            shot(app, "2-메뉴")
+            // 메뉴에서 중간지점으로 들어간다. 지도 위 버튼과 같은 곳으로 가야 한다.
+            let fromMenu = app.descendants(matching: .any).matching(identifier: "menu.midpoint").firstMatch
+            if fromMenu.exists { fromMenu.tap() } else { midpointButton.tap() }
+        } else {
+            midpointButton.tap()
+        }
         XCTAssertTrue(app.buttons["midpoint.addPerson"].waitForExistence(timeout: 10))
-        shot(app, "2-중간지점-빈화면")
+        shot(app, "3-중간지점-빈화면")
 
         // 3. 사람 둘 추가
-        addPerson(app, query: "강남역", step: "3")
-        addPerson(app, query: "홍대입구역", step: "4")
-        shot(app, "5-사람둘")
+        addPerson(app, query: "강남역", step: "4")
+        addPerson(app, query: "홍대입구역", step: "5")
+        shot(app, "6-사람둘")
 
         // 4. 찾기. 참가자 수만큼 길찾기가 나가므로 넉넉히 기다린다.
         let find = app.buttons["midpoint.find"]
@@ -44,10 +55,10 @@ final class ScreenshotUITests: XCTestCase {
             // 결과가 붙으면 "모이기 좋은 곳" 머리글이 생긴다.
             let header = app.staticTexts["모이기 좋은 곳"]
             let appeared = header.waitForExistence(timeout: 60)
-            shot(app, appeared ? "6-결과" : "6-결과없음")
+            shot(app, appeared ? "7-결과" : "7-결과없음")
             XCTAssertTrue(appeared, "60초 안에 결과가 오지 않았다")
         } else {
-            shot(app, "6-찾기버튼-비활성")
+            shot(app, "7-찾기버튼-비활성")
             XCTFail("사람을 둘 넣었는데도 찾기 버튼이 눌리지 않는다")
         }
     }
