@@ -27,23 +27,17 @@ jobs:
           KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
-          TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
         run: |
           # 30분짜리 빌드를 다 돌리고 마지막에 "값이 없다"로 실패하면 시간이 아깝다.
           missing=""
-          [ -z "$KEY_ID" ]      && missing="$missing APP_STORE_CONNECT_KEY_ID(secret)"
-          [ -z "$ISSUER_ID" ]   && missing="$missing APP_STORE_CONNECT_ISSUER_ID(secret)"
-          [ -z "$PRIVATE_KEY" ] && missing="$missing APP_STORE_CONNECT_PRIVATE_KEY(secret)"
-          [ -z "$TEAM_ID" ]     && missing="$missing APPLE_TEAM_ID(variable)"
+          [ -z "$KEY_ID" ]      && missing="$missing APP_STORE_CONNECT_KEY_ID"
+          [ -z "$ISSUER_ID" ]   && missing="$missing APP_STORE_CONNECT_ISSUER_ID"
+          [ -z "$PRIVATE_KEY" ] && missing="$missing APP_STORE_CONNECT_PRIVATE_KEY"
           if [ -n "$missing" ]; then
-            echo "❌ 빠진 값:$missing"
-            echo ""
-            echo "APPLE_TEAM_ID는 비밀이 아니라 variable에 넣는다."
-            echo "  저장소 > Settings > Secrets and variables > Actions > Variables 탭"
-            echo "  값은 App Store Connect > 사용자 및 액세스 > 멤버십 의 팀 ID(10자리)"
+            echo "❌ 빠진 시크릿:$missing"
             exit 1
           fi
-          echo "✅ 값은 다 있다"
+          echo "✅ 시크릿은 다 있다"
 
       - name: 도구 버전
         run: xcodebuild -version
@@ -60,13 +54,54 @@ jobs:
             && echo "✅ 키 형식 정상" \
             || { echo "❌ .p8 내용이 아니다. BEGIN/END 줄까지 통째로 넣었는지 확인하라"; exit 1; }
 
+      - name: 팀 ID 알아내기
+        id: team
+        env:
+          KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          OVERRIDE: ${{ vars.APPLE_TEAM_ID }}
+        run: |
+          # 사람에게 물어보지 않는다. 이미 넣어 준 API 키로 알 수 있는 값이다.
+          # 팀이 여럿인 계정만 APPLE_TEAM_ID 변수로 직접 지정하면 된다.
+          if [ -n "$OVERRIDE" ]; then
+            echo "TEAM_ID=$OVERRIDE" >> "$GITHUB_OUTPUT"
+            echo "✅ 변수로 지정된 팀: $OVERRIDE"
+            exit 0
+          fi
+
+          RAW=$(xcrun altool --list-providers \
+            --apiKey "$KEY_ID" --apiIssuer "$ISSUER_ID" \
+            --output-format json 2>/dev/null || true)
+
+          COUNT=$(printf '%s' "$RAW" | python3 -c "import json,sys; print(len(json.load(sys.stdin).get('providers',[])))" 2>/dev/null || echo 0)
+          if [ "$COUNT" = "0" ]; then
+            echo "❌ API 키로 팀을 찾지 못했다."
+            echo "   developer.apple.com > Account > Membership 의 Team ID(10자리)를"
+            echo "   저장소 Variables에 APPLE_TEAM_ID로 넣으면 이 단계를 건너뛴다."
+            exit 1
+          fi
+
+          printf '%s' "$RAW" | python3 -c "
+import json,sys
+for p in json.load(sys.stdin)['providers']:
+    print('  -', p.get('WWDRTeamID'), p.get('ProviderShortname'))
+"
+          if [ "$COUNT" != "1" ]; then
+            echo "❌ 팀이 여러 개다. 위 목록에서 골라 APPLE_TEAM_ID 변수에 넣어라."
+            exit 1
+          fi
+
+          TEAM=$(printf '%s' "$RAW" | python3 -c "import json,sys; print(json.load(sys.stdin)['providers'][0]['WWDRTeamID'])")
+          echo "TEAM_ID=$TEAM" >> "$GITHUB_OUTPUT"
+          echo "✅ 팀 ID를 알아냈다: $TEAM"
+
       - name: XcodeGen 설치
         run: brew install xcodegen
 
       - name: 프로젝트 생성
         working-directory: ios
         env:
-          TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          TEAM_ID: ${{ steps.team.outputs.TEAM_ID }}
         run: |
           # 서명에 팀이 필요하다. 로컬 빌드용 xcconfig 자리를 그대로 쓴다.
           cat > Config.xcconfig <<EOF
@@ -101,7 +136,7 @@ jobs:
         env:
           KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-          TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          TEAM_ID: ${{ steps.team.outputs.TEAM_ID }}
         run: |
           set -o pipefail
           # destination을 upload로 두면 내보내기와 업로드가 한 번에 끝난다.
