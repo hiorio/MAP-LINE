@@ -94,6 +94,13 @@ jobs:
           API_BASE_URL: ${{ vars.API_BASE_URL || 'https://map-line-production.up.railway.app' }}
         run: |
           set -o pipefail
+          # 서명을 반드시 켠다.
+          #
+          # project.yml에는 CODE_SIGNING_ALLOWED가 NO로 박혀 있다. 시뮬레이터 CI에서
+          # 서명이 필요 없어서 넣은 값인데, 그게 여기까지 따라와 서명 없는 아카이브가
+          # 나왔다. 빌드는 통과하고 내보내기에서 "No Team Found in Archive"로 죽는다.
+          # 서명이 없으니 팀 정보도 안 들어간 것이다.
+          #
           # 빌드 번호는 올라가기만 하면 된다. 같은 번호를 두 번 올리면 거부당한다.
           xcodebuild archive \
             -project MapLine.xcodeproj \
@@ -104,9 +111,24 @@ jobs:
             -authenticationKeyPath ~/private_keys/AuthKey_${KEY_ID}.p8 \
             -authenticationKeyID "$KEY_ID" \
             -authenticationKeyIssuerID "$ISSUER_ID" \
+            CODE_SIGNING_ALLOWED=YES \
+            CODE_SIGNING_REQUIRED=YES \
+            CODE_SIGN_STYLE=Automatic \
             CURRENT_PROJECT_VERSION=${{ github.run_number }} \
             KAKAO_NATIVE_APP_KEY="$KAKAO_NATIVE_APP_KEY" \
             API_BASE_URL="$API_BASE_URL"
+
+          # 아카이브에 팀이 실제로 들어갔는지 바로 확인한다.
+          # 여기서 비어 있으면 내보내기가 어차피 실패하므로 원인을 앞당겨 알린다.
+          TEAM_IN_ARCHIVE=$(plutil -extract ApplicationProperties.Team raw -o - \
+            ../MapLine.xcarchive/Info.plist 2>/dev/null || echo "")
+          if [ -z "$TEAM_IN_ARCHIVE" ]; then
+            echo "❌ 아카이브에 팀이 없다. 서명이 실제로 붙지 않았다."
+            plutil -p ../MapLine.xcarchive/Info.plist | head -40
+            exit 1
+          fi
+          echo "✅ 아카이브에 들어간 팀: $TEAM_IN_ARCHIVE"
+          echo "ARCHIVE_TEAM=$TEAM_IN_ARCHIVE" >> "$GITHUB_ENV"
 
       - name: 내보내고 올린다
         env:
@@ -115,6 +137,8 @@ jobs:
           TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
         run: |
           set -o pipefail
+          # 변수로 지정하지 않았으면 아카이브에 실제로 들어간 팀을 쓴다.
+          TEAM_ID="${TEAM_ID:-$ARCHIVE_TEAM}"
           # destination을 upload로 두면 내보내기와 업로드가 한 번에 끝난다.
           # altool은 오래돼서 쓰지 않는다.
           # 팀을 모르면 teamID 항목을 아예 빼야 한다. 빈 문자열을 넣으면
