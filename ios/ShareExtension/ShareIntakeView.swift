@@ -9,11 +9,14 @@ struct ShareIntakeView: View {
     let onDone: () -> Void
     let onCancel: () -> Void
 
-    @State private var state: State = .loading
+    @State private var phase: Phase = .loading
     @State private var savedName: String?
     @State private var showRaw = false
 
-    private enum State {
+    /// `State`라고 이름 짓지 않는다. SwiftUI의 `@State`를 가려서 프로퍼티 래퍼가
+    /// 통째로 망가진다. 오류 메시지("enum 'State' cannot be used as an attribute")가
+    /// 원인을 바로 알려 주지 않아 헤매기 쉽다.
+    private enum Phase {
         case loading
         case ready([ShareIntake.Candidate])
         case failed(String)
@@ -24,7 +27,7 @@ struct ShareIntakeView: View {
     var body: some View {
         NavigationStack {
             Group {
-                switch state {
+                switch phase {
                 case .loading:
                     ProgressView("장소를 찾는 중…")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -92,14 +95,14 @@ struct ShareIntakeView: View {
 
     private func lookUp() async {
         guard !rawText.isEmpty else {
-            state = .failed("공유된 내용이 비어 있습니다.")
+            phase = .failed("공유된 내용이 비어 있습니다.")
             return
         }
         do {
             let candidates = try await ShareIntake.lookUp(text: rawText, baseURL: AppConfig.apiBaseURL)
-            state = .ready(candidates)
+            phase = .ready(candidates)
         } catch {
-            state = .failed(error.localizedDescription)
+            phase = .failed(error.localizedDescription)
         }
     }
 
