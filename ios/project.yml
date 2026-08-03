@@ -8,8 +8,10 @@
 name: MapLine
 options:
   bundleIdPrefix: com.hiorio
+  # iOS 16부터. NavigationStack 같은 요즘 API를 쓰려면 최소한 여기다.
+  # 카카오 SDK는 13부터 되지만 그 아래를 붙들 이유가 없다. 필요하면 여기만 고친다.
   deploymentTarget:
-    iOS: "15.0"
+    iOS: "16.0"
   createIntermediateGroups: true
 
 packages:
