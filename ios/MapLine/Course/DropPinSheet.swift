@@ -54,23 +54,33 @@ struct DropPinSheet: View {
                     Text("이 근처")
                 }
 
-                Section {
-                    Button {
-                        // 이름이 없으면 목록에서 무엇인지 알 수 없다. 좌표를 이름으로
-                        // 쓰면 읽을 수 없으니, 나중에 고쳐 쓸 수 있는 이름을 넣어 둔다.
-                        onPick(
-                            MapPlace(
-                                name: address ?? "직접 찍은 지점",
-                                address: address,
-                                location: coordinate
-                            )
+            }
+            // 목록 안에 두면 주변 장소가 많을 때 스크롤해야 나온다. 이건 마땅한 것이
+            // 없을 때 쓰는 대체 수단이라, 목록을 다 훑어본 사람에게 가장 필요하면서도
+            // 가장 안 보이는 자리에 있게 된다. 바닥에 붙여 항상 보이게 한다.
+            .safeAreaInset(edge: .bottom) {
+                Button {
+                    // 이름이 없으면 목록에서 무엇인지 알 수 없다. 좌표를 이름으로 쓰면
+                    // 읽을 수 없으니, 나중에 고쳐 쓸 수 있는 이름을 넣어 둔다.
+                    onPick(
+                        MapPlace(
+                            name: address ?? "직접 찍은 지점",
+                            address: address,
+                            location: coordinate
                         )
-                        dismiss()
-                    } label: {
-                        Label("여기에 그대로 찍기", systemImage: "mappin.and.ellipse")
-                    }
-                    .accessibilityIdentifier("droppin.here")
+                    )
+                    dismiss()
+                } label: {
+                    Label("여기에 그대로 찍기", systemImage: "mappin.and.ellipse")
+                        .font(.body.weight(.medium))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
                 }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
+                .accessibilityIdentifier("droppin.here")
             }
             .navigationTitle("여기에 무엇을 담을까요")
             .navigationBarTitleDisplayMode(.inline)
