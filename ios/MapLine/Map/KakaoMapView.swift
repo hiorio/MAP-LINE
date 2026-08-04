@@ -14,6 +14,8 @@ struct KakaoMapView: UIViewControllerRepresentable {
     var legs: [StopLeg]
     /// 손으로 그린 획들.
     var strokes: [GeoStroke]
+    /// 지도 위에 남긴 메모들.
+    var labels: [MapLabel]
     var onLongPress: (GeoPoint) -> Void
     var onTapStopPin: (String) -> Void
     var onStrokesChanged: ([GeoStroke]) -> Void
@@ -60,6 +62,7 @@ struct KakaoMapView: UIViewControllerRepresentable {
         controller.stops = stops
         controller.legs = legs
         controller.strokes = strokes
+        controller.labels = labels
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }

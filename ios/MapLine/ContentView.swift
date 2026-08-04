@@ -17,6 +17,8 @@ struct ContentView: View {
     @State private var legs: [StopLeg] = []
     /// 손으로 그린 획들.
     @State private var strokes: [GeoStroke] = []
+    /// 지도 위에 남긴 메모들.
+    @State private var labels: [MapLabel] = []
     @State private var showCourse = false
     @State private var showSaved = false
     @State private var showMyMaps = false
@@ -72,6 +74,7 @@ struct ContentView: View {
                     stops: stops,
                     legs: legs,
                     strokes: strokes,
+                    labels: labels,
                     onLongPress: { pendingPin = PendingPin(coordinate: $0) },
                     onTapStopPin: { id in openedPin = resolvePin(id) },
                     onStrokesChanged: { strokes = $0 },
@@ -103,14 +106,20 @@ struct ContentView: View {
                 }
             }
             .sheet(item: $pendingPin) { pin in
-                DropPinSheet(coordinate: pin.coordinate) { place in
-                    // 한 번 찍을 때마다 새 단계다. 기존 단계에 후보로 묶는 것은
-                    // 그 단계를 지목해야 하는 일이라 핀 상세에서 하게 둔다.
-                    stops.append(Stop(candidates: [place]))
-                    // 단계가 늘면 그 앞에 구간이 하나 생긴다. 길이를 맞춰 두지 않으면
-                    // 새 단계로 가는 구간이 아예 없어 수단을 고를 자리가 안 생긴다.
-                    legs = LegRules.synced(stops: stops, legs: legs)
-                }
+                DropPinSheet(
+                    coordinate: pin.coordinate,
+                    onPick: { place in
+                        // 한 번 찍을 때마다 새 단계다. 기존 단계에 후보로 묶는 것은
+                        // 그 단계를 지목해야 하는 일이라 핀 상세에서 하게 둔다.
+                        stops.append(Stop(candidates: [place]))
+                        // 단계가 늘면 그 앞에 구간이 하나 생긴다. 길이를 맞춰 두지
+                        // 않으면 새 단계로 가는 구간이 없어 수단을 고를 자리가 안 생긴다.
+                        legs = LegRules.synced(stops: stops, legs: legs)
+                    },
+                    onWriteMemo: { text in
+                        labels.append(MapLabel(location: pin.coordinate, text: text))
+                    }
+                )
                 .presentationDetents([.medium, .large])
             }
             .sheet(isPresented: $showCourse) {
@@ -163,7 +172,7 @@ struct ContentView: View {
             stops: stops,
             legs: LegRules.synced(stops: stops, legs: legs),
             strokes: strokes,
-            labels: []
+            labels: labels
         )
     }
 
@@ -203,6 +212,7 @@ struct ContentView: View {
             stops = loaded.document.stops
             legs = LegRules.synced(stops: loaded.document.stops, legs: loaded.document.legs)
             strokes = loaded.document.strokes
+            labels = loaded.document.labels
             slug = picked
             updatedAt = loaded.updatedAt
             // 만든 사람이 보던 자리로 옮긴다. 다른 동네가 떠 있으면 핀을 찾아 헤맨다.
@@ -333,7 +343,7 @@ struct ContentView: View {
                         .accessibilityIdentifier("map.draw")
 
                     // 담은 것이 없으면 나눠 볼 것도 없다.
-                    if !stops.isEmpty || !strokes.isEmpty {
+                    if !stops.isEmpty || !strokes.isEmpty || !labels.isEmpty {
                         roundButton(
                             saving ? "arrow.triangle.2.circlepath" : "square.and.arrow.up",
                             label: "공유하기"

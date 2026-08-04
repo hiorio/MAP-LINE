@@ -34,6 +34,7 @@ final class KakaoMapViewController: UIViewController {
     /// 한쪽을 지운다고 다른 쪽이 사라지면 안 된다.
     private static let stopLabelLayerID = "stopPins"
     private static let legLayerID = "stopLegs"
+    private static let memoLayerID = "memos"
 
     /// 지도에 찍은 단계들. 순서가 곧 번호다.
     var stops: [Stop] = [] {
@@ -49,6 +50,14 @@ final class KakaoMapViewController: UIViewController {
         didSet {
             guard legs != oldValue, let map = kakaoMap else { return }
             renderLegs(on: map)
+        }
+    }
+
+    /// 지도 위에 남긴 메모들.
+    var labels: [MapLabel] = [] {
+        didSet {
+            guard labels != oldValue, let map = kakaoMap else { return }
+            renderLabels(on: map)
         }
     }
 
@@ -229,6 +238,16 @@ extension KakaoMapViewController: MapControllerDelegate {
         )
         // 구간 선은 핀보다 아래, 손그림보다도 아래다. 사람이 그린 것이 제일 위여야 한다.
         _ = map.getShapeManager().addShapeLayer(layerID: Self.legLayerID, zOrder: 9_999)
+        // 메모는 핀보다 위. 사람이 직접 쓴 글자가 가려지면 안 된다.
+        _ = map.getLabelManager().addLabelLayer(
+            option: LabelLayerOptions(
+                layerID: Self.memoLayerID,
+                competitionType: CompetitionType.none,
+                competitionUnit: CompetitionUnit.symbolFirst,
+                orderType: OrderingType.rank,
+                zOrder: 10_004
+            )
+        )
         registerMidpointStyles(on: map)
         registerLegStyles(on: map)
         subscribeToMapEvents(on: map)
@@ -238,6 +257,7 @@ extension KakaoMapViewController: MapControllerDelegate {
         renderStops(on: map)
         renderLegs(on: map)
         renderStrokes(on: map)
+        renderLabels(on: map)
 
         // UI 테스트가 지도 준비를 기다릴 수 있게 상태를 접근성 식별자로 내건다.
         // 고정 시간 대기는 러너가 느린 날 깨진다.
@@ -432,6 +452,55 @@ private extension KakaoMapViewController {
                 at: MapPoint(longitude: place.location.lng, latitude: place.location.lat)
             )?.show()
         }
+    }
+}
+
+// MARK: - 메모
+
+private extension KakaoMapViewController {
+    /// 지도 위 메모를 다시 그린다.
+    ///
+    /// 아이콘 없이 글자만 있는 POI다. 메모는 "여기에 무엇이 있다"가 아니라 "여기에
+    /// 대해 할 말이 있다"라서, 점을 찍으면 단계 핀과 헷갈린다.
+    func renderLabels(on map: KakaoMap) {
+        guard let layer = map.getLabelManager().getLabelLayer(layerID: Self.memoLayerID) else { return }
+        layer.clearAllItems()
+
+        for label in labels where !label.text.isEmpty {
+            let options = PoiOptions(
+                styleID: memoStyleID(color: label.color, fontSize: label.fontSize, on: map),
+                poiID: label.id
+            )
+            options.clickable = false
+            options.addText(PoiText(text: label.text, styleIndex: 0))
+            layer.addPoi(option: options, at: label.location.mapPoint)?.show()
+        }
+    }
+
+    /// 색·크기 조합마다 스타일 하나.
+    func memoStyleID(color: String, fontSize: Double, on map: KakaoMap) -> String {
+        let styleID = "memo-\(color)-\(Int(fontSize))"
+        guard !registeredPinStyles.contains(styleID) else { return styleID }
+
+        let style = PoiTextStyle(textLineStyles: [
+            PoiTextLineStyle(
+                textStyle: TextStyle(
+                    // 화면 배율을 감안해 키운다. 웹의 14pt를 그대로 넘기면 지도 위에서
+                    // 읽기 어려울 만큼 작다.
+                    fontSize: UInt(max(14, fontSize * 1.6)),
+                    fontColor: UIColor(hex: color) ?? .darkGray,
+                    strokeThickness: 4,
+                    strokeColor: .white
+                )
+            ),
+        ])
+        style.textLayouts = [.center]
+
+        map.getLabelManager().addPoiStyle(
+            PoiStyle(styleID: styleID, styles: [PerLevelPoiStyle(textStyle: style, level: 0)])
+        )
+        registeredPinStyles.insert(styleID)
+        return styleID
     }
 }
 

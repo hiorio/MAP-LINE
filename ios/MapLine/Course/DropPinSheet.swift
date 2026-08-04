@@ -13,11 +13,15 @@ struct DropPinSheet: View {
     let coordinate: GeoPoint
     /// 고른 장소를 단계로 담는다.
     let onPick: (MapPlace) -> Void
+    /// 장소가 아니라 그 자리에 할 말을 남긴다.
+    let onWriteMemo: (String) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var places: [PlaceCandidate] = []
     @State private var address: String?
     @State private var phase: Phase = .loading
+    @State private var askingMemo = false
+    @State private var memo = ""
 
     private enum Phase: Equatable {
         case loading, ready, failed(String)
@@ -59,28 +63,29 @@ struct DropPinSheet: View {
             // 없을 때 쓰는 대체 수단이라, 목록을 다 훑어본 사람에게 가장 필요하면서도
             // 가장 안 보이는 자리에 있게 된다. 바닥에 붙여 항상 보이게 한다.
             .safeAreaInset(edge: .bottom) {
-                Button {
-                    // 이름이 없으면 목록에서 무엇인지 알 수 없다. 좌표를 이름으로 쓰면
-                    // 읽을 수 없으니, 나중에 고쳐 쓸 수 있는 이름을 넣어 둔다.
-                    onPick(
-                        MapPlace(
-                            name: address ?? "직접 찍은 지점",
-                            address: address,
-                            location: coordinate
+                HStack(spacing: 10) {
+                    bottomAction("여기에 찍기", symbol: "mappin.and.ellipse") {
+                        // 이름이 없으면 목록에서 무엇인지 알 수 없다. 좌표를 이름으로
+                        // 쓰면 읽을 수 없으니, 나중에 고쳐 쓸 수 있는 이름을 넣어 둔다.
+                        onPick(
+                            MapPlace(
+                                name: address ?? "직접 찍은 지점",
+                                address: address,
+                                location: coordinate
+                            )
                         )
-                    )
-                    dismiss()
-                } label: {
-                    Label("여기에 그대로 찍기", systemImage: "mappin.and.ellipse")
-                        .font(.body.weight(.medium))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                        dismiss()
+                    }
+                    .accessibilityIdentifier("droppin.here")
+
+                    // 장소가 아니라 할 말을 남기는 자리다. "여기 주차 어려움" 같은 것은
+                    // 단계로 만들 것이 아니라 지도에 적어 두는 편이 맞다.
+                    bottomAction("메모", symbol: "text.bubble") { askingMemo = true }
+                        .accessibilityIdentifier("droppin.memo")
+                        .frame(maxWidth: 110)
                 }
-                .buttonStyle(.plain)
                 .padding(.horizontal, 16)
                 .padding(.bottom, 8)
-                .accessibilityIdentifier("droppin.here")
             }
             .navigationTitle("여기에 무엇을 담을까요")
             .navigationBarTitleDisplayMode(.inline)
@@ -89,8 +94,34 @@ struct DropPinSheet: View {
                     Button("취소") { dismiss() }
                 }
             }
+            .alert("메모 남기기", isPresented: $askingMemo) {
+                TextField("여기에 대해 할 말", text: $memo)
+                Button("취소", role: .cancel) { memo = "" }
+                Button("남기기") {
+                    let text = memo.trimmingCharacters(in: .whitespacesAndNewlines)
+                    memo = ""
+                    guard !text.isEmpty else { return }
+                    onWriteMemo(text)
+                    dismiss()
+                }
+            }
         }
         .task { await load() }
+    }
+
+    private func bottomAction(
+        _ title: String,
+        symbol: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: symbol)
+                .font(.body.weight(.medium))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
     }
 
     private func row(_ place: PlaceCandidate) -> some View {
