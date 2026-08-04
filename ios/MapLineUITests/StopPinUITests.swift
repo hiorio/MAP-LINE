@@ -97,6 +97,14 @@ final class StopPinUITests: XCTestCase {
         // 시트가 내려가고 선이 그려질 틈을 준다.
         Thread.sleep(forTimeInterval: 3)
         attach(app, name: "7-도보경로")
+
+        // 지도가 무엇을 그렸는지 숫자로 남긴다. 그림만으로는 연결선을 안 만든 것인지
+        // 만들었는데 안 그려진 것인지 구별할 수 없다.
+        let mapView = app.descendants(matching: .any).matching(identifier: "mapReady").firstMatch
+        let report = XCTAttachment(string: (mapView.value as? String) ?? "(값 없음)")
+        report.name = "8-그린것"
+        report.lifetime = .keepAlways
+        add(report)
     }
 
     // MARK: - 도구

@@ -395,6 +395,8 @@ private extension KakaoMapViewController {
         // 화면에서 1pt에 해당하는 각도. 점선을 화면 기준으로 만들기 위한 환산값이다.
         let perPoint = angularEpsilon(map: map, pixels: 1)
         var index = 0
+        var drawnSegments = 0
+        var drawnConnectors = 0
 
         for shape in legShapes(stops: stops, legs: legs) {
             switch shape {
@@ -415,9 +417,19 @@ private extension KakaoMapViewController {
                         on: layer
                     )
                 }
+                drawnSegments += segments.count
+                drawnConnectors += connectors.count
             }
             index += 1
         }
+
+        // 무엇을 그렸는지 화면 밖으로 내건다.
+        //
+        // 스크린샷만으로는 "선이 핀에 안 닿는다"의 원인을 좁힐 수 없었다. 연결선을
+        // 안 만든 것인지, 만들었는데 안 그려진 것인지, 그려졌는데 짧은 것인지가
+        // 그림에서는 똑같아 보인다. 맥이 없어 디버거를 붙일 수 없으니 UI 테스트가
+        // 읽어 갈 수 있게 값으로 남긴다.
+        view.accessibilityValue = "legs:\(index) segs:\(drawnSegments) conns:\(drawnConnectors) perPt:\(perPoint)"
     }
 
     /// 한 줄을 그린다. 점선이면 조각으로 잘라 한 도형에 담는다.
