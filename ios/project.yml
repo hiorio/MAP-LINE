@@ -32,6 +32,9 @@ targets:
     platform: iOS
     sources:
       - path: MapLine
+      # 아이콘. 없으면 애플이 업로드를 거부한다.
+      # "Missing required icon file ... 120x120"과 CFBundleIconName 누락으로 죽는다.
+      - path: MapLine/Assets.xcassets
       # 앱과 공유 익스텐션이 같은 모델·저장소·설정을 쓴다. 익스텐션은 별도 프로세스라
       # 코드를 공유하려면 양쪽 타깃에 같은 소스를 넣어야 한다.
       - path: Shared
@@ -49,6 +52,7 @@ targets:
         CURRENT_PROJECT_VERSION: "1"
         SWIFT_VERSION: "5.9"
         TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # 서명 방식만 정하고 켜고 끄는 것은 여기서 하지 않는다.
         # CODE_SIGNING_ALLOWED: NO를 프로젝트에 박아 뒀더니 배포 빌드까지 따라와
         # 서명 없는 아카이브가 나왔다. 시뮬레이터 CI가 명령줄에서 끄면 될 일이다.
