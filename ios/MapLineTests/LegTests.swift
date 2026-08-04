@@ -146,8 +146,8 @@ final class LegTests: XCTestCase {
         XCTAssertEqual(connectors.last?.to, to.location)
     }
 
-    func test_핀에가릴만큼짧은연결선은그리지않는다() {
-        // 핀 밑에서 시작하는 토막은 지저분하기만 하다.
+    func test_끝점이딱맞으면연결선이없다() {
+        // 이을 것이 없는데 길이 0짜리 도형을 만들면 안 된다.
         let from = place("a", lat: 37.5, lng: 127.0)
         let to = place("b", lat: 37.6, lng: 127.0)
         let stops = [Stop(candidates: [from]), Stop(candidates: [to])]
@@ -159,6 +159,28 @@ final class LegTests: XCTestCase {
         guard case .path(_, let connectors, _) = legShapes(stops: stops, legs: [leg]).first
         else { return XCTFail("실제 경로로 그려져야 한다") }
         XCTAssertTrue(connectors.isEmpty)
+    }
+
+    func test_도로에스냅된끝점까지이어붙인다() {
+        // 카카오 길찾기는 요청한 좌표가 아니라 가장 가까운 도로 노드에서 끝난다.
+        // 실측 25m. 처음엔 20m 미만을 걸러 냈는데 그게 바로 이 구간을 잘라 먹어,
+        // 선이 핀에 닿지 않고 허공에서 끊겼다.
+        let from = place("a", lat: 37.4995, lng: 127.0276)
+        let to = place("b", lat: 37.4955, lng: 127.0245)
+        let stops = [Stop(candidates: [from]), Stop(candidates: [to])]
+
+        let snapped = GeoPoint(lat: 37.49558199, lng: 127.02476595) // 도착지에서 25m
+        let leg = StopLeg(
+            mode: .walk,
+            route: route(from: "a", to: "b", points: [from.location, snapped])
+        )
+
+        guard case .path(_, let connectors, _) = legShapes(stops: stops, legs: [leg]).first
+        else { return XCTFail("실제 경로로 그려져야 한다") }
+
+        XCTAssertEqual(connectors.count, 1, "도로 노드에서 핀까지 이어져야 한다")
+        XCTAssertEqual(connectors.first?.from, snapped)
+        XCTAssertEqual(connectors.first?.to, to.location)
     }
 
     // MARK: - 점선
