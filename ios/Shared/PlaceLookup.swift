@@ -11,6 +11,8 @@ struct PlaceCandidate: Decodable, Identifiable, Equatable {
     let roadAddress: String?
     let category: String?
     let location: Coordinate
+    /// 검색 기준점에서의 거리(m). 기준점을 넘겼을 때만 온다.
+    let distanceM: Double?
 
     struct Coordinate: Decodable, Equatable {
         let lat: Double
@@ -60,6 +62,40 @@ enum PlaceLookup {
             throw AppError.message(decoded?.error ?? "검색에 실패했습니다.")
         }
         return decoded?.places ?? []
+    }
+}
+
+/// 지도를 꾹 누른 자리 주변에 무엇이 있는지 묻는다. 서버의 `/api/nearby`를 부른다.
+///
+/// 카카오 지도 SDK는 타일에 그려진 가게가 무엇인지 알려 주지 않는다. 화면에 보이는
+/// "○○식당"을 눌렀다는 사실을 코드가 알 방법이 없어서, 좌표로 주변을 되짚는다.
+enum NearbyLookup {
+    struct Result: Decodable {
+        /// 그 지점의 주소. 주변에 아무 장소가 없어도 이건 보여 줄 수 있다.
+        let address: String?
+        let places: [PlaceCandidate]?
+        let error: String?
+    }
+
+    static func find(lat: Double, lng: Double) async throws -> (address: String?, places: [PlaceCandidate]) {
+        var components = URLComponents(
+            url: AppConfig.apiBaseURL.appendingPathComponent("api/nearby"),
+            resolvingAgainstBaseURL: false
+        )!
+        components.queryItems = [
+            URLQueryItem(name: "lat", value: String(lat)),
+            URLQueryItem(name: "lng", value: String(lng)),
+        ]
+
+        var request = URLRequest(url: components.url!)
+        request.timeoutInterval = 15
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let decoded = try? JSONDecoder().decode(Result.self, from: data)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            throw AppError.message(decoded?.error ?? "주변을 찾지 못했습니다.")
+        }
+        return (decoded?.address, decoded?.places ?? [])
     }
 }
 

@@ -30,6 +30,25 @@ final class KakaoMapViewController: UIViewController {
     private static let midpointLinkLayerID = "midpointLinks"
     private static let originStyleID = "midpointOrigin"
     private static let linkStyleID = "midpointLink"
+    /// 코스의 단계 핀. 중간지점과도 레이어를 나눈다. 둘은 서로 다른 작업의 결과라
+    /// 한쪽을 지운다고 다른 쪽이 사라지면 안 된다.
+    private static let stopLabelLayerID = "stopPins"
+
+    /// 지도에 찍은 단계들. 순서가 곧 번호다.
+    var stops: [Stop] = [] {
+        didSet {
+            guard stops != oldValue, let map = kakaoMap else { return }
+            renderStops(on: map)
+        }
+    }
+
+    /// 지도를 꾹 눌렀을 때. 누른 자리의 위경도를 준다.
+    var onLongPress: ((GeoPoint) -> Void)?
+    /// 찍어 둔 핀을 눌렀을 때. 그 후보의 id를 준다.
+    var onTapStopPin: ((String) -> Void)?
+
+    /// SDK 이벤트 구독. 놓으면 구독이 끊기므로 컨트롤러가 살아 있는 동안 들고 있는다.
+    private var eventHandlers: [any DisposableEventHandler] = []
 
     /// 그려 둔 획들. 저장·공유는 다음 단계이고 지금은 메모리에만 둔다.
     private(set) var strokes: [GeoStroke] = []
@@ -39,12 +58,8 @@ final class KakaoMapViewController: UIViewController {
     /// 엔진이 뜨기 전에 받을 수 있어서 들고 있는다. 준비되는 즉시 이 값을 그린다.
     private var midpointPlot: MidpointPlot?
 
-    /// 등록해 둔 도착지 스타일의 순위들.
-    ///
-    /// 도착지 아이콘에는 후보 번호가 박혀 있어서 순위마다 다른 그림이고, 따라서 스타일도
-    /// 순위마다 하나씩 필요하다. 같은 ID로 덮어쓰는 대신 순위를 ID에 넣고 처음 쓸 때
-    /// 한 번만 만든다. 이미 그 스타일을 쓰는 핀이 화면에 있는데 덮어쓰는 상황을 피한다.
-    private var registeredMeetingRanks: Set<Int> = []
+    /// 이미 만들어 둔 번호 핀 스타일들. 같은 것을 두 번 등록하지 않기 위한 기록이다.
+    private var registeredPinStyles: Set<String> = []
 
     /// 처음 보여 줄 자리. 엔진이 뜨기 전에 정해야 한다.
     /// 뜬 뒤에 옮기면 기본 자리가 한 번 보였다 사라져 화면이 튄다.
@@ -149,10 +164,22 @@ extension KakaoMapViewController: MapControllerDelegate {
                 zOrder: 10_002
             )
         )
+        // 단계 핀은 중간지점보다 위에 둔다. 사람이 직접 찍은 것이 위여야 한다.
+        _ = map.getLabelManager().addLabelLayer(
+            option: LabelLayerOptions(
+                layerID: Self.stopLabelLayerID,
+                competitionType: CompetitionType.none,
+                competitionUnit: CompetitionUnit.symbolFirst,
+                orderType: OrderingType.rank,
+                zOrder: 10_003
+            )
+        )
         registerMidpointStyles(on: map)
+        subscribeToMapEvents(on: map)
 
-        // 엔진이 뜨기 전에 받아 둔 결과가 있으면 지금 그린다.
+        // 엔진이 뜨기 전에 받아 둔 것들이 있으면 지금 그린다.
         renderMidpoint(on: map)
+        renderStops(on: map)
 
         // UI 테스트가 지도 준비를 기다릴 수 있게 상태를 접근성 식별자로 내건다.
         // 고정 시간 대기는 러너가 느린 날 깨진다.
@@ -238,6 +265,74 @@ extension KakaoMapViewController: DrawingOverlayViewDelegate {
         let origin = map.getPosition(CGPoint(x: 0, y: 0))
         let shifted = map.getPosition(CGPoint(x: pixels, y: 0))
         return abs(shifted.wgsCoord.longitude - origin.wgsCoord.longitude)
+    }
+}
+
+// MARK: - 단계 핀
+
+private extension KakaoMapViewController {
+    /// 지도가 주는 꾹 누르기와 핀 터치를 받는다.
+    ///
+    /// UILongPressGestureRecognizer를 직접 달지 않는다. 직접 달면 팬·줌 제스처와 누가
+    /// 이길지 우리가 조정해야 하고, 화면 좌표를 위경도로 되돌리는 일도 우리 몫이 된다.
+    /// SDK 이벤트는 이미 지도 제스처와 조정된 뒤에 위경도로 온다. 웹에서 직접 만든
+    /// 꾹 누르기가 겪은 문제들(터치만 해도 뜨는 메뉴, 확대 후 손 떼면 뜨는 메뉴)이
+    /// 여기서는 아예 생기지 않는다.
+    func subscribeToMapEvents(on map: KakaoMap) {
+        eventHandlers.append(
+            map.addTerrainLongPressedEventHandler(target: self) { controller in
+                { event in
+                    // 그리는 중에는 꾹 누르기가 획의 일부다. 메뉴가 뜨면 안 된다.
+                    guard !controller.isDrawing else { return }
+                    let coord = event.position.wgsCoord
+                    controller.onLongPress?(GeoPoint(lat: coord.latitude, lng: coord.longitude))
+                }
+            }
+        )
+
+        eventHandlers.append(
+            map.addPoisTappedEventHandler(target: self) { controller in
+                { event in
+                    guard event.layerID == Self.stopLabelLayerID else { return }
+                    // poiID를 후보 id로 쓴다. 눌린 것이 무엇인지 그대로 알 수 있다.
+                    controller.onTapStopPin?(event.poiID)
+                }
+            }
+        )
+    }
+
+    /// 단계 핀을 다시 그린다.
+    ///
+    /// 중간지점과 같은 이유로 매번 전부 지우고 다시 그린다. 단계를 지우거나 순서를
+    /// 바꾸면 남은 모든 핀의 번호가 달라지므로, 무엇이 바뀌었는지 따지는 것이 통째로
+    /// 새로 그리는 것보다 어렵고 틀리기 쉽다.
+    func renderStops(on map: KakaoMap) {
+        guard let layer = map.getLabelManager().getLabelLayer(layerID: Self.stopLabelLayerID) else { return }
+        layer.clearAllItems()
+        // 핀을 눌러야 상세를 볼 수 있다. 레이어 단위로 켜 둔다.
+        layer.setClickable(true)
+
+        for (place, number) in stops.flattened() {
+            let options = PoiOptions(
+                styleID: numberedPinStyleID(
+                    prefix: "stop",
+                    number: number,
+                    color: UIColor(hex: place.pinColor) ?? .systemRed,
+                    diameter: 32,
+                    fontSize: 22
+                ),
+                // 눌렸을 때 무엇인지 알아야 하므로 후보 id를 그대로 쓴다.
+                poiID: place.id
+            )
+            // 번호가 클수록 위로. 겹쳤을 때 나중 단계가 가려지면 순서를 못 읽는다.
+            options.rank = number
+            options.clickable = true
+            options.addText(PoiText(text: place.name, styleIndex: 0))
+            layer.addPoi(
+                option: options,
+                at: MapPoint(longitude: place.location.lng, latitude: place.location.lat)
+            )?.show()
+        }
     }
 }
 
@@ -352,10 +447,31 @@ private extension KakaoMapViewController {
         )
     }
 
-    /// 순위가 박힌 도착지 스타일. 처음 쓸 때 한 번만 만든다.
+    /// 순위가 박힌 도착지 스타일.
     func meetingStyleID(rank: Int) -> String {
-        let styleID = "midpointMeeting-\(rank)"
-        guard !registeredMeetingRanks.contains(rank), let map = kakaoMap else { return styleID }
+        numberedPinStyleID(
+            prefix: "midpointMeeting",
+            number: rank,
+            color: .systemIndigo,
+            diameter: 34,
+            fontSize: 24
+        )
+    }
+
+    /// 번호가 박힌 원 아이콘 스타일. 처음 쓸 때 한 번만 만든다.
+    ///
+    /// 아이콘에 번호가 그려져 있으니 번호마다 다른 그림이고, 따라서 스타일도 번호마다
+    /// 하나씩 필요하다. 같은 ID로 덮어쓰는 대신 번호를 ID에 넣는다. 그 스타일을 쓰는
+    /// 핀이 이미 화면에 있는데 밑에서 갈아 끼우는 상황을 만들지 않는다.
+    func numberedPinStyleID(
+        prefix: String,
+        number: Int,
+        color: UIColor,
+        diameter: CGFloat,
+        fontSize: UInt
+    ) -> String {
+        let styleID = "\(prefix)-\(number)"
+        guard !registeredPinStyles.contains(styleID), let map = kakaoMap else { return styleID }
 
         map.getLabelManager().addPoiStyle(
             PoiStyle(
@@ -363,16 +479,16 @@ private extension KakaoMapViewController {
                 styles: [
                     PerLevelPoiStyle(
                         iconStyle: PoiIconStyle(
-                            symbol: circleIcon(diameter: 34, fill: .systemIndigo, glyph: "\(rank)"),
+                            symbol: circleIcon(diameter: diameter, fill: color, glyph: "\(number)"),
                             anchorPoint: CGPoint(x: 0.5, y: 0.5)
                         ),
-                        textStyle: labelTextStyle(fontSize: 24),
+                        textStyle: labelTextStyle(fontSize: fontSize),
                         level: 0
                     ),
                 ]
             )
         )
-        registeredMeetingRanks.insert(rank)
+        registeredPinStyles.insert(styleID)
         return styleID
     }
 

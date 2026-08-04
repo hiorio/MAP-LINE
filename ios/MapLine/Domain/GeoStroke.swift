@@ -5,7 +5,9 @@ import Foundation
 /// 카카오 SDK의 `MapPoint`를 그대로 쓰지 않는 이유: 도메인 규칙이 SDK에 묶이면
 /// 테스트에 시뮬레이터가 필요해지고, 나중에 지도를 바꿀 때 규칙까지 딸려 간다.
 /// 경계에서만 변환한다. 웹의 `lib/map/types.ts`가 쓰는 것과 같은 모양이다.
-struct GeoPoint: Equatable {
+/// Codable인 이유: 그대로 서버에 오간다. 웹이 쓰는 `{lat, lng}`와 키 이름이 같아야
+/// 한 링크를 웹과 앱에서 같이 열 수 있다.
+struct GeoPoint: Equatable, Codable {
     let lat: Double
     let lng: Double
 

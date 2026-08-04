@@ -11,6 +11,31 @@ struct ContentView: View {
     @State private var menuOpen = false
     @State private var showMidpoint = false
 
+    /// 지도에 찍은 단계들. 순서가 곧 번호다.
+    @State private var stops: [Stop] = []
+    /// 꾹 눌러 정한 자리. 여기에 무엇을 담을지 고르는 중이다.
+    @State private var pendingPin: PendingPin?
+    /// 눌러서 열어 둔 핀.
+    @State private var openedPin: OpenedPin?
+
+    /// 같은 자리를 다시 꾹 눌러도 시트가 다시 뜨도록 매번 새 id를 준다.
+    private struct PendingPin: Identifiable {
+        let id = UUID()
+        let coordinate: GeoPoint
+    }
+
+    /// 열 때 필요한 것을 그 자리에서 다 담아 둔다.
+    ///
+    /// 시트 안에서 `stops`를 되짚지 않는 이유: 지우기를 누르면 `stops`에서 먼저 빠지고,
+    /// 그러면 되짚기가 실패해 시트가 빈 채로 한 번 깜빡인 뒤 닫힌다.
+    private struct OpenedPin: Identifiable {
+        let place: MapPlace
+        let stopNumber: Int
+        let canChoosePrimary: Bool
+        let isPrimary: Bool
+        var id: String { place.id }
+    }
+
     var body: some View {
         // 지도를 ZStack의 자식으로 두면 안 된다. ZStack은 가장 큰 자식에 맞춰 커지는데
         // 지도가 안전 영역을 넘어가므로 ZStack도 같이 넘어가고, 그 안의 버튼들이 상태바
@@ -19,8 +44,14 @@ struct ContentView: View {
         controls
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background {
-                KakaoMapView(isDrawing: isDrawing, plot: plot)
-                    .ignoresSafeArea()
+                KakaoMapView(
+                    isDrawing: isDrawing,
+                    plot: plot,
+                    stops: stops,
+                    onLongPress: { pendingPin = PendingPin(coordinate: $0) },
+                    onTapStopPin: { id in openedPin = resolvePin(id) }
+                )
+                .ignoresSafeArea()
             }
             .overlay {
                 if menuOpen {
@@ -43,6 +74,57 @@ struct ContentView: View {
                     }
                 }
             }
+            .sheet(item: $pendingPin) { pin in
+                DropPinSheet(coordinate: pin.coordinate) { place in
+                    // 한 번 찍을 때마다 새 단계다. 기존 단계에 후보로 묶는 것은
+                    // 그 단계를 지목해야 하는 일이라 핀 상세에서 하게 둔다.
+                    stops.append(Stop(candidates: [place]))
+                }
+                .presentationDetents([.medium, .large])
+            }
+            .sheet(item: $openedPin) { pin in
+                StopPinSheet(
+                    place: pin.place,
+                    stopNumber: pin.stopNumber,
+                    canChoosePrimary: pin.canChoosePrimary,
+                    isPrimary: pin.isPrimary,
+                    onMakePrimary: { makePrimary(pin.place) },
+                    onRemove: { remove(pin.place) }
+                )
+                .presentationDetents([.medium])
+            }
+    }
+
+    // MARK: - 단계 고치기
+
+    private func resolvePin(_ candidateId: String) -> OpenedPin? {
+        guard
+            let index = stops.firstIndex(where: { $0.candidates.contains { $0.id == candidateId } }),
+            let place = stops[index].candidates.first(where: { $0.id == candidateId })
+        else { return nil }
+
+        return OpenedPin(
+            place: place,
+            stopNumber: index + 1,
+            canChoosePrimary: stops[index].candidates.count > 1,
+            isPrimary: stops[index].primaryId == candidateId
+        )
+    }
+
+    private func makePrimary(_ place: MapPlace) {
+        guard let index = stops.firstIndex(where: { $0.candidates.contains { $0.id == place.id } })
+        else { return }
+        stops[index].primaryId = place.id
+    }
+
+    private func remove(_ place: MapPlace) {
+        for index in stops.indices {
+            stops[index].candidates.removeAll { $0.id == place.id }
+            // 대표를 지웠으면 대표도 함께 없앤다. 남겨 두면 없는 후보를 가리킨다.
+            if stops[index].primaryId == place.id { stops[index].primaryId = nil }
+        }
+        // 후보가 하나도 없는 단계는 번호만 차지한다.
+        stops.removeAll { $0.candidates.isEmpty }
     }
 
     // MARK: - 지도 위 조작
@@ -81,6 +163,21 @@ struct ContentView: View {
                 }
             }
 
+            if !stops.isEmpty {
+                // 몇 단계까지 담았는지. 핀이 화면 밖으로 나가면 지도만 봐서는
+                // 담은 것이 있는지조차 알 수 없다.
+                HStack {
+                    Text("단계 \(stops.count)")
+                        .font(.caption.weight(.medium))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(.regularMaterial, in: Capsule())
+                        .accessibilityIdentifier("map.stopCount")
+                    Spacer()
+                }
+                .padding(.top, 8)
+            }
+
             Spacer()
 
             HStack(alignment: .bottom) {
@@ -105,16 +202,24 @@ struct ContentView: View {
             }
 
             if isDrawing {
-                Text("지도가 잠깁니다. 손가락으로 동선을 그리세요.")
-                    .font(.caption)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 9)
-                    .background(.regularMaterial, in: Capsule())
-                    .padding(.top, 10)
+                hint("지도가 잠깁니다. 손가락으로 동선을 그리세요.")
+            } else if stops.isEmpty {
+                // 꾹 누르기는 화면에 아무 표시가 없다. 알려 주지 않으면 아무도 안 한다.
+                // 한 곳이라도 담고 나면 사라진다 — 이미 아는 사람에게는 잔소리다.
+                hint("지도를 꾹 누르면 그 자리를 담습니다.")
             }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+    }
+
+    private func hint(_ text: String) -> some View {
+        Text(text)
+            .font(.caption)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9)
+            .background(.regularMaterial, in: Capsule())
+            .padding(.top, 10)
     }
 
     private func roundButton(
