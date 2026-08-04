@@ -7,6 +7,7 @@ import SwiftUI
 struct CourseSheet: View {
     @Binding var stops: [Stop]
     @Binding var legs: [StopLeg]
+    var searchCenter: PlaceCandidate.Coordinate?
 
     @Environment(\.dismiss) private var dismiss
     /// 지금 길찾기를 부르고 있는 구간들. 여러 구간을 동시에 바꿀 수 있다.
@@ -17,7 +18,6 @@ struct CourseSheet: View {
 
     private struct CandidateTarget: Identifiable {
         let stopID: String
-        let stopNumber: Int
         var id: String { stopID }
     }
 
@@ -47,9 +47,15 @@ struct CourseSheet: View {
                 }
             }
             .sheet(item: $candidateTarget) { target in
-                PlaceSearchSheet(title: "\(target.stopNumber)단계 후보 추가") { candidate in
-                    add(candidate, toStopID: target.stopID)
+                CoursePlacePickerSheet(
+                    stops: stops,
+                    initialTargetStopID: target.stopID,
+                    near: searchCenter
+                ) { stopID, candidates in
+                    add(candidates, toStopID: stopID)
                 }
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
             }
         }
     }
@@ -67,8 +73,8 @@ struct CourseSheet: View {
                     .clipShape(Circle())
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(stop.candidates.map(\.name).joined(separator: ", "))
-                        .font(.body.weight(.medium))
+                    Text("후보 \(stop.candidates.count)곳")
+                        .font(.body.weight(.semibold))
                     if stop.candidates.count > 1, stop.anchor == nil {
                         // 왜 경로가 안 그려지는지 여기서 말해 준다. 말 안 하면 고장으로 읽힌다.
                         Text("후보 \(stop.candidates.count)곳 · 대표를 정해야 경로를 그립니다")
@@ -78,8 +84,57 @@ struct CourseSheet: View {
                 Spacer()
             }
 
+            VStack(spacing: 4) {
+                ForEach(Array(stop.candidates.enumerated()), id: \.element.id) { candidateIndex, place in
+                    HStack(spacing: 8) {
+                        if stop.candidates.count > 1 {
+                            Button {
+                                togglePrimary(stopID: stop.id, placeID: place.id)
+                            } label: {
+                                Image(systemName: stop.primaryId == place.id ? "largecircle.fill.circle" : "circle")
+                                    .font(.body)
+                                    .foregroundStyle(stop.primaryId == place.id ? Color.accentColor : Color.secondary)
+                            }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel("\(place.name) 대표로 지정")
+                            .accessibilityValue(stop.primaryId == place.id ? "대표" : "대표 아님")
+                            .accessibilityIdentifier("course.primary.\(index).\(candidateIndex)")
+                        } else {
+                            Image(systemName: "mappin.circle.fill")
+                                .font(.body)
+                                .foregroundStyle(Color.accentColor)
+                        }
+
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(place.name)
+                                .font(.subheadline.weight(.medium))
+                                .lineLimit(1)
+                            if let address = place.address, !address.isEmpty {
+                                Text(address)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                        Button(role: .destructive) {
+                            removeCandidate(stopID: stop.id, placeID: place.id)
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.caption.weight(.semibold))
+                                .frame(width: 28, height: 28)
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel("\(place.name) 후보에서 빼기")
+                        .accessibilityIdentifier("course.removeCandidate.\(index).\(candidateIndex)")
+                    }
+                }
+            }
+            .padding(.leading, 32)
+
             Button {
-                candidateTarget = CandidateTarget(stopID: stop.id, stopNumber: index + 1)
+                candidateTarget = CandidateTarget(stopID: stop.id)
             } label: {
                 Label("이 단계에 후보 추가", systemImage: "plus.circle")
                     .font(.caption.weight(.medium))
@@ -92,17 +147,32 @@ struct CourseSheet: View {
         .padding(.vertical, 2)
     }
 
-    /// 검색 결과를 새 단계가 아니라 지정한 단계 안에 넣는다.
-    private func add(_ candidate: PlaceCandidate, toStopID stopID: String) {
-        let place = MapPlace(
-            name: candidate.name,
-            address: candidate.displayAddress,
-            kakaoPlaceId: candidate.kakaoPlaceId,
-            location: GeoPoint(lat: candidate.location.lat, lng: candidate.location.lng)
-        )
-        guard stops.addCandidates([place], toStopID: stopID) else { return }
-        // 단계 수는 그대로지만, 후보가 하나에서 둘이 되면 대표가 사라져 기존 경로가
-        // 더는 유효하지 않을 수 있다. 구간 길이는 유지하고 그리기 규칙이 끝점을 재검증한다.
+    /// 검색 화면에서 체크한 여러 곳을 한 번에 담는다. 대상이 없으면 웹처럼 한 단계로 묶는다.
+    private func add(_ candidates: [PlaceCandidate], toStopID stopID: String?) {
+        let places = candidates.map(\.mapPlace)
+        guard !places.isEmpty else { return }
+
+        if let stopID {
+            guard stops.addCandidates(places, toStopID: stopID) else { return }
+        } else {
+            stops.append(Stop(candidates: places))
+        }
+        // 단계 수가 바뀌거나 후보가 하나에서 둘이 되면 기존 경로의 끝점이 달라질 수 있다.
+        // 구간 길이를 맞추고, 그리기 규칙이 저장된 경로의 끝점을 다시 검증한다.
+        legs = LegRules.synced(stops: stops, legs: legs)
+    }
+
+    private func togglePrimary(stopID: String, placeID: String) {
+        guard let index = stops.firstIndex(where: { $0.id == stopID }) else { return }
+        stops[index].primaryId = stops[index].primaryId == placeID ? nil : placeID
+        legs = LegRules.synced(stops: stops, legs: legs)
+    }
+
+    private func removeCandidate(stopID: String, placeID: String) {
+        guard let index = stops.firstIndex(where: { $0.id == stopID }) else { return }
+        stops[index].candidates.removeAll { $0.id == placeID }
+        if stops[index].primaryId == placeID { stops[index].primaryId = nil }
+        if stops[index].candidates.isEmpty { stops.remove(at: index) }
         legs = LegRules.synced(stops: stops, legs: legs)
     }
 

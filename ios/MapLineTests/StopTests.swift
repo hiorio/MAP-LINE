@@ -97,6 +97,24 @@ final class StopTests: XCTestCase {
         XCTAssertEqual(stops, original)
     }
 
+    func test_검색결과를동선장소로바꿀때정보를보존한다() {
+        let candidate = PlaceCandidate(
+            kakaoPlaceId: "123",
+            name: "강남역",
+            address: "서울 강남구 역삼동",
+            roadAddress: "서울 강남구 강남대로 396",
+            category: "지하철역",
+            location: .init(lat: 37.4979, lng: 127.0276),
+            distanceM: 120
+        )
+
+        let converted = candidate.mapPlace
+        XCTAssertEqual(converted.name, "강남역")
+        XCTAssertEqual(converted.address, "서울 강남구 강남대로 396")
+        XCTAssertEqual(converted.kakaoPlaceId, "123")
+        XCTAssertEqual(converted.location, GeoPoint(lat: 37.4979, lng: 127.0276))
+    }
+
     func test_서버와같은키로오간다() throws {
         // 웹이 저장한 지도를 앱이 열어야 한다. 키 이름이 하나만 달라도 못 연다.
         let encoded = try JSONEncoder().encode(

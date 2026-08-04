@@ -20,6 +20,7 @@ struct ContentView: View {
     /// 지도 위에 남긴 메모들.
     @State private var labels: [MapLabel] = []
     @State private var showCourse = false
+    @State private var showPlacePicker = false
     @State private var showSaved = false
     @State private var showMyMaps = false
 
@@ -138,7 +139,14 @@ struct ContentView: View {
                 .presentationDetents([.medium, .large])
             }
             .sheet(isPresented: $showCourse) {
-                CourseSheet(stops: $stops, legs: $legs)
+                CourseSheet(stops: $stops, legs: $legs, searchCenter: placeSearchCenter)
+            }
+            .sheet(isPresented: $showPlacePicker) {
+                CoursePlacePickerSheet(stops: stops, near: placeSearchCenter) { stopID, candidates in
+                    addCoursePlaces(candidates, toStopID: stopID)
+                }
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
             }
             .sheet(item: $shareLink) { link in
                 ActivitySheet(items: [link.url])
@@ -259,6 +267,33 @@ struct ContentView: View {
 
     // MARK: - 단계 고치기
 
+    private var placeSearchCenter: PlaceCandidate.Coordinate? {
+        guard let center = mapController?.cameraSnapshot()?.center else { return nil }
+        return PlaceCandidate.Coordinate(lat: center.lat, lng: center.lng)
+    }
+
+    /// 웹의 장소 검색 패널과 같이 여러 결과를 새 단계 하나로 묶거나 기존 단계에 더한다.
+    private func addCoursePlaces(_ candidates: [PlaceCandidate], toStopID stopID: String?) {
+        let places = candidates.map(\.mapPlace)
+        guard !places.isEmpty else { return }
+
+        if let stopID {
+            guard stops.addCandidates(places, toStopID: stopID) else { return }
+        } else {
+            stops.append(Stop(candidates: places))
+        }
+        legs = LegRules.synced(stops: stops, legs: legs)
+
+        // 새로 담은 곳들이 있는 동네로 이동한다. 한 곳만 보여 주면 같은 단계의 다른 후보가
+        // 빠진 것처럼 보이므로 평균 위치를 쓴다.
+        let count = Double(places.count)
+        let center = GeoPoint(
+            lat: places.reduce(0) { $0 + $1.location.lat } / count,
+            lng: places.reduce(0) { $0 + $1.location.lng } / count
+        )
+        mapController?.move(to: center.lat, lng: center.lng)
+    }
+
     private func resolvePin(_ candidateId: String) -> OpenedPin? {
         guard
             let index = stops.firstIndex(where: { $0.candidates.contains { $0.id == candidateId } }),
@@ -353,6 +388,12 @@ struct ContentView: View {
             HStack(alignment: .bottom) {
                 Spacer()
                 VStack(spacing: 10) {
+                    roundButton(
+                        "magnifyingglass",
+                        label: "장소 추가"
+                    ) { showPlacePicker = true }
+                        .accessibilityIdentifier("map.addPlace")
+
                     roundButton(
                         "point.topleft.down.curvedto.point.bottomright.up",
                         label: "중간지점 찾기"

@@ -458,8 +458,8 @@ private extension KakaoMapViewController {
                     prefix: "stop",
                     number: number,
                     color: UIColor(hex: place.pinColor) ?? .systemRed,
-                    diameter: 28,
-                    fontSize: 20
+                    diameter: 20,
+                    fontSize: 16
                 ),
                 // 눌렸을 때 무엇인지 알아야 하므로 후보 id를 그대로 쓴다.
                 poiID: place.id
@@ -821,7 +821,9 @@ private extension KakaoMapViewController {
     /// 에셋으로 넣지 않는 이유: 후보 번호가 박힌 원을 몇 개나 필요할지 미리 알 수 없고,
     /// @2x/@3x를 손으로 관리할 일도 없어진다. 렌더러가 화면 배율에 맞춰 그려 준다.
     func circleIcon(diameter: CGFloat, fill: UIColor, glyph: String?) -> UIImage {
-        let ring: CGFloat = 3
+        // 작은 단계 핀에서 3pt 테두리는 안쪽 면적을 지나치게 먹는다. 중간지점처럼
+        // 큰 핀은 기존 굵기를 유지하고, 22pt 이하는 2pt로 가볍게 보인다.
+        let ring: CGFloat = diameter <= 22 ? 2 : 3
         let size = CGSize(width: diameter, height: diameter)
 
         return UIGraphicsImageRenderer(size: size).image { _ in

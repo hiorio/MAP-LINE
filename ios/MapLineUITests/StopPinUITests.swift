@@ -19,6 +19,10 @@ final class StopPinUITests: XCTestCase {
         let draw = app.descendants(matching: .any).matching(identifier: "map.draw").firstMatch
         XCTAssertTrue(draw.waitForExistence(timeout: 30), "지도 화면이 뜨지 않았다")
         try waitForMap(app)
+        XCTAssertTrue(
+            app.descendants(matching: .any).matching(identifier: "map.addPlace").firstMatch.exists,
+            "지도 첫 화면에 장소 추가 진입점이 없다"
+        )
         // 타일이 올라올 틈을 준다. 빈 지도를 찍으면 핀이 붙었는지 알아볼 수 없다.
         Thread.sleep(forTimeInterval: 3)
         attach(app, name: "1-담기전")
@@ -179,6 +183,10 @@ final class StopPinUITests: XCTestCase {
             XCTFail("후보 추가 검색창이 뜨지 않았다")
             return
         }
+        XCTAssertTrue(
+            app.staticTexts["1단계의 후보로 담습니다"].waitForExistence(timeout: 5),
+            "검색 화면에서 어느 단계에 담는지 보이지 않는다"
+        )
         Thread.sleep(forTimeInterval: 1)
         field.tap()
         guard app.keyboards.element.waitForExistence(timeout: 5) else {
@@ -195,6 +203,17 @@ final class StopPinUITests: XCTestCase {
             return
         }
         result.tap()
+
+        // 웹처럼 결과를 누르는 것만으로 닫히지 않고, 여러 곳을 체크한 뒤 한 번에 담는다.
+        let commit = app.descendants(matching: .any)
+            .matching(identifier: "coursePicker.commit").firstMatch
+        guard commit.waitForExistence(timeout: 5), commit.isEnabled else {
+            attach(app, name: "9-복수선택확정버튼없음")
+            XCTFail("후보를 골랐지만 여러 장소를 한 번에 추가하는 버튼이 활성화되지 않았다")
+            return
+        }
+        attach(app, name: "9-후보복수선택")
+        commit.tap()
 
         let summary = app.staticTexts["후보 2곳 · 대표를 정해야 경로를 그립니다"]
         let added = summary.waitForExistence(timeout: 10)
