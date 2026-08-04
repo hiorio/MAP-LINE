@@ -33,12 +33,22 @@ final class KakaoMapViewController: UIViewController {
     /// 코스의 단계 핀. 중간지점과도 레이어를 나눈다. 둘은 서로 다른 작업의 결과라
     /// 한쪽을 지운다고 다른 쪽이 사라지면 안 된다.
     private static let stopLabelLayerID = "stopPins"
+    private static let legLayerID = "stopLegs"
 
     /// 지도에 찍은 단계들. 순서가 곧 번호다.
     var stops: [Stop] = [] {
         didSet {
             guard stops != oldValue, let map = kakaoMap else { return }
             renderStops(on: map)
+            renderLegs(on: map)
+        }
+    }
+
+    /// 단계 사이 구간. `legs[i]`가 `stops[i] → stops[i+1]`이다.
+    var legs: [StopLeg] = [] {
+        didSet {
+            guard legs != oldValue, let map = kakaoMap else { return }
+            renderLegs(on: map)
         }
     }
 
@@ -174,12 +184,16 @@ extension KakaoMapViewController: MapControllerDelegate {
                 zOrder: 10_003
             )
         )
+        // 구간 선은 핀보다 아래, 손그림보다도 아래다. 사람이 그린 것이 제일 위여야 한다.
+        _ = map.getShapeManager().addShapeLayer(layerID: Self.legLayerID, zOrder: 9_999)
         registerMidpointStyles(on: map)
+        registerLegStyles(on: map)
         subscribeToMapEvents(on: map)
 
         // 엔진이 뜨기 전에 받아 둔 것들이 있으면 지금 그린다.
         renderMidpoint(on: map)
         renderStops(on: map)
+        renderLegs(on: map)
 
         // UI 테스트가 지도 준비를 기다릴 수 있게 상태를 접근성 식별자로 내건다.
         // 고정 시간 대기는 러너가 느린 날 깨진다.
@@ -299,6 +313,18 @@ private extension KakaoMapViewController {
                 }
             }
         )
+
+        // 점선 간격은 화면 배율에서 구한다. 줌이 바뀌면 그 값도 바뀌므로 다시 그린다.
+        // 줌이 끝난 뒤에만 다시 그린다 — 움직이는 동안 매 프레임 다시 만들면 무겁고,
+        // 그 사이에도 선은 SDK가 알아서 따라 그려 준다.
+        eventHandlers.append(
+            map.addCameraStoppedEventHandler(target: self) { controller in
+                { _ in
+                    guard let map = controller.kakaoMap else { return }
+                    controller.renderLegs(on: map)
+                }
+            }
+        )
     }
 
     /// 단계 핀을 다시 그린다.
@@ -334,6 +360,97 @@ private extension KakaoMapViewController {
             )?.show()
         }
     }
+}
+
+// MARK: - 구간 선
+
+private extension KakaoMapViewController {
+    /// 이동수단마다 스타일을 하나씩. 값이 고정이라 처음에 한 번만 만든다.
+    func registerLegStyles(on map: KakaoMap) {
+        let manager = map.getShapeManager()
+        for style in TravelMode.allCases.map(LegStyle.of) {
+            manager.addPolylineStyleSet(
+                PolylineStyleSet(
+                    styleSetID: Self.legStyleID(style.name),
+                    styles: [
+                        PolylineStyle(styles: [
+                            PerLevelPolylineStyle(bodyColor: style.color, bodyWidth: style.width, level: 0),
+                        ]),
+                    ]
+                )
+            )
+        }
+    }
+
+    static func legStyleID(_ name: String) -> String { "leg-\(name)" }
+
+    /// 단계 사이 선을 다시 그린다.
+    ///
+    /// 줌이 바뀔 때도 불린다. 점선 조각의 길이가 화면 배율에 달려 있어서, 같은 간격으로
+    /// 보이게 하려면 줌마다 다시 잘라야 한다.
+    func renderLegs(on map: KakaoMap) {
+        guard let layer = map.getShapeManager().getShapeLayer(layerID: Self.legLayerID) else { return }
+        layer.clearAllShapes()
+
+        // 화면에서 1pt에 해당하는 각도. 점선을 화면 기준으로 만들기 위한 환산값이다.
+        let perPoint = angularEpsilon(map: map, pixels: 1)
+        var index = 0
+
+        for shape in legShapes(stops: stops, legs: legs) {
+            switch shape {
+            case .straight(let from, let to):
+                draw([from, to], style: LegStyle.of(.straight), id: "leg-\(index)", perPoint: perPoint, on: layer)
+            case .path(let segments, let connectors, let mode):
+                let style = LegStyle.of(mode)
+                for (position, segment) in segments.enumerated() {
+                    draw(segment, style: style, id: "leg-\(index)-\(position)", perPoint: perPoint, on: layer)
+                }
+                // 좌표가 오지 않은 부분은 언제나 도보로 그린다. 대중교통이라도 그 사이는 걷는다.
+                for (position, connector) in connectors.enumerated() {
+                    draw(
+                        [connector.from, connector.to],
+                        style: LegStyle.walk,
+                        id: "leg-\(index)-c\(position)",
+                        perPoint: perPoint,
+                        on: layer
+                    )
+                }
+            }
+            index += 1
+        }
+    }
+
+    /// 한 줄을 그린다. 점선이면 조각으로 잘라 한 도형에 담는다.
+    func draw(
+        _ path: [GeoPoint],
+        style: LegStyle,
+        id: String,
+        perPoint: Double,
+        on layer: ShapeLayer
+    ) {
+        guard path.count >= 2 else { return }
+
+        let pieces: [[GeoPoint]]
+        if let dash = style.dash, perPoint > 0 {
+            pieces = dashedSegments(path, onLength: dash.on * perPoint, offLength: dash.off * perPoint)
+        } else {
+            pieces = [path]
+        }
+        guard !pieces.isEmpty else { return }
+
+        let options = MapPolylineShapeOptions(
+            shapeID: id,
+            styleID: Self.legStyleID(style.name),
+            zOrder: 0
+        )
+        // 조각을 도형 하나에 다 담는다. 점선 하나가 도형 수백 개가 되면 안 된다.
+        options.polylines = pieces.map { MapPolyline(line: $0.map(\.mapPoint), styleIndex: 0) }
+        layer.addMapPolylineShape(options)?.show()
+    }
+}
+
+extension GeoPoint {
+    var mapPoint: MapPoint { MapPoint(longitude: lng, latitude: lat) }
 }
 
 // MARK: - 중간지점

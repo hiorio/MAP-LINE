@@ -13,6 +13,9 @@ struct ContentView: View {
 
     /// 지도에 찍은 단계들. 순서가 곧 번호다.
     @State private var stops: [Stop] = []
+    /// 단계 사이 구간. 길이는 항상 max(0, 단계 수 - 1)로 맞춘다.
+    @State private var legs: [StopLeg] = []
+    @State private var showCourse = false
     /// 꾹 눌러 정한 자리. 여기에 무엇을 담을지 고르는 중이다.
     @State private var pendingPin: PendingPin?
     /// 눌러서 열어 둔 핀.
@@ -48,6 +51,7 @@ struct ContentView: View {
                     isDrawing: isDrawing,
                     plot: plot,
                     stops: stops,
+                    legs: legs,
                     onLongPress: { pendingPin = PendingPin(coordinate: $0) },
                     onTapStopPin: { id in openedPin = resolvePin(id) }
                 )
@@ -79,8 +83,14 @@ struct ContentView: View {
                     // 한 번 찍을 때마다 새 단계다. 기존 단계에 후보로 묶는 것은
                     // 그 단계를 지목해야 하는 일이라 핀 상세에서 하게 둔다.
                     stops.append(Stop(candidates: [place]))
+                    // 단계가 늘면 그 앞에 구간이 하나 생긴다. 길이를 맞춰 두지 않으면
+                    // 새 단계로 가는 구간이 아예 없어 수단을 고를 자리가 안 생긴다.
+                    legs = LegRules.synced(stops: stops, legs: legs)
                 }
                 .presentationDetents([.medium, .large])
+            }
+            .sheet(isPresented: $showCourse) {
+                CourseSheet(stops: $stops, legs: $legs)
             }
             .sheet(item: $openedPin) { pin in
                 StopPinSheet(
@@ -125,6 +135,7 @@ struct ContentView: View {
         }
         // 후보가 하나도 없는 단계는 번호만 차지한다.
         stops.removeAll { $0.candidates.isEmpty }
+        legs = LegRules.synced(stops: stops, legs: legs)
     }
 
     // MARK: - 지도 위 조작
@@ -167,12 +178,19 @@ struct ContentView: View {
                 // 몇 단계까지 담았는지. 핀이 화면 밖으로 나가면 지도만 봐서는
                 // 담은 것이 있는지조차 알 수 없다.
                 HStack {
-                    Text("단계 \(stops.count)")
+                    Button { showCourse = true } label: {
+                        HStack(spacing: 5) {
+                            Text("단계 \(stops.count)")
+                            Image(systemName: "chevron.right").font(.caption2)
+                        }
                         .font(.caption.weight(.medium))
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
                         .background(.regularMaterial, in: Capsule())
-                        .accessibilityIdentifier("map.stopCount")
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("map.stopCount")
+                    .accessibilityLabel("동선 열기")
                     Spacer()
                 }
                 .padding(.top, 8)

@@ -10,12 +10,15 @@ struct KakaoMapView: UIViewControllerRepresentable {
     var plot: MidpointPlot?
     /// 지도에 찍은 단계들.
     var stops: [Stop]
+    /// 단계 사이 구간.
+    var legs: [StopLeg]
     var onLongPress: (GeoPoint) -> Void
     var onTapStopPin: (String) -> Void
 
     func makeUIViewController(context: Context) -> KakaoMapViewController {
         let controller = KakaoMapViewController()
         controller.stops = stops
+        controller.legs = legs
         controller.onLongPress = onLongPress
         controller.onTapStopPin = onTapStopPin
         if let plot {
@@ -36,7 +39,10 @@ struct KakaoMapView: UIViewControllerRepresentable {
         controller.onLongPress = onLongPress
         controller.onTapStopPin = onTapStopPin
         // 컨트롤러 쪽 didSet이 같은 값이면 다시 그리지 않는다.
+        // 단계를 먼저 넣는다. 구간은 단계를 근거로 그려지므로 순서가 뒤바뀌면
+        // 아직 없는 단계를 가리키는 구간을 한 번 그리게 된다.
         controller.stops = stops
+        controller.legs = legs
         // 같은 값을 다시 넘겨도 다시 그리지 않는다. 화면이 갱신될 때마다 카메라가
         // 움직이면 사람이 손으로 옮겨 둔 위치가 계속 되돌아간다. 같은 후보를 일부러
         // 다시 고른 경우는 MidpointPlot이 고른 시각을 달리 담아 여기서 구별된다.
