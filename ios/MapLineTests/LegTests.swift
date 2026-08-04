@@ -210,6 +210,31 @@ final class LegTests: XCTestCase {
         XCTAssertEqual(dashes.first?.last?.lng ?? -1, 1.5, accuracy: 1e-9)
     }
 
+    func test_점선은언제나끝점에닿는다() {
+        // 빈칸 차례에 길이 끝나면 선이 핀 앞에서 끊긴 것처럼 보인다. 그건 그림의
+        // 사실이 아니라 자른 방식의 부작용이다. CI 스크린샷에서 한쪽 핀은 닿고 다른
+        // 쪽은 안 닿았는데, 어느 차례에 끝나느냐가 갈랐을 뿐이었다.
+        //
+        // 길이 10, 2 그리고 3 띄우면 0-2, 5-7까지 간 뒤 빈칸 차례에 끝난다.
+        let path = [GeoPoint(lat: 0, lng: 0), GeoPoint(lat: 0, lng: 10)]
+        let dashes = dashedSegments(path, onLength: 2, offLength: 3)
+
+        XCTAssertEqual(dashes.last?.last?.lng ?? -1, 10, accuracy: 1e-9)
+        // 마무리 조각은 끝에서 onLength만큼이다.
+        XCTAssertEqual(dashes.last?.first?.lng ?? -1, 8, accuracy: 1e-9)
+    }
+
+    func test_꺾인길에서도끝점에닿는다() {
+        let path = [
+            GeoPoint(lat: 0, lng: 0),
+            GeoPoint(lat: 0, lng: 4),
+            GeoPoint(lat: 3, lng: 4),
+        ]
+        let dashes = dashedSegments(path, onLength: 1, offLength: 2.5)
+        XCTAssertEqual(dashes.last?.last?.lat ?? -1, 3, accuracy: 1e-9)
+        XCTAssertEqual(dashes.last?.last?.lng ?? -1, 4, accuracy: 1e-9)
+    }
+
     func test_간격이없으면통째로하나다() {
         // 0이나 음수를 주면 무한 반복에 빠질 수 있다. 자르지 않고 돌려준다.
         let path = [GeoPoint(lat: 0, lng: 0), GeoPoint(lat: 0, lng: 1)]

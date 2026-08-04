@@ -93,9 +93,46 @@ func dashedSegments(
         cursor = next
     }
 
-    // 마지막 조각이 그리는 중이었다면 살린다. 버리면 선이 끝점에 못 닿는다.
-    if drawing, current.count >= 2 { dashes.append(current) }
+    if drawing, current.count >= 2 {
+        dashes.append(current)
+    } else {
+        // 빈칸 차례에 길이 끝나면 선이 끝점에 못 닿는다. 핀 바로 앞에서 끊긴 것처럼
+        // 보이는데, 이건 그림의 사실이 아니라 점선을 자른 방식의 부작용이다.
+        // 실제로 CI 스크린샷에서 한쪽 핀은 닿고 다른 쪽은 안 닿았다 — 어느 차례에
+        // 끝나느냐가 갈랐을 뿐이다. 마지막은 언제나 그린 조각으로 끝낸다.
+        let closing = tail(path, length: onLength)
+        if closing.count >= 2 { dashes.append(closing) }
+    }
     return dashes
+}
+
+/// 길의 마지막 `length`만큼. 끝점에서 거슬러 올라가며 모은다.
+private func tail(_ path: [GeoPoint], length: Double) -> [GeoPoint] {
+    guard let end = path.last, path.count >= 2 else { return [] }
+
+    var backwards: [GeoPoint] = [end]
+    var remaining = length
+
+    for index in stride(from: path.count - 1, through: 1, by: -1) {
+        let previous = path[index - 1]
+        let step = distance(previous, path[index])
+        guard step > 0 else { continue }
+
+        if step >= remaining {
+            let ratio = remaining / step
+            backwards.append(
+                GeoPoint(
+                    lat: path[index].lat + (previous.lat - path[index].lat) * ratio,
+                    lng: path[index].lng + (previous.lng - path[index].lng) * ratio
+                )
+            )
+            break
+        }
+        backwards.append(previous)
+        remaining -= step
+    }
+
+    return backwards.reversed()
 }
 
 /// 두 점 사이 거리. 각도 단위다.
