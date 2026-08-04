@@ -21,6 +21,7 @@ struct DropPinSheet: View {
     @State private var address: String?
     @State private var phase: Phase = .loading
     @State private var askingMemo = false
+    @State private var searchingPlace = false
     @State private var memo = ""
 
     private enum Phase: Equatable {
@@ -64,6 +65,10 @@ struct DropPinSheet: View {
             // 가장 안 보이는 자리에 있게 된다. 바닥에 붙여 항상 보이게 한다.
             .safeAreaInset(edge: .bottom) {
                 HStack(spacing: 10) {
+                    // 카카오 대표 카테고리에 없는 예식장·상점 등도 이름으로 찾을 수 있다.
+                    bottomAction("검색", symbol: "magnifyingglass") { searchingPlace = true }
+                        .accessibilityIdentifier("droppin.search")
+
                     bottomAction("여기에 찍기", symbol: "mappin.and.ellipse") {
                         // 이름이 없으면 목록에서 무엇인지 알 수 없다. 좌표를 이름으로
                         // 쓰면 읽을 수 없으니, 나중에 고쳐 쓸 수 있는 이름을 넣어 둔다.
@@ -82,7 +87,6 @@ struct DropPinSheet: View {
                     // 단계로 만들 것이 아니라 지도에 적어 두는 편이 맞다.
                     bottomAction("메모", symbol: "text.bubble") { askingMemo = true }
                         .accessibilityIdentifier("droppin.memo")
-                        .frame(maxWidth: 110)
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 8)
@@ -103,6 +107,14 @@ struct DropPinSheet: View {
                     guard !text.isEmpty else { return }
                     onWriteMemo(text)
                     dismiss()
+                }
+            }
+            .sheet(isPresented: $searchingPlace) {
+                PlaceSearchSheet(
+                    title: "이 근처 장소 검색",
+                    near: PlaceCandidate.Coordinate(lat: coordinate.lat, lng: coordinate.lng)
+                ) { candidate in
+                    pick(candidate)
                 }
             }
         }

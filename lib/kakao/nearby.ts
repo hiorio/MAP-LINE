@@ -14,6 +14,7 @@ import { recordKakaoCall } from './usage';
  * 코스에 담는 종류만 고른다.
  */
 const CATEGORY_ENDPOINT = 'https://dapi.kakao.com/v2/local/search/category.json';
+const KEYWORD_ENDPOINT = 'https://dapi.kakao.com/v2/local/search/keyword.json';
 const COORD_TO_ADDRESS_ENDPOINT = 'https://dapi.kakao.com/v2/local/geo/coord2address.json';
 
 /** 음식점·카페·관광명소. 모임 코스에 담기는 것의 대부분이다. */
@@ -28,6 +29,8 @@ const CATEGORY_CODES = ['FD6', 'CE7', 'AT4'] as const;
  * 여섯 개를 늘어놓으면 고르는 일이 되어 버린다. 가까운 순으로 잘라 넷만 둔다.
  */
 const RADIUS_M = 60;
+/** 주소가 가리키는 건물의 POI는 출입구/대표점이 눌린 좌표보다 조금 멀 수 있다. */
+const BUILDING_RADIUS_M = 150;
 const PER_CATEGORY = 5;
 export const NEARBY_LIMIT = 4;
 
@@ -49,50 +52,103 @@ export interface NearbyResult {
   places: PlaceCandidate[];
 }
 
+export interface AddressLookup {
+  address?: string;
+  buildingName?: string;
+}
+
 export async function findNearby(center: LatLng): Promise<NearbyResult> {
   const key = process.env.KAKAO_REST_KEY;
   if (!key) throw new MissingRestKeyError();
 
   const headers = { Authorization: `KakaoAK ${key}` };
 
-  const [address, ...categoryResults] = await Promise.all([
-    fetchAddress(center, headers),
-    ...CATEGORY_CODES.map((code) => fetchCategory(code, center, headers)),
-  ]);
+  const addressPromise = fetchAddress(center, headers);
+  const categoryPromise = Promise.all(
+    CATEGORY_CODES.map((code) => fetchCategory(code, center, headers)),
+  );
+  const addressResult = await addressPromise;
+
+  // 예식장처럼 Kakao의 15개 대표 카테고리에 없는 시설도 있다. 좌표→주소 응답의
+  // 건물명이 있으면 그 이름으로 한 번 더 찾아, 음식점 후보보다 앞에 둔다.
+  const buildingPromise = addressResult.buildingName
+    ? fetchKeyword(addressResult.buildingName, center, headers)
+    : Promise.resolve([]);
+  const [categoryResults, buildingResults] = await Promise.all([categoryPromise, buildingPromise]);
 
   // 카테고리가 겹치면 같은 장소가 두 번 나온다.
   const seen = new Set<string>();
-  const places = categoryResults
+  const categoryPlaces = categoryResults
     .flat()
+    .sort((a, b) => (a.distanceM ?? Infinity) - (b.distanceM ?? Infinity));
+  const places = [...buildingResults, ...categoryPlaces]
     .filter((place) => {
       const id = place.kakaoPlaceId || `${place.name}:${place.location.lat}`;
       if (seen.has(id)) return false;
       seen.add(id);
       return true;
     })
-    .sort((a, b) => (a.distanceM ?? Infinity) - (b.distanceM ?? Infinity))
     .slice(0, NEARBY_LIMIT);
 
-  return { ...(address ? { address } : {}), places };
+  return { ...(addressResult.address ? { address: addressResult.address } : {}), places };
 }
 
 async function fetchAddress(
   center: LatLng,
   headers: Record<string, string>,
-): Promise<string | undefined> {
+): Promise<AddressLookup> {
   const url = new URL(COORD_TO_ADDRESS_ENDPOINT);
   url.searchParams.set('x', String(center.lng));
   url.searchParams.set('y', String(center.lat));
 
   void recordKakaoCall('search');
   const response = await fetch(url, { headers });
-  if (!response.ok) return undefined;
+  if (!response.ok) return {};
 
   const body = (await response.json()) as {
-    documents?: { road_address?: { address_name?: string }; address?: { address_name?: string } }[];
+    documents?: {
+      road_address?: { address_name?: string; building_name?: string };
+      address?: { address_name?: string };
+    }[];
   };
-  const first = body.documents?.[0];
-  return first?.road_address?.address_name ?? first?.address?.address_name ?? undefined;
+  return toAddressLookup(body.documents?.[0]);
+}
+
+export function toAddressLookup(document?: {
+  road_address?: { address_name?: string; building_name?: string };
+  address?: { address_name?: string };
+}): AddressLookup {
+  const roadAddress = document?.road_address?.address_name?.trim();
+  const parcelAddress = document?.address?.address_name?.trim();
+  const buildingName = document?.road_address?.building_name?.trim();
+
+  return {
+    ...(roadAddress || parcelAddress ? { address: roadAddress || parcelAddress } : {}),
+    ...(buildingName ? { buildingName } : {}),
+  };
+}
+
+async function fetchKeyword(
+  query: string,
+  center: LatLng,
+  headers: Record<string, string>,
+): Promise<PlaceCandidate[]> {
+  const url = new URL(KEYWORD_ENDPOINT);
+  url.searchParams.set('query', query);
+  url.searchParams.set('x', String(center.lng));
+  url.searchParams.set('y', String(center.lat));
+  url.searchParams.set('radius', String(BUILDING_RADIUS_M));
+  url.searchParams.set('sort', 'distance');
+  url.searchParams.set('size', String(PER_CATEGORY));
+
+  void recordKakaoCall('search');
+  const response = await fetch(url, { headers, next: { revalidate: 300 } });
+  if (!response.ok) return [];
+
+  const body = (await response.json()) as { documents?: KakaoCategoryDocument[] };
+  return (body.documents ?? [])
+    .map(toNearbyCandidate)
+    .filter((place): place is PlaceCandidate => place !== null);
 }
 
 async function fetchCategory(

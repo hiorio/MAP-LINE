@@ -83,4 +83,27 @@ final class MapDocumentTests: XCTestCase {
         // 이 제품의 전부라 여기가 갈라지면 안 된다.
         XCTAssertEqual(MapStore.shareURL(slug: "abc123").path, "/m/abc123")
     }
+
+    func test_메모를옮겨도id와내용은유지된다() {
+        let id = UUID().uuidString
+        var labels = [
+            MapLabel(id: id, location: GeoPoint(lat: 37.5, lng: 127.0), text: "입구"),
+        ]
+
+        XCTAssertTrue(labels.updateLabel(id: id, location: GeoPoint(lat: 37.6, lng: 127.1)))
+        XCTAssertEqual(labels.first?.id, id)
+        XCTAssertEqual(labels.first?.text, "입구")
+        XCTAssertEqual(labels.first?.location, GeoPoint(lat: 37.6, lng: 127.1))
+    }
+
+    func test_메모내용을고치고없는id는건드리지않는다() {
+        let original = MapLabel(location: GeoPoint(lat: 37.5, lng: 127.0), text: "전")
+        var labels = [original]
+
+        XCTAssertTrue(labels.updateLabel(id: original.id, text: "후"))
+        XCTAssertEqual(labels.first?.text, "후")
+        XCTAssertFalse(labels.updateLabel(id: "missing", text: "바뀌면 안 됨"))
+        XCTAssertEqual(labels.count, 1)
+        XCTAssertEqual(labels.first?.text, "후")
+    }
 }

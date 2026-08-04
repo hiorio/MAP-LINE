@@ -1,5 +1,79 @@
-import { describe, expect, it } from 'vitest';
-import { toNearbyCandidate } from './nearby';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { findNearby, toAddressLookup, toNearbyCandidate } from './nearby';
+
+vi.mock('./usage', () => ({ recordKakaoCall: vi.fn() }));
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+});
+
+function kakaoResponse(documents: object[] = []) {
+  return Promise.resolve(new Response(JSON.stringify({ documents }), { status: 200 }));
+}
+
+describe('toAddressLookup', () => {
+  it('도로명 주소와 건물명을 함께 읽는다', () => {
+    expect(
+      toAddressLookup({
+        road_address: {
+          address_name: '서울 강남구 선릉로 757',
+          building_name: '더채플앳청담',
+        },
+        address: { address_name: '서울 강남구 논현동 94-9' },
+      }),
+    ).toEqual({ address: '서울 강남구 선릉로 757', buildingName: '더채플앳청담' });
+  });
+
+  it('건물명이 비어 있으면 주소만 돌려준다', () => {
+    expect(
+      toAddressLookup({
+        road_address: { address_name: '', building_name: '  ' },
+        address: { address_name: '서울 강남구 논현동 94-9' },
+      }),
+    ).toEqual({ address: '서울 강남구 논현동 94-9' });
+  });
+
+  it('건물명이 있으면 그 이름으로 주변 키워드 검색을 한 번 더 한다', async () => {
+    vi.stubEnv('KAKAO_REST_KEY', 'test-key');
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(() =>
+        kakaoResponse([
+          {
+            road_address: {
+              address_name: '서울 강남구 선릉로 757',
+              building_name: '더채플앳청담',
+            },
+          },
+        ]),
+      )
+      .mockImplementationOnce(() => kakaoResponse())
+      .mockImplementationOnce(() => kakaoResponse())
+      .mockImplementationOnce(() => kakaoResponse())
+      .mockImplementationOnce(() =>
+        kakaoResponse([
+          {
+            id: 'wedding-1',
+            place_name: '더채플앳청담',
+            category_name: '가정,생활 > 결혼 > 예식장',
+            x: '127.041',
+            y: '37.521',
+            distance: '18',
+          },
+        ]),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await findNearby({ lat: 37.521, lng: 127.041 });
+
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    const keywordURL = new URL(String(fetchMock.mock.calls[4]?.[0]));
+    expect(keywordURL.pathname).toContain('/search/keyword.json');
+    expect(keywordURL.searchParams.get('query')).toBe('더채플앳청담');
+    expect(result.places[0]?.name).toBe('더채플앳청담');
+  });
+});
 
 describe('toNearbyCandidate', () => {
   const document = {

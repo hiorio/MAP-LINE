@@ -16,7 +16,7 @@
 | 위경도 → 화면좌표 | `containerPointFromCoords` | **공개 메서드 없음** |
 | 지도 회전 | ❌ 없음, 계획도 없음 | ✅ |
 | 도형 오버레이 | 직접 캔버스에 그림 | `ShapeManager`가 관리 |
-| 꾹 누르기·핀 탭 | 직접 만들어야 함 | SDK 이벤트로 옴 |
+| 꾹 누르기·핀 탭 | 직접 만들어야 함 | SDK 이벤트 또는 UIKit 인식기 |
 
 역방향 변환이 없는 것은 문제가 아니라 **설계의 방향**입니다. 획을 `ShapeManager`에
 등록하면 팬·줌·회전 시 재투영을 SDK가 전부 맡습니다. 웹에서는 캔버스를 손으로 따라
@@ -24,18 +24,19 @@
 
 제스처도 같습니다. 웹에서 직접 만든 꾹 누르기는 "터치만 해도 메뉴가 뜬다", "확대하고
 손 떼면 메뉴가 뜬다", "지도가 블록 지정한 것처럼 파래진다" 같은 문제를 계속 냈습니다.
-SDK의 `addTerrainLongPressedEventHandler`는 팬·줌과의 우선순위가 이미 정리된 뒤
-위경도로 옵니다. 그 부류의 문제가 구조적으로 생기지 않습니다.
+SDK의 롱프레스 이벤트는 시간을 바꿀 수 없어 앱은 `UILongPressGestureRecognizer`를
+0.45초로 두고, 8pt 이상 움직이면 실패하게 합니다. SDK 팬·줌과는 동시 인식시키고 최종
+위경도는 여전히 `getPosition(CGPoint)`으로 구합니다.
 
 ## 지금 되는 것
 
 | 기능 | 파일 |
 |---|---|
 | 손그림 (위경도 고정, RDP 단순화) | `Map/DrawingOverlayView.swift`, `Domain/GeoStroke.swift` |
-| 꾹 눌러 주변 장소 찾기 → 단계로 담기 | `Course/DropPinSheet.swift`, `Shared/PlaceLookup.swift`(`NearbyLookup`) |
-| 번호 붙은 단계 핀, 핀 탭 → 상세·대표 지정·삭제 | `Course/StopPinSheet.swift`, `Domain/MapDocument.swift` |
+| 꾹 눌러 주변 장소·건물명 찾기 또는 이름 검색 → 단계로 담기 | `Course/DropPinSheet.swift`, `Shared/PlaceLookup.swift`(`NearbyLookup`) |
+| 번호 붙은 단계 핀, 단계별 복수 후보 추가, 대표 지정·삭제 | `Course/CourseSheet.swift`, `Course/StopPinSheet.swift`, `Domain/MapDocument.swift` |
 | 구간 이동수단(직선/도보/대중교통/자전거)과 실제 경로 | `Course/CourseSheet.swift`, `Domain/StopLeg.swift`, `Domain/RouteLookup.swift`, `Domain/LegShapes.swift`, `Map/LegStyle.swift` |
-| 지도 위 메모 | `Course/DropPinSheet.swift`(메모 버튼), `Domain/MapDocument.swift`(`MapLabel`) |
+| 지도 위 메모 작성·수정·이동·삭제 | `Course/DropPinSheet.swift`, `Course/MemoSheet.swift`, `Domain/MapDocument.swift`(`MapLabel`) |
 | 저장·불러오기·공유 링크 | `Domain/MapStore.swift`, `Course/MyMapsView.swift`, `Course/ActivitySheet.swift` |
 | 보관함 (공유 익스텐션이 담은 곳) | `Course/SavedPlacesView.swift`, `Shared/SavedPlaceStore.swift` |
 | 중간지점 찾기 + 지도 표시 | `Midpoint/MidpointView.swift`, `Map/MidpointPlot.swift` |

@@ -64,6 +64,39 @@ final class StopTests: XCTestCase {
         XCTAssertNil(stops.stopNumber(ofCandidate: "없는-id"))
     }
 
+    func test_기존단계에후보를더해도단계수와id는그대로다() {
+        let first = place("국밥집")
+        let second = place("칼국수집")
+        let stop = Stop(candidates: [first])
+        var stops = [stop]
+
+        XCTAssertTrue(stops.addCandidates([second], toStopID: stop.id))
+        XCTAssertEqual(stops.count, 1)
+        XCTAssertEqual(stops[0].id, stop.id)
+        XCTAssertEqual(stops[0].candidates.map(\.name), ["국밥집", "칼국수집"])
+        XCTAssertEqual(stops.flattened().map(\.stopNumber), [1, 1])
+    }
+
+    func test_후보를더해도이미정한대표는유지한다() {
+        let first = place("국밥집")
+        let second = place("칼국수집")
+        let third = place("냉면집")
+        var stops = [Stop(candidates: [first, second], primaryId: second.id)]
+
+        XCTAssertTrue(stops.addCandidates([third], toStopID: stops[0].id))
+        XCTAssertEqual(stops[0].primaryId, second.id)
+        XCTAssertEqual(stops[0].anchor, second)
+    }
+
+    func test_없는단계나빈후보목록은바꾸지않는다() {
+        let original = [Stop(candidates: [place("국밥집")])]
+        var stops = original
+
+        XCTAssertFalse(stops.addCandidates([], toStopID: original[0].id))
+        XCTAssertFalse(stops.addCandidates([place("칼국수집")], toStopID: "없는-id"))
+        XCTAssertEqual(stops, original)
+    }
+
     func test_서버와같은키로오간다() throws {
         // 웹이 저장한 지도를 앱이 열어야 한다. 키 이름이 하나만 달라도 못 연다.
         let encoded = try JSONEncoder().encode(

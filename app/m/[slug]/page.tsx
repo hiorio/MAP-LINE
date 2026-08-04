@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { getMapDocument } from '@/lib/map/getMapDocument';
+import { sharedCourseDescription } from '@/lib/map/courseSummary';
 import { Viewer } from './Viewer';
 
 type Props = { params: Promise<{ slug: string }> };
@@ -15,13 +16,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   if (!document) return { title: '지도를 찾을 수 없습니다 · MAP-LINE' };
 
   const title = document.title || '제목 없는 지도';
-  const places = document.stops
-    .map((stop) => stop.candidates[0]?.name)
-    .filter((name): name is string => Boolean(name));
-  const description =
-    places.length > 0
-      ? `${places.slice(0, 3).join(' → ')}${places.length > 3 ? ` 외 ${places.length - 3}곳` : ''}`
-      : '손으로 그린 지도를 확인해 보세요.';
+  const description = sharedCourseDescription(document.stops);
 
   return {
     title: `${title} · MAP-LINE`,

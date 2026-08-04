@@ -41,6 +41,10 @@ struct ContentView: View {
     @State private var pendingPin: PendingPin?
     /// 눌러서 열어 둔 핀.
     @State private var openedPin: OpenedPin?
+    /// 눌러서 열어 둔 메모.
+    @State private var openedMemo: MapLabel?
+    /// 이 값이 있으면 다음 꾹 누르기는 새 핀이 아니라 해당 메모의 새 위치다.
+    @State private var movingMemoID: String?
 
     /// 같은 자리를 다시 꾹 눌러도 시트가 다시 뜨도록 매번 새 id를 준다.
     private struct PendingPin: Identifiable {
@@ -75,8 +79,19 @@ struct ContentView: View {
                     legs: legs,
                     strokes: strokes,
                     labels: labels,
-                    onLongPress: { pendingPin = PendingPin(coordinate: $0) },
+                    onLongPress: { coordinate in
+                        if let id = movingMemoID {
+                            labels.updateLabel(id: id, location: coordinate)
+                            movingMemoID = nil
+                        } else {
+                            pendingPin = PendingPin(coordinate: coordinate)
+                        }
+                    },
                     onTapStopPin: { id in openedPin = resolvePin(id) },
+                    onTapMemo: { id in
+                        guard movingMemoID == nil else { return }
+                        openedMemo = labels.first { $0.id == id }
+                    },
                     onStrokesChanged: { strokes = $0 },
                     onReady: { mapController = $0 }
                 )
@@ -153,6 +168,15 @@ struct ContentView: View {
                     isPrimary: pin.isPrimary,
                     onMakePrimary: { makePrimary(pin.place) },
                     onRemove: { remove(pin.place) }
+                )
+                .presentationDetents([.medium])
+            }
+            .sheet(item: $openedMemo) { memo in
+                MemoSheet(
+                    label: memo,
+                    onSave: { text in labels.updateLabel(id: memo.id, text: text) },
+                    onMove: { movingMemoID = memo.id },
+                    onRemove: { labels.removeAll { $0.id == memo.id } }
                 )
                 .presentationDetents([.medium])
             }
@@ -357,7 +381,17 @@ struct ContentView: View {
                 .padding(.bottom, 24)
             }
 
-            if isDrawing {
+            if movingMemoID != nil {
+                HStack(spacing: 8) {
+                    hint("메모를 옮길 자리를 꾹 누르세요.")
+                    Button("취소") { movingMemoID = nil }
+                        .font(.caption.weight(.medium))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 9)
+                        .background(.regularMaterial, in: Capsule())
+                        .accessibilityIdentifier("memo.move.cancel")
+                }
+            } else if isDrawing {
                 hint("지도가 잠깁니다. 손가락으로 동선을 그리세요.")
             } else if stops.isEmpty {
                 // 꾹 누르기는 화면에 아무 표시가 없다. 알려 주지 않으면 아무도 안 한다.

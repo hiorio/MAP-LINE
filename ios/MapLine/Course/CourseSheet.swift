@@ -12,6 +12,14 @@ struct CourseSheet: View {
     /// 지금 길찾기를 부르고 있는 구간들. 여러 구간을 동시에 바꿀 수 있다.
     @State private var loading: Set<Int> = []
     @State private var failures: [Int: String] = [:]
+    /// 검색해서 후보를 더할 단계. id만 들고 있어 검색 중 단계 배열이 바뀌어도 다시 찾는다.
+    @State private var candidateTarget: CandidateTarget?
+
+    private struct CandidateTarget: Identifiable {
+        let stopID: String
+        let stopNumber: Int
+        var id: String { stopID }
+    }
 
     var body: some View {
         NavigationStack {
@@ -38,32 +46,64 @@ struct CourseSheet: View {
                     Button("닫기") { dismiss() }
                 }
             }
+            .sheet(item: $candidateTarget) { target in
+                PlaceSearchSheet(title: "\(target.stopNumber)단계 후보 추가") { candidate in
+                    add(candidate, toStopID: target.stopID)
+                }
+            }
         }
     }
 
     // MARK: - 단계
 
     private func stopRow(index: Int, stop: Stop) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text("\(index + 1)")
-                .font(.caption.weight(.bold))
-                .frame(width: 22, height: 22)
-                .background(Color.accentColor)
-                .foregroundStyle(.white)
-                .clipShape(Circle())
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text("\(index + 1)")
+                    .font(.caption.weight(.bold))
+                    .frame(width: 22, height: 22)
+                    .background(Color.accentColor)
+                    .foregroundStyle(.white)
+                    .clipShape(Circle())
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(stop.candidates.map(\.name).joined(separator: ", "))
-                    .font(.body.weight(.medium))
-                if stop.candidates.count > 1, stop.anchor == nil {
-                    // 왜 경로가 안 그려지는지 여기서 말해 준다. 말 안 하면 고장으로 읽힌다.
-                    Text("후보 \(stop.candidates.count)곳 · 대표를 정해야 경로를 그립니다")
-                        .font(.caption2).foregroundStyle(.orange)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(stop.candidates.map(\.name).joined(separator: ", "))
+                        .font(.body.weight(.medium))
+                    if stop.candidates.count > 1, stop.anchor == nil {
+                        // 왜 경로가 안 그려지는지 여기서 말해 준다. 말 안 하면 고장으로 읽힌다.
+                        Text("후보 \(stop.candidates.count)곳 · 대표를 정해야 경로를 그립니다")
+                            .font(.caption2).foregroundStyle(.orange)
+                    }
                 }
+                Spacer()
             }
-            Spacer()
+
+            Button {
+                candidateTarget = CandidateTarget(stopID: stop.id, stopNumber: index + 1)
+            } label: {
+                Label("이 단계에 후보 추가", systemImage: "plus.circle")
+                    .font(.caption.weight(.medium))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Color.accentColor)
+            .padding(.leading, 32)
+            .accessibilityIdentifier("course.addCandidate.\(index)")
         }
         .padding(.vertical, 2)
+    }
+
+    /// 검색 결과를 새 단계가 아니라 지정한 단계 안에 넣는다.
+    private func add(_ candidate: PlaceCandidate, toStopID stopID: String) {
+        let place = MapPlace(
+            name: candidate.name,
+            address: candidate.displayAddress,
+            kakaoPlaceId: candidate.kakaoPlaceId,
+            location: GeoPoint(lat: candidate.location.lat, lng: candidate.location.lng)
+        )
+        guard stops.addCandidates([place], toStopID: stopID) else { return }
+        // 단계 수는 그대로지만, 후보가 하나에서 둘이 되면 대표가 사라져 기존 경로가
+        // 더는 유효하지 않을 수 있다. 구간 길이는 유지하고 그리기 규칙이 끝점을 재검증한다.
+        legs = LegRules.synced(stops: stops, legs: legs)
     }
 
     // MARK: - 구간

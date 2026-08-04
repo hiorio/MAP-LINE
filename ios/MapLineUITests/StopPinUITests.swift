@@ -25,7 +25,7 @@ final class StopPinUITests: XCTestCase {
 
         // 화면 가운데를 꾹 누른다. 아래쪽 버튼들과 겹치지 않는 자리다.
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.42))
-            .press(forDuration: 1.2)
+            .press(forDuration: 0.55)
 
         // 주변 검색이 끝나야 목록이 뜬다. 검색이 실패해도 "여기에 그대로"는 있어야 한다.
         let dropHere = app.descendants(matching: .any)
@@ -36,6 +36,18 @@ final class StopPinUITests: XCTestCase {
             XCTFail("지도를 꾹 눌렀는데 메뉴가 뜨지 않았다")
             return
         }
+
+        // 자동 후보에 없는 예식장 같은 장소도 같은 자리에서 이름으로 찾을 수 있어야 한다.
+        let nearbySearch = app.descendants(matching: .any)
+            .matching(identifier: "droppin.search").firstMatch
+        XCTAssertTrue(nearbySearch.exists, "꾹 누르기 메뉴에 주변 장소 검색이 없다")
+        nearbySearch.tap()
+        let searchField = app.searchFields["장소나 주소"]
+        let searchOpened = searchField.waitForExistence(timeout: 5)
+        attach(app, name: searchOpened ? "2-주변장소검색" : "2-주변장소검색안뜸")
+        XCTAssertTrue(searchOpened, "주변 장소 검색 화면이 뜨지 않았다")
+        app.buttons["취소"].firstMatch.tap()
+        XCTAssertTrue(dropHere.waitForExistence(timeout: 5), "검색을 닫은 뒤 꾹 누르기 메뉴로 돌아오지 않았다")
 
         dropHere.tap()
 
@@ -57,6 +69,47 @@ final class StopPinUITests: XCTestCase {
         app.buttons["닫기"].firstMatch.tap()
 
         try drawWalkingLeg(app, counter: counter)
+        addCandidateToFirstStop(app, counter: counter)
+    }
+
+    func test_메모를_다른위치로_옮긴다() throws {
+        let app = XCUIApplication()
+        app.launch()
+        try waitForMap(app)
+
+        let oldPosition = app.coordinate(withNormalizedOffset: CGVector(dx: 0.48, dy: 0.40))
+        oldPosition.press(forDuration: 0.55)
+
+        let memoButton = app.descendants(matching: .any)
+            .matching(identifier: "droppin.memo").firstMatch
+        XCTAssertTrue(memoButton.waitForExistence(timeout: 10), "꾹 누르기 메뉴에 메모가 없다")
+        memoButton.tap()
+
+        let field = app.textFields["여기에 대해 할 말"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5), "메모 입력창이 뜨지 않았다")
+        field.typeText("입구에서 만나요")
+        app.buttons["남기기"].tap()
+        Thread.sleep(forTimeInterval: 2)
+
+        oldPosition.tap()
+        let move = app.descendants(matching: .any).matching(identifier: "memo.move").firstMatch
+        XCTAssertTrue(move.waitForExistence(timeout: 10), "메모를 눌러도 편집 화면이 뜨지 않았다")
+        attach(app, name: "11-메모편집")
+        move.tap()
+
+        let cancel = app.descendants(matching: .any)
+            .matching(identifier: "memo.move.cancel").firstMatch
+        XCTAssertTrue(cancel.waitForExistence(timeout: 5), "메모 이동 안내가 뜨지 않았다")
+
+        let newPosition = app.coordinate(withNormalizedOffset: CGVector(dx: 0.68, dy: 0.52))
+        newPosition.press(forDuration: 0.55)
+        XCTAssertFalse(cancel.exists, "새 위치를 정했는데 메모 이동 모드가 끝나지 않았다")
+        Thread.sleep(forTimeInterval: 2)
+        attach(app, name: "12-메모이동후")
+
+        // 새 자리에서 다시 편집 화면이 열리면 화면에만 움직인 것이 아니라 모델도 옮겨졌다.
+        newPosition.tap()
+        XCTAssertTrue(move.waitForExistence(timeout: 10), "옮긴 자리에서 메모가 눌리지 않았다")
     }
 
     /// 두 번째 단계를 담고 그 사이를 도보로 잇는다.
@@ -66,7 +119,7 @@ final class StopPinUITests: XCTestCase {
     private func drawWalkingLeg(_ app: XCUIApplication, counter: XCUIElement) throws {
         // 첫 핀과 떨어진 자리를 꾹 눌러 두 번째 단계를 담는다.
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.32, dy: 0.62))
-            .press(forDuration: 1.2)
+            .press(forDuration: 0.55)
 
         let dropHere = app.descendants(matching: .any)
             .matching(identifier: "droppin.here").firstMatch
@@ -105,6 +158,52 @@ final class StopPinUITests: XCTestCase {
         report.name = "8-그린것"
         report.lifetime = .keepAlways
         add(report)
+    }
+
+    /// 웹의 `+ 이 단계에 후보 추가`와 같은 흐름이 앱에도 실제로 보이고 동작하는가.
+    private func addCandidateToFirstStop(_ app: XCUIApplication, counter: XCUIElement) {
+        counter.tap()
+
+        let add = app.descendants(matching: .any)
+            .matching(identifier: "course.addCandidate.0").firstMatch
+        guard add.waitForExistence(timeout: 10) else {
+            attach(app, name: "9-후보추가버튼없음")
+            XCTFail("동선 화면에 '이 단계에 후보 추가'가 없다")
+            return
+        }
+        add.tap()
+
+        let field = app.searchFields.firstMatch
+        guard field.waitForExistence(timeout: 10) else {
+            attach(app, name: "9-후보검색창없음")
+            XCTFail("후보 추가 검색창이 뜨지 않았다")
+            return
+        }
+        Thread.sleep(forTimeInterval: 1)
+        field.tap()
+        guard app.keyboards.element.waitForExistence(timeout: 5) else {
+            attach(app, name: "9-후보검색키보드없음")
+            XCTFail("후보 검색창에 포커스가 오지 않았다")
+            return
+        }
+        field.typeText("강남역")
+
+        let result = app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "강남역")).firstMatch
+        guard result.waitForExistence(timeout: 20) else {
+            attach(app, name: "9-후보검색결과없음")
+            XCTFail("후보 검색 결과가 뜨지 않았다")
+            return
+        }
+        result.tap()
+
+        let summary = app.staticTexts["후보 2곳 · 대표를 정해야 경로를 그립니다"]
+        let added = summary.waitForExistence(timeout: 10)
+        attach(app, name: added ? "9-한단계후보둘" : "9-후보안담김")
+        XCTAssertTrue(added, "장소를 골랐지만 첫 단계의 후보 수가 늘지 않았다")
+
+        app.buttons["닫기"].firstMatch.tap()
+        Thread.sleep(forTimeInterval: 3)
+        attach(app, name: "10-같은번호핀둘")
     }
 
     // MARK: - 도구

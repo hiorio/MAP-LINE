@@ -18,6 +18,7 @@ struct KakaoMapView: UIViewControllerRepresentable {
     var labels: [MapLabel]
     var onLongPress: (GeoPoint) -> Void
     var onTapStopPin: (String) -> Void
+    var onTapMemo: (String) -> Void
     var onStrokesChanged: ([GeoStroke]) -> Void
     /// 지금 보고 있는 자리를 물어볼 수 있게 컨트롤러를 넘겨준다. 저장할 때 쓴다.
     var onReady: (KakaoMapViewController) -> Void
@@ -55,6 +56,7 @@ struct KakaoMapView: UIViewControllerRepresentable {
         // 오래된 클로저를 들고 있으면 이미 사라진 화면 상태를 붙잡게 된다.
         controller.onLongPress = onLongPress
         controller.onTapStopPin = onTapStopPin
+        controller.onTapMemo = onTapMemo
         controller.onStrokesChanged = onStrokesChanged
         // 컨트롤러 쪽 didSet이 같은 값이면 다시 그리지 않는다.
         // 단계를 먼저 넣는다. 구간은 단계를 근거로 그려지므로 순서가 뒤바뀌면

@@ -15,6 +15,7 @@ final class KakaoMapViewController: UIViewController {
     private var mapContainer: KMViewContainer?
     private var mapController: KMController?
     private var drawingView: DrawingOverlayView?
+    private var longPressRecognizer: UILongPressGestureRecognizer?
 
     /// 지도가 준비되기 전에는 그릴 수 없다. 준비 여부를 한 곳에서 본다.
     private var kakaoMap: KakaoMap? {
@@ -35,6 +36,8 @@ final class KakaoMapViewController: UIViewController {
     private static let stopLabelLayerID = "stopPins"
     private static let legLayerID = "stopLegs"
     private static let memoLayerID = "memos"
+    /// UIKit 기본값(0.5초)보다 아주 조금만 빠르게 메뉴를 연다.
+    private static let longPressMinimumDuration: TimeInterval = 0.45
 
     /// 지도에 찍은 단계들. 순서가 곧 번호다.
     var stops: [Stop] = [] {
@@ -65,6 +68,8 @@ final class KakaoMapViewController: UIViewController {
     var onLongPress: ((GeoPoint) -> Void)?
     /// 찍어 둔 핀을 눌렀을 때. 그 후보의 id를 준다.
     var onTapStopPin: ((String) -> Void)?
+    /// 지도 위 메모를 눌렀을 때. 메모의 id를 준다.
+    var onTapMemo: ((String) -> Void)?
 
     /// SDK 이벤트 구독. 놓으면 구독이 끊기므로 컨트롤러가 살아 있는 동안 들고 있는다.
     private var eventHandlers: [any DisposableEventHandler] = []
@@ -105,6 +110,18 @@ final class KakaoMapViewController: UIViewController {
         view.addSubview(container)
         mapContainer = container
 
+        // KakaoMapsSDK의 terrain long-press 이벤트는 인식 시간을 바꿀 수 없다. 좌표
+        // 변환은 SDK에 맡기고, 누르는 시간만 UIKit 인식기로 조절한다. 지도 이동과 함께
+        // 메뉴가 뜨지 않도록 이동 허용치는 작게 두고 SDK 제스처와 동시 인식시킨다.
+        let longPress = UILongPressGestureRecognizer(target: self, action: #selector(handleMapLongPress(_:)))
+        longPress.minimumPressDuration = Self.longPressMinimumDuration
+        longPress.allowableMovement = 8
+        longPress.cancelsTouchesInView = false
+        longPress.delaysTouchesBegan = false
+        longPress.delegate = self
+        container.addGestureRecognizer(longPress)
+        longPressRecognizer = longPress
+
         let controller = KMController(viewContainer: container)
         controller.delegate = self
         mapController = controller
@@ -140,9 +157,21 @@ final class KakaoMapViewController: UIViewController {
     var isDrawing: Bool = false {
         didSet {
             drawingView?.isEnabled = isDrawing
+            longPressRecognizer?.isEnabled = !isDrawing
             kakaoMap?.setGestureEnable(type: .pan, enable: !isDrawing)
             kakaoMap?.setGestureEnable(type: .zoom, enable: !isDrawing)
         }
+    }
+
+    @objc private func handleMapLongPress(_ recognizer: UILongPressGestureRecognizer) {
+        guard recognizer.state == .began,
+              !isDrawing,
+              let container = mapContainer,
+              let map = kakaoMap else { return }
+
+        let point = recognizer.location(in: container)
+        let coord = map.getPosition(point).wgsCoord
+        onLongPress?(GeoPoint(lat: coord.latitude, lng: coord.longitude))
     }
 
     /// 이미 떠 있는 지도를 다른 자리로 옮긴다. 저장해 둔 지도를 열면 그리로 간다.
@@ -378,31 +407,23 @@ extension KakaoMapViewController: DrawingOverlayViewDelegate {
 // MARK: - 단계 핀
 
 private extension KakaoMapViewController {
-    /// 지도가 주는 꾹 누르기와 핀 터치를 받는다.
+    /// 핀 터치와 카메라 정지 이벤트를 받는다.
     ///
-    /// UILongPressGestureRecognizer를 직접 달지 않는다. 직접 달면 팬·줌 제스처와 누가
-    /// 이길지 우리가 조정해야 하고, 화면 좌표를 위경도로 되돌리는 일도 우리 몫이 된다.
-    /// SDK 이벤트는 이미 지도 제스처와 조정된 뒤에 위경도로 온다. 웹에서 직접 만든
-    /// 꾹 누르기가 겪은 문제들(터치만 해도 뜨는 메뉴, 확대 후 손 떼면 뜨는 메뉴)이
-    /// 여기서는 아예 생기지 않는다.
+    /// terrain 꾹 누르기는 SDK가 시간을 노출하지 않아 `viewDidLoad`에서 UIKit 인식기로
+    /// 받는다. 최종 좌표는 여전히 SDK의 `getPosition`으로 구한다.
     func subscribeToMapEvents(on map: KakaoMap) {
-        eventHandlers.append(
-            map.addTerrainLongPressedEventHandler(target: self) { controller in
-                { event in
-                    // 그리는 중에는 꾹 누르기가 획의 일부다. 메뉴가 뜨면 안 된다.
-                    guard !controller.isDrawing else { return }
-                    let coord = event.position.wgsCoord
-                    controller.onLongPress?(GeoPoint(lat: coord.latitude, lng: coord.longitude))
-                }
-            }
-        )
-
         eventHandlers.append(
             map.addPoisTappedEventHandler(target: self) { controller in
                 { event in
-                    guard event.layerID == Self.stopLabelLayerID else { return }
-                    // poiID를 후보 id로 쓴다. 눌린 것이 무엇인지 그대로 알 수 있다.
-                    controller.onTapStopPin?(event.poiID)
+                    switch event.layerID {
+                    case Self.stopLabelLayerID:
+                        // poiID를 후보 id로 쓴다. 눌린 것이 무엇인지 그대로 알 수 있다.
+                        controller.onTapStopPin?(event.poiID)
+                    case Self.memoLayerID:
+                        controller.onTapMemo?(event.poiID)
+                    default:
+                        return
+                    }
                 }
             }
         )
@@ -437,8 +458,8 @@ private extension KakaoMapViewController {
                     prefix: "stop",
                     number: number,
                     color: UIColor(hex: place.pinColor) ?? .systemRed,
-                    diameter: 32,
-                    fontSize: 22
+                    diameter: 28,
+                    fontSize: 20
                 ),
                 // 눌렸을 때 무엇인지 알아야 하므로 후보 id를 그대로 쓴다.
                 poiID: place.id
@@ -455,6 +476,17 @@ private extension KakaoMapViewController {
     }
 }
 
+// 지도 SDK의 팬·줌 인식기를 막지 않는다. 손가락이 8pt보다 움직이면 위의 롱프레스가
+// 먼저 실패하고 지도 이동만 남는다.
+extension KakaoMapViewController: UIGestureRecognizerDelegate {
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+    ) -> Bool {
+        gestureRecognizer === longPressRecognizer
+    }
+}
+
 // MARK: - 메모
 
 private extension KakaoMapViewController {
@@ -465,13 +497,14 @@ private extension KakaoMapViewController {
     func renderLabels(on map: KakaoMap) {
         guard let layer = map.getLabelManager().getLabelLayer(layerID: Self.memoLayerID) else { return }
         layer.clearAllItems()
+        layer.setClickable(true)
 
         for label in labels where !label.text.isEmpty {
             let options = PoiOptions(
                 styleID: memoStyleID(color: label.color, fontSize: label.fontSize, on: map),
                 poiID: label.id
             )
-            options.clickable = false
+            options.clickable = true
             options.addText(PoiText(text: label.text, styleIndex: 0))
             layer.addPoi(option: options, at: label.location.mapPoint)?.show()
         }
