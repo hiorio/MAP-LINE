@@ -161,17 +161,15 @@ jobs:
           API_BASE_URL: ${{ vars.API_BASE_URL || 'https://map-line-production.up.railway.app' }}
         run: |
           set -o pipefail
-          # 서명을 반드시 켜고, 배포용 신원으로 서명한다.
+          # 서명 설정을 명령줄에서 덮어쓰지 않는다.
           #
-          # CODE_SIGN_IDENTITY를 안 주면 기본값이 Apple Development다. 아카이브인데도
-          # 개발용 프로파일을 찾다가 실패하고, 그 시도가 "Authentication failed"로
-          # 보고된다. 키나 권한 문제로 오해하기 딱 좋다 — 실제로 한참 헤맸다.
-          # 키는 처음부터 멀쩡했고 네 엔드포인트 모두 200이었다.
+          # CODE_SIGNING_REQUIRED와 CODE_SIGN_IDENTITY를 여기서 강제했더니 SPM 패키지
+          # 타깃에까지 적용돼 "KakaoMapsSDK-SPM requires a development team"이 났고,
+          # 자동 서명과 충돌해 "conflicting provisioning settings"까지 났다.
+          # 서명 방식은 project.yml에서 자동으로 정해 두고, 팀만 xcconfig로 준다.
           #
-          # project.yml에는 CODE_SIGNING_ALLOWED가 NO로 박혀 있다. 시뮬레이터 CI에서
-          # 서명이 필요 없어서 넣은 값인데, 그게 여기까지 따라와 서명 없는 아카이브가
-          # 나왔다. 빌드는 통과하고 내보내기에서 "No Team Found in Archive"로 죽는다.
-          # 서명이 없으니 팀 정보도 안 들어간 것이다.
+          # 아카이브를 배포용으로 서명할 필요도 없다. 내보내기 단계가 App Store용
+          # 프로파일로 다시 서명한다. 그게 정상 흐름이다.
           #
           # 빌드 번호는 올라가기만 하면 된다. 같은 번호를 두 번 올리면 거부당한다.
           xcodebuild archive \
@@ -184,10 +182,6 @@ jobs:
             -authenticationKeyPath "$HOME"/private_keys/AuthKey_${KEY_ID}.p8 \
             -authenticationKeyID "$KEY_ID" \
             -authenticationKeyIssuerID "$ISSUER_ID" \
-            CODE_SIGNING_ALLOWED=YES \
-            CODE_SIGNING_REQUIRED=YES \
-            CODE_SIGN_STYLE=Automatic \
-            "CODE_SIGN_IDENTITY=Apple Distribution" \
             CURRENT_PROJECT_VERSION=${{ github.run_number }} \
             KAKAO_NATIVE_APP_KEY="$KAKAO_NATIVE_APP_KEY" \
             API_BASE_URL="$API_BASE_URL"

@@ -49,8 +49,10 @@ targets:
         CURRENT_PROJECT_VERSION: "1"
         SWIFT_VERSION: "5.9"
         TARGETED_DEVICE_FAMILY: "1"
-        # 서명은 CI(시뮬레이터 빌드)에서 필요 없다. 실기기 배포 때 켠다.
-        CODE_SIGNING_ALLOWED: NO
+        # 서명 방식만 정하고 켜고 끄는 것은 여기서 하지 않는다.
+        # CODE_SIGNING_ALLOWED: NO를 프로젝트에 박아 뒀더니 배포 빌드까지 따라와
+        # 서명 없는 아카이브가 나왔다. 시뮬레이터 CI가 명령줄에서 끄면 될 일이다.
+        CODE_SIGN_STYLE: Automatic
     info:
       path: MapLine/Info.plist
       properties:
@@ -82,7 +84,7 @@ targets:
         CURRENT_PROJECT_VERSION: "1"
         SWIFT_VERSION: "5.9"
         TARGETED_DEVICE_FAMILY: "1"
-        CODE_SIGNING_ALLOWED: NO
+        CODE_SIGN_STYLE: Automatic
     info:
       path: ShareExtension/Info.plist
       properties:
