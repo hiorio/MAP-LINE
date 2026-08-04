@@ -91,7 +91,7 @@ jobs:
           # 확인하지 못한 채 아카이브까지 갔다가 "Authentication failed"로 죽었다.
           # 그 메시지만으로는 키가 틀린 건지 권한이 모자란 건지 알 수 없다.
           set +e
-          DETECTED=$(python3 scripts/apple_team_id.py "$KEY_ID" "$ISSUER_ID" ~/private_keys/AuthKey_${KEY_ID}.p8 2>team.err)
+          DETECTED=$(python3 scripts/apple_team_id.py "$KEY_ID" "$ISSUER_ID" "$HOME"/private_keys/AuthKey_${KEY_ID}.p8 2>team.err)
           STATUS=$?
           set -e
           if [ $STATUS -ne 0 ]; then
@@ -117,6 +117,15 @@ jobs:
           fi
           echo "TEAM_ID=$TEAM" >> "$GITHUB_OUTPUT"
           echo "✅ 팀 ID: $TEAM"
+
+      - name: 키 권한 점검
+        env:
+          KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          # xcodebuild는 무엇이 막혀도 "Authentication failed"라고만 말한다.
+          # 자동 서명이 실제로 쓰는 엔드포인트를 하나씩 두드려 상태 코드를 본다.
+          python3 scripts/apple_key_check.py             "$KEY_ID" "$ISSUER_ID" "$HOME/private_keys/AuthKey_${KEY_ID}.p8"
 
       - name: XcodeGen 설치
         run: brew install xcodegen
@@ -167,7 +176,7 @@ jobs:
             -configuration Release \
             -archivePath ../MapLine.xcarchive \
             -allowProvisioningUpdates \
-            -authenticationKeyPath ~/private_keys/AuthKey_${KEY_ID}.p8 \
+            -authenticationKeyPath "$HOME"/private_keys/AuthKey_${KEY_ID}.p8 \
             -authenticationKeyID "$KEY_ID" \
             -authenticationKeyIssuerID "$ISSUER_ID" \
             CODE_SIGNING_ALLOWED=YES \
@@ -227,7 +236,7 @@ jobs:
             -exportPath export \
             -exportOptionsPlist ExportOptions.plist \
             -allowProvisioningUpdates \
-            -authenticationKeyPath ~/private_keys/AuthKey_${KEY_ID}.p8 \
+            -authenticationKeyPath "$HOME"/private_keys/AuthKey_${KEY_ID}.p8 \
             -authenticationKeyID "$KEY_ID" \
             -authenticationKeyIssuerID "$ISSUER_ID"
 
