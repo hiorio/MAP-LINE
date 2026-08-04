@@ -104,7 +104,23 @@ final class ScreenshotUITests: XCTestCase {
             XCTFail("검색창을 찾지 못했다")
             return
         }
+        // 시트가 아직 미끄러지는 중에 두드리면 그 탭이 삼켜진다. 자리를 잡을 틈을 준다.
+        Thread.sleep(forTimeInterval: 1)
+
+        // 그래도 한 번에 포커스가 안 올 때가 있다. 그대로 typeText를 부르면
+        // "Neither element nor any descendant has keyboard focus"로 흐름 전체가
+        // 멈춰 버려서, 정작 보려던 뒷 화면을 한 장도 못 건진다.
+        var attempts = 0
         field.tap()
+        while !app.keyboards.element.waitForExistence(timeout: 3), attempts < 3 {
+            field.tap()
+            attempts += 1
+        }
+        guard app.keyboards.element.exists else {
+            shot(app, "\(step)-키보드안뜸")
+            XCTFail("검색창에 포커스가 오지 않았다")
+            return
+        }
         field.typeText(query)
 
         // 치는 도중에는 부르지 않고 잠깐 기다렸다 부른다. 그만큼 기다려 준다.

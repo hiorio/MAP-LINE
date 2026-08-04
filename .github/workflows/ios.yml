@@ -128,6 +128,12 @@ jobs:
       # 환경 탓으로 깨질까 봐였는데, 실제로는 그 설정이 진짜 실패를 초록으로 덮었다.
       # 홈 화면을 넣으면서 지도 테스트가 통째로 깨졌는데도 워크플로는 통과라고 했다.
       # 시뮬레이터에서 지도가 잘 뜨는 것도 확인됐으니 이제 실패는 실패로 둔다.
+      - name: 소프트웨어 키보드 켜기
+        # 하드웨어 키보드가 붙어 있으면 소프트웨어 키보드가 뜨지 않는다. 그러면
+        # 테스트가 "검색창에 포커스가 왔는지"를 키보드 존재로 판별할 수 없다.
+        # 시뮬레이터가 부팅하기 전에 정해 둬야 한다.
+        run: defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool false
+
       - name: 화면 확인 (UI 테스트)
         working-directory: ios
         env:
