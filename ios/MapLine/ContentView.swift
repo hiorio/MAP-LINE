@@ -18,6 +18,8 @@ struct ContentView: View {
     /// 손으로 그린 획들.
     @State private var strokes: [GeoStroke] = []
     @State private var showCourse = false
+    @State private var showSaved = false
+    @State private var showMyMaps = false
 
     /// 서버에 저장된 지도. 아직 저장한 적 없으면 nil이다.
     @State private var slug: String?
@@ -82,7 +84,9 @@ struct ContentView: View {
                     SideMenu(
                         isOpen: $menuOpen,
                         onDrawCourse: { startDrawing() },
-                        onFindMidpoint: { showMidpoint = true }
+                        onFindMidpoint: { showMidpoint = true },
+                        onOpenSaved: { showSaved = true },
+                        onOpenMyMaps: { showMyMaps = true }
                     )
                     .ignoresSafeArea()
                 }
@@ -115,8 +119,17 @@ struct ContentView: View {
             .sheet(item: $shareLink) { link in
                 ActivitySheet(items: [link.url])
             }
+            .sheet(isPresented: $showSaved) {
+                SavedPlacesView { place in
+                    stops.append(Stop(candidates: [place]))
+                    legs = LegRules.synced(stops: stops, legs: legs)
+                }
+            }
+            .sheet(isPresented: $showMyMaps) {
+                MyMapsView { picked in Task { await open(slug: picked) } }
+            }
             .alert(
-                "저장하지 못했습니다",
+                "문제가 생겼습니다",
                 isPresented: Binding(get: { saveError != nil }, set: { if !$0 { saveError = nil } })
             ) {
                 Button("확인", role: .cancel) { saveError = nil }
@@ -177,6 +190,26 @@ struct ContentView: View {
                 slug: target,
                 document: document,
                 expectedUpdatedAt: updatedAt
+            )
+        } catch {
+            saveError = error.localizedDescription
+        }
+    }
+
+    /// 저장해 둔 지도를 화면에 올린다.
+    private func open(slug picked: String) async {
+        do {
+            let loaded = try await MapStore.load(slug: picked)
+            stops = loaded.document.stops
+            legs = LegRules.synced(stops: loaded.document.stops, legs: loaded.document.legs)
+            strokes = loaded.document.strokes
+            slug = picked
+            updatedAt = loaded.updatedAt
+            // 만든 사람이 보던 자리로 옮긴다. 다른 동네가 떠 있으면 핀을 찾아 헤맨다.
+            mapController?.show(midpoint: nil)
+            mapController?.move(
+                to: loaded.document.center.lat,
+                lng: loaded.document.center.lng
             )
         } catch {
             saveError = error.localizedDescription
@@ -366,6 +399,8 @@ struct SideMenu: View {
     @Binding var isOpen: Bool
     let onDrawCourse: () -> Void
     let onFindMidpoint: () -> Void
+    let onOpenSaved: () -> Void
+    let onOpenMyMaps: () -> Void
 
     private let width: CGFloat = 280
 
@@ -398,6 +433,18 @@ struct SideMenu: View {
                     onFindMidpoint()
                 }
                 .accessibilityIdentifier("menu.midpoint")
+
+                item("bookmark", "보관함", "다른 앱에서 공유로 담아 둔 곳") {
+                    close()
+                    onOpenSaved()
+                }
+                .accessibilityIdentifier("menu.saved")
+
+                item("map", "내 지도", "이 기기에서 만든 지도") {
+                    close()
+                    onOpenMyMaps()
+                }
+                .accessibilityIdentifier("menu.myMaps")
 
                 Spacer()
             }

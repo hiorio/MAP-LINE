@@ -136,6 +136,27 @@ final class KakaoMapViewController: UIViewController {
         }
     }
 
+    /// 이미 떠 있는 지도를 다른 자리로 옮긴다. 저장해 둔 지도를 열면 그리로 간다.
+    ///
+    /// 순간이동시키지 않고 미끄러지게 한다. 갑자기 다른 동네가 나오면 어디로 온 건지
+    /// 알 수 없다. 움직이는 걸 보면 방향과 거리가 함께 읽힌다.
+    func move(to lat: Double, lng: Double, level: Int? = nil) {
+        guard let map = kakaoMap else {
+            // 엔진이 아직이면 처음 자리를 바꿔 둔다. 뜰 때 거기서 시작한다.
+            initialCenter = (lat: lat, lng: lng)
+            return
+        }
+        let update = CameraUpdate.make(
+            target: MapPoint(longitude: lng, latitude: lat),
+            zoomLevel: level ?? map.zoomLevel,
+            mapView: map
+        )
+        map.animateCamera(
+            cameraUpdate: update,
+            options: CameraAnimationOptions(autoElevation: false, consecutive: false, durationInMillis: 500)
+        )
+    }
+
     /// 지금 보고 있는 자리와 배율.
     ///
     /// 저장할 때 함께 담는다. 링크를 받은 사람이 만든 사람과 다른 동네를 보고 있으면

@@ -20,11 +20,46 @@ enum MapStore {
         UserDefaults.standard.set(token, forKey: tokenPrefix + slug)
     }
 
-    /// 이 기기가 고칠 수 있는 지도들. 보관함이 목록을 만들 때 쓴다.
-    static func editableSlugs() -> [String] {
-        UserDefaults.standard.dictionaryRepresentation().keys
-            .filter { $0.hasPrefix(tokenPrefix) }
-            .map { String($0.dropFirst(tokenPrefix.count)) }
+    // MARK: - 내가 만든 지도 목록
+
+    /// 목록에 보여 줄 만큼만 기억한다.
+    ///
+    /// 슬러그만 갖고 있으면 목록을 그리려고 지도 수만큼 서버를 불러야 하고, 그동안
+    /// 화면에는 알 수 없는 문자열만 늘어선다. 제목과 시각을 함께 남겨 두면 목록은
+    /// 서버 없이도 바로 그려진다.
+    struct Entry: Codable, Equatable, Identifiable {
+        let slug: String
+        var title: String
+        var savedAt: String
+        var id: String { slug }
+    }
+
+    private static let indexKey = "mapline.maps"
+
+    static func rememberedMaps() -> [Entry] {
+        guard
+            let data = UserDefaults.standard.data(forKey: indexKey),
+            let entries = try? JSONDecoder().decode([Entry].self, from: data)
+        else { return [] }
+        // 최근에 저장한 것이 위로.
+        return entries.sorted { $0.savedAt > $1.savedAt }
+    }
+
+    static func remember(slug: String, title: String, savedAt: Date = Date()) {
+        var entries = rememberedMaps().filter { $0.slug != slug }
+        entries.append(
+            Entry(slug: slug, title: title, savedAt: ISO8601DateFormatter().string(from: savedAt))
+        )
+        guard let data = try? JSONEncoder().encode(entries) else { return }
+        UserDefaults.standard.set(data, forKey: indexKey)
+    }
+
+    static func forget(slug: String) {
+        let entries = rememberedMaps().filter { $0.slug != slug }
+        guard let data = try? JSONEncoder().encode(entries) else { return }
+        UserDefaults.standard.set(data, forKey: indexKey)
+        // 편집 토큰도 함께 버린다. 목록에서 지웠는데 자격만 남아 있을 이유가 없다.
+        UserDefaults.standard.removeObject(forKey: tokenPrefix + slug)
     }
 
     // MARK: - 만들기
@@ -150,6 +185,10 @@ enum MapStore {
         guard http.statusCode == 200 else {
             throw AppError.message(decoded?.error ?? "저장하지 못했습니다 (\(http.statusCode))")
         }
+
+        // 저장에 성공했을 때만 목록에 올린다. 실패한 지도가 목록에 있으면
+        // 눌렀을 때 없는 지도를 불러오게 된다.
+        remember(slug: slug, title: document.title)
         return decoded?.updatedAt
     }
 
