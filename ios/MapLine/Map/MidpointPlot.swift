@@ -65,7 +65,7 @@ extension MidpointPlot {
     ///
     /// 지도 SDK를 부르지 않는 순수 계산이라 시뮬레이터 없이 검증할 수 있다.
     func viewport(
-        paddingRatio: Double = 0.18,
+        paddingRatio: Double = 0.10,
         minimumPaddingDeg: Double = 0.002
     ) -> (south: Double, west: Double, north: Double, east: Double) {
         let points = everyPoint

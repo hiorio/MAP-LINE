@@ -12,31 +12,37 @@ struct ContentView: View {
     @State private var showMidpoint = false
 
     var body: some View {
-        ZStack {
-            KakaoMapView(isDrawing: isDrawing, plot: plot)
-                .ignoresSafeArea()
-
-            controls
-
-            if menuOpen {
-                SideMenu(
-                    isOpen: $menuOpen,
-                    onDrawCourse: { startDrawing() },
-                    onFindMidpoint: { showMidpoint = true }
-                )
+        // 지도를 ZStack의 자식으로 두면 안 된다. ZStack은 가장 큰 자식에 맞춰 커지는데
+        // 지도가 안전 영역을 넘어가므로 ZStack도 같이 넘어가고, 그 안의 버튼들이 상태바
+        // 시계·배터리와 겹쳐 읽을 수 없게 된다. 배경과 오버레이는 크기를 정하지 않으므로
+        // 지도는 화면 끝까지 그리면서 조작부는 안전 영역 안에 남는다.
+        controls
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background {
+                KakaoMapView(isDrawing: isDrawing, plot: plot)
+                    .ignoresSafeArea()
             }
-        }
-        .sheet(isPresented: $showMidpoint) {
-            NavigationStack {
-                MidpointView { picked in
-                    // 결과를 지도에 얹고 시트를 닫는다. 시트가 떠 있으면 지도를 가려서
-                    // 정작 그린 것이 안 보인다. 목록은 답을 고르는 자리고, 답 자체는
-                    // 지도에서 읽는다.
-                    plot = picked
-                    showMidpoint = false
+            .overlay {
+                if menuOpen {
+                    SideMenu(
+                        isOpen: $menuOpen,
+                        onDrawCourse: { startDrawing() },
+                        onFindMidpoint: { showMidpoint = true }
+                    )
+                    .ignoresSafeArea()
                 }
             }
-        }
+            .sheet(isPresented: $showMidpoint) {
+                NavigationStack {
+                    MidpointView { picked in
+                        // 결과를 지도에 얹고 시트를 닫는다. 시트가 떠 있으면 지도를 가려서
+                        // 정작 그린 것이 안 보인다. 목록은 답을 고르는 자리고, 답 자체는
+                        // 지도에서 읽는다.
+                        plot = picked
+                        showMidpoint = false
+                    }
+                }
+            }
     }
 
     // MARK: - 지도 위 조작
@@ -93,6 +99,9 @@ struct ContentView: View {
                     ) { startDrawing() }
                         .accessibilityIdentifier("map.draw")
                 }
+                // 지도 오른쪽 아래 구석에는 카카오 로고가 박혀 있다. 그 위에 버튼을
+                // 얹으면 로고가 가려지는데, SDK 이용약관이 로고 노출을 요구한다.
+                .padding(.bottom, 24)
             }
 
             if isDrawing {
