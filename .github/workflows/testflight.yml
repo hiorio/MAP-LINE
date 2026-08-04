@@ -55,10 +55,21 @@ jobs:
             chmod 600 "$dir/AuthKey_${KEY_ID}.p8"
           done
 
-          # 내용은 절대 찍지 않는다. 형식만 확인한다.
-          head -1 ~/private_keys/AuthKey_${KEY_ID}.p8 | grep -q "BEGIN PRIVATE KEY" \
-            && echo "✅ 키 형식 정상" \
-            || { echo "❌ .p8 내용이 아니다. BEGIN/END 줄까지 통째로 넣었는지 확인하라"; exit 1; }
+          # 내용은 절대 찍지 않는다. 실제로 파싱되는지로 확인한다.
+          #
+          # 첫 줄에 BEGIN이 있는지만 보는 것으로는 부족하다. 줄바꿈이 뭉개져 한 줄로
+          # 붙어 있어도 첫 줄은 멀쩡해 보이는데, PEM으로는 깨진 것이라 한참 뒤에
+          # "Authentication failed"로 엉뚱한 데서 죽는다.
+          if openssl pkey -in ~/private_keys/AuthKey_${KEY_ID}.p8 -noout 2>/dev/null; then
+            echo "✅ 키가 정상적으로 파싱된다"
+          else
+            echo "❌ .p8을 열 수 없다. PEM 형식이 깨졌다."
+            echo "   줄 수:    $(wc -l < ~/private_keys/AuthKey_${KEY_ID}.p8)"
+            echo "   BEGIN 줄: $(grep -c 'BEGIN PRIVATE KEY' ~/private_keys/AuthKey_${KEY_ID}.p8 || true)"
+            echo "   END 줄:   $(grep -c 'END PRIVATE KEY' ~/private_keys/AuthKey_${KEY_ID}.p8 || true)"
+            echo "   .p8을 메모장으로 열어 BEGIN/END 줄과 줄바꿈까지 그대로 넣어야 한다."
+            exit 1
+          fi
 
       - name: 팀 ID 알아내기
         id: team
@@ -134,6 +145,7 @@ jobs:
             -project MapLine.xcodeproj \
             -scheme MapLine \
             -destination 'generic/platform=iOS' \
+            -configuration Release \
             -archivePath ../MapLine.xcarchive \
             -allowProvisioningUpdates \
             -authenticationKeyPath ~/private_keys/AuthKey_${KEY_ID}.p8 \

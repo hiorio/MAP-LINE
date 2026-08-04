@@ -140,6 +140,10 @@ schemes:
     test:
       targets:
         - MapLineTests
+    # 아카이브는 배포 설정으로 한다. 안 정하면 Debug로 잡혀 개발용 프로비저닝
+    # 프로파일을 찾다가 "No profiles ... iOS App Development"로 죽는다.
+    archive:
+      config: Release
 
   # 별도 스킴으로 둔다. 도메인 테스트는 항상 돌리고, 이건 필요할 때만 돌린다.
   MapLineUI:
