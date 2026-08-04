@@ -51,10 +51,42 @@ def make_jwt(key_id: str, issuer_id: str, private_key_pem: str) -> str:
     return f"{signing_input}.{b64url(raw)}"
 
 
-def team_ids_from_certificates(token: str) -> list[str]:
+class ApiError(Exception):
+    """Apple이 돌려준 오류를 사람이 읽을 수 있게 옮긴 것."""
+
+
+def fetch_certificates(token: str) -> dict:
+    """인증서 목록을 받아 온다.
+
+    상태 코드를 구분해서 알려 주는 것이 이 함수의 절반이다. 401과 403은 원인이
+    전혀 다른데 xcodebuild는 둘 다 "Authentication failed"로만 말해서, 키가 틀린
+    것인지 권한이 모자란 것인지 알 수가 없다.
+    """
+    import urllib.error
+
     request = urllib.request.Request(API, headers={"Authorization": f"Bearer {token}"})
-    with urllib.request.urlopen(request, timeout=30) as response:
-        body = json.load(response)
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return json.load(response)
+    except urllib.error.HTTPError as error:
+        detail = error.read().decode("utf-8", "replace")[:600]
+        if error.code == 401:
+            raise ApiError(
+                "401 인증 실패. 키 ID·발급자 ID·.p8이 서로 맞는 짝인지 확인하라.\n"
+                f"  Apple 응답: {detail}"
+            ) from error
+        if error.code == 403:
+            raise ApiError(
+                "403 권한 부족. 키는 유효하지만 인증서·프로파일을 다룰 권한이 없다.\n"
+                "  App Store Connect > 사용자 및 액세스 > 통합에서 키의 역할을 보라.\n"
+                "  자동 서명은 Admin 권한이 필요하다. App Manager로는 부족하다.\n"
+                f"  Apple 응답: {detail}"
+            ) from error
+        raise ApiError(f"HTTP {error.code}\n  Apple 응답: {detail}") from error
+
+
+def team_ids_from_certificates(token: str) -> list[str]:
+    body = fetch_certificates(token)
 
     from cryptography import x509
 
