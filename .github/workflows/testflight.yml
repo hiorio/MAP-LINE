@@ -81,7 +81,10 @@ jobs:
           # xcodebuild는 팀을 스스로 찾지 못한다. "requires a development team"으로
           # 아카이브가 죽는다. 그렇다고 사람에게 10자리를 찾아오라고 시킬 이유는 없다.
           # 이미 CI에 있는 API 키로 인증서를 조회하면 그 안에 팀 ID가 들어 있다.
-          python3 -m pip install --quiet cryptography
+          # 러너의 파이썬은 외부 관리 환경이라 그냥 설치하면 PEP 668로 막힌다.
+          # 이미 있으면 건드리지 않고, 없을 때만 플래그를 붙인다.
+          python3 -c "import cryptography" 2>/dev/null \
+            || python3 -m pip install --quiet --break-system-packages cryptography
 
           # 변수로 팀을 지정했더라도 키 점검은 반드시 한다.
           # 지정하면 이 경로를 건너뛰게 해 뒀더니, 키가 API에 통하는지 한 번도
