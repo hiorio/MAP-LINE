@@ -15,7 +15,24 @@ struct ContentView: View {
     @State private var stops: [Stop] = []
     /// 단계 사이 구간. 길이는 항상 max(0, 단계 수 - 1)로 맞춘다.
     @State private var legs: [StopLeg] = []
+    /// 손으로 그린 획들.
+    @State private var strokes: [GeoStroke] = []
     @State private var showCourse = false
+
+    /// 서버에 저장된 지도. 아직 저장한 적 없으면 nil이다.
+    @State private var slug: String?
+    /// 낙관적 잠금 기준. 저장할 때 그대로 돌려보낸다.
+    @State private var updatedAt: String?
+    @State private var saving = false
+    @State private var saveError: String?
+    @State private var shareLink: ShareLink?
+    /// 지금 보고 있는 자리를 물어보기 위해 들고 있는다.
+    @State private var mapController: KakaoMapViewController?
+
+    private struct ShareLink: Identifiable {
+        let url: URL
+        var id: String { url.absoluteString }
+    }
     /// 꾹 눌러 정한 자리. 여기에 무엇을 담을지 고르는 중이다.
     @State private var pendingPin: PendingPin?
     /// 눌러서 열어 둔 핀.
@@ -52,8 +69,11 @@ struct ContentView: View {
                     plot: plot,
                     stops: stops,
                     legs: legs,
+                    strokes: strokes,
                     onLongPress: { pendingPin = PendingPin(coordinate: $0) },
-                    onTapStopPin: { id in openedPin = resolvePin(id) }
+                    onTapStopPin: { id in openedPin = resolvePin(id) },
+                    onStrokesChanged: { strokes = $0 },
+                    onReady: { mapController = $0 }
                 )
                 .ignoresSafeArea()
             }
@@ -92,6 +112,17 @@ struct ContentView: View {
             .sheet(isPresented: $showCourse) {
                 CourseSheet(stops: $stops, legs: $legs)
             }
+            .sheet(item: $shareLink) { link in
+                ActivitySheet(items: [link.url])
+            }
+            .alert(
+                "저장하지 못했습니다",
+                isPresented: Binding(get: { saveError != nil }, set: { if !$0 { saveError = nil } })
+            ) {
+                Button("확인", role: .cancel) { saveError = nil }
+            } message: {
+                Text(saveError ?? "")
+            }
             .sheet(item: $openedPin) { pin in
                 StopPinSheet(
                     place: pin.place,
@@ -103,6 +134,60 @@ struct ContentView: View {
                 )
                 .presentationDetents([.medium])
             }
+    }
+
+    // MARK: - 저장과 공유
+
+    /// 지금 화면에 있는 것을 한 문서로 모은다.
+    private func currentDocument() -> MapDocument {
+        let camera = mapController?.cameraSnapshot()
+        return MapDocument(
+            // 제목은 아직 받는 자리가 없다. 첫 단계 이름이 있으면 그걸 쓴다 —
+            // 목록에서 "제목 없음"만 늘어놓는 것보다 무엇인지 알아볼 수 있다.
+            title: stops.first?.candidates.first?.name ?? "",
+            center: camera?.center ?? MapPalette.defaultCenter,
+            zoomLevel: camera?.zoomLevel ?? 3,
+            stops: stops,
+            legs: LegRules.synced(stops: stops, legs: legs),
+            strokes: strokes,
+            labels: []
+        )
+    }
+
+    /// 처음이면 만들고, 그다음부터는 덮어쓴다.
+    private func save() async {
+        guard !saving else { return }
+        saving = true
+        defer { saving = false }
+
+        let document = currentDocument()
+        do {
+            let target: String
+            if let slug {
+                target = slug
+            } else {
+                target = try await MapStore.create(
+                    title: document.title,
+                    center: document.center,
+                    zoomLevel: document.zoomLevel
+                )
+                slug = target
+            }
+            updatedAt = try await MapStore.save(
+                slug: target,
+                document: document,
+                expectedUpdatedAt: updatedAt
+            )
+        } catch {
+            saveError = error.localizedDescription
+        }
+    }
+
+    /// 저장한 뒤 링크를 내놓는다. 저장 안 된 지도의 링크는 빈 지도를 가리킨다.
+    private func share() async {
+        await save()
+        guard saveError == nil, let slug else { return }
+        shareLink = ShareLink(url: MapStore.shareURL(slug: slug))
     }
 
     // MARK: - 단계 고치기
@@ -213,6 +298,16 @@ struct ContentView: View {
                         active: isDrawing
                     ) { startDrawing() }
                         .accessibilityIdentifier("map.draw")
+
+                    // 담은 것이 없으면 나눠 볼 것도 없다.
+                    if !stops.isEmpty || !strokes.isEmpty {
+                        roundButton(
+                            saving ? "arrow.triangle.2.circlepath" : "square.and.arrow.up",
+                            label: "공유하기"
+                        ) { Task { await share() } }
+                            .accessibilityIdentifier("map.share")
+                            .disabled(saving)
+                    }
                 }
                 // 지도 오른쪽 아래 구석에는 카카오 로고가 박혀 있다. 그 위에 버튼을
                 // 얹으면 로고가 가려지는데, SDK 이용약관이 로고 노출을 요구한다.

@@ -18,15 +18,28 @@ struct GeoPoint: Equatable, Codable {
 }
 
 /// 손으로 그린 획 하나. 화면 좌표가 아니라 위경도로 남는다.
-struct GeoStroke: Equatable {
+///
+/// 색과 굵기를 함께 담는다. 웹 `Stroke`와 같은 모양이어야 한 링크를 두 곳에서 열 수
+/// 있다. 앱에서만 값을 빼면 웹이 그 지도를 열 때 획이 기본색으로 바뀐다.
+struct GeoStroke: Equatable, Codable {
     let id: UUID
     var path: [GeoPoint]
+    var color: String
+    var width: Double
     /// 그린 시점의 줌 레벨. 다른 줌에서 굵기를 보정하는 기준이다.
     let zoomCreated: Int
 
-    init(id: UUID = UUID(), path: [GeoPoint], zoomCreated: Int) {
+    init(
+        id: UUID = UUID(),
+        path: [GeoPoint],
+        color: String = MapPalette.stroke,
+        width: Double = MapPalette.strokeWidth,
+        zoomCreated: Int
+    ) {
         self.id = id
         self.path = path
+        self.color = color
+        self.width = width
         self.zoomCreated = zoomCreated
     }
 }

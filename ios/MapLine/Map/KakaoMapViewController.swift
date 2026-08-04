@@ -60,8 +60,18 @@ final class KakaoMapViewController: UIViewController {
     /// SDK 이벤트 구독. 놓으면 구독이 끊기므로 컨트롤러가 살아 있는 동안 들고 있는다.
     private var eventHandlers: [any DisposableEventHandler] = []
 
-    /// 그려 둔 획들. 저장·공유는 다음 단계이고 지금은 메모리에만 둔다.
-    private(set) var strokes: [GeoStroke] = []
+    /// 그려 둔 획들.
+    ///
+    /// 밖에서 넣을 수도 있다. 저장해 둔 지도를 불러오면 그 획들이 여기로 들어온다.
+    var strokes: [GeoStroke] = [] {
+        didSet {
+            guard strokes != oldValue, let map = kakaoMap else { return }
+            renderStrokes(on: map)
+        }
+    }
+
+    /// 손으로 하나 더 그렸을 때. 저장할 쪽이 알아야 한다.
+    var onStrokesChanged: (([GeoStroke]) -> Void)?
 
     /// 지도에 얹은 중간지점. nil이면 아무것도 그리지 않는다.
     ///
@@ -126,6 +136,19 @@ final class KakaoMapViewController: UIViewController {
         }
     }
 
+    /// 지금 보고 있는 자리와 배율.
+    ///
+    /// 저장할 때 함께 담는다. 링크를 받은 사람이 만든 사람과 다른 동네를 보고 있으면
+    /// 핀을 찾으러 헤매게 된다.
+    func cameraSnapshot() -> (center: GeoPoint, zoomLevel: Int)? {
+        guard let map = kakaoMap else { return nil }
+        let middle = map.getPosition(CGPoint(x: view.bounds.midX, y: view.bounds.midY))
+        return (
+            GeoPoint(lat: middle.wgsCoord.latitude, lng: middle.wgsCoord.longitude),
+            map.zoomLevel
+        )
+    }
+
     /// 중간지점 결과를 지도에 얹는다. nil을 주면 지운다.
     func show(midpoint plot: MidpointPlot?) {
         midpointPlot = plot
@@ -157,7 +180,6 @@ extension KakaoMapViewController: MapControllerDelegate {
         map.viewRect = view.bounds
         // 획을 담을 레이어와 스타일을 미리 만들어 둔다. zOrder는 기본 지물보다 위다.
         _ = map.getShapeManager().addShapeLayer(layerID: Self.shapeLayerID, zOrder: 10_001)
-        registerStrokeStyle(on: map)
 
         // 중간지점 그림. 잇는 선은 손그림보다 아래에 둔다. 사람이 그린 것이 위여야 한다.
         _ = map.getShapeManager().addShapeLayer(layerID: Self.midpointLinkLayerID, zOrder: 10_000)
@@ -194,6 +216,7 @@ extension KakaoMapViewController: MapControllerDelegate {
         renderMidpoint(on: map)
         renderStops(on: map)
         renderLegs(on: map)
+        renderStrokes(on: map)
 
         // UI 테스트가 지도 준비를 기다릴 수 있게 상태를 접근성 식별자로 내건다.
         // 고정 시간 대기는 러너가 느린 날 깨진다.
@@ -240,8 +263,19 @@ extension KakaoMapViewController: DrawingOverlayViewDelegate {
             path: simplifyPath(coords, epsilon: epsilon),
             zoomCreated: map.zoomLevel
         )
+        // didSet이 방금 그린 것까지 포함해 다시 그린다. 여기서 따로 그리면 두 번 그려진다.
         strokes.append(stroke)
-        render(stroke, on: map)
+        onStrokesChanged?(strokes)
+    }
+
+    /// 획을 전부 다시 그린다.
+    ///
+    /// 하나 더할 때도 통째로 다시 그린다. 불러오기·되돌리기까지 생각하면 무엇이
+    /// 바뀌었는지 따지는 쪽이 더 틀리기 쉽고, 획은 많아야 수십 개다.
+    private func renderStrokes(on map: KakaoMap) {
+        guard let layer = map.getShapeManager().getShapeLayer(layerID: Self.shapeLayerID) else { return }
+        layer.clearAllShapes()
+        for stroke in strokes { render(stroke, on: map) }
     }
 
     /// 획을 SDK 도형으로 등록한다.
@@ -252,10 +286,10 @@ extension KakaoMapViewController: DrawingOverlayViewDelegate {
     private func render(_ stroke: GeoStroke, on map: KakaoMap) {
         guard let layer = map.getShapeManager().getShapeLayer(layerID: Self.shapeLayerID) else { return }
 
-        let points = stroke.path.map { MapPoint(longitude: $0.lng, latitude: $0.lat) }
+        let points = stroke.path.map(\.mapPoint)
         let options = MapPolylineShapeOptions(
             shapeID: stroke.id.uuidString,
-            styleID: Self.strokeStyleID,
+            styleID: strokeStyleID(color: stroke.color, width: stroke.width, on: map),
             zOrder: 1
         )
         options.polylines = [MapPolyline(line: points, styleIndex: 0)]
@@ -264,14 +298,32 @@ extension KakaoMapViewController: DrawingOverlayViewDelegate {
         shape?.show()
     }
 
-    /// 획 스타일을 한 번만 등록한다. 획마다 등록하면 같은 ID를 계속 덮어쓴다.
-    private func registerStrokeStyle(on map: KakaoMap) {
-        let perLevel = PerLevelPolylineStyle(bodyColor: .systemBlue, bodyWidth: 6, level: 0)
-        let styleSet = PolylineStyleSet(
-            styleSetID: Self.strokeStyleID,
-            styles: [PolylineStyle(styles: [perLevel])]
+    /// 획의 색·굵기 조합마다 스타일 하나. 처음 쓸 때 한 번만 만든다.
+    ///
+    /// 획마다 등록하면 같은 ID를 계속 덮어쓰게 되고, 하나로 고정하면 불러온 지도의
+    /// 색이 전부 같아진다. 조합을 ID에 넣어 둘 다 피한다.
+    private func strokeStyleID(color: String, width: Double, on map: KakaoMap) -> String {
+        let styleID = "\(Self.strokeStyleID)-\(color)-\(Int(width))"
+        guard !registeredPinStyles.contains(styleID) else { return styleID }
+
+        map.getShapeManager().addPolylineStyleSet(
+            PolylineStyleSet(
+                styleSetID: styleID,
+                styles: [
+                    PolylineStyle(styles: [
+                        PerLevelPolylineStyle(
+                            bodyColor: UIColor(hex: color) ?? .systemBlue,
+                            // 웹의 굵기는 화면 픽셀 기준이라 손맛이 얇게 느껴진다.
+                            // 손가락으로 그은 선은 조금 굵어야 그린 것처럼 보인다.
+                            bodyWidth: UInt(max(2, width * 1.5)),
+                            level: 0
+                        ),
+                    ]),
+                ]
+            )
         )
-        map.getShapeManager().addPolylineStyleSet(styleSet)
+        registeredPinStyles.insert(styleID)
+        return styleID
     }
 
     /// 화면 픽셀 몇 개에 해당하는 각도. RDP 임계값을 줌에 맞추기 위해 쓴다.

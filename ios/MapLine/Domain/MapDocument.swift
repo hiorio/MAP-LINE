@@ -75,9 +75,96 @@ struct Stop: Identifiable, Equatable, Codable {
     }
 }
 
-/// 웹과 맞춘 색.
+/// 지도 위 메모 한 줄.
+struct MapLabel: Identifiable, Equatable, Codable {
+    let id: String
+    var location: GeoPoint
+    var text: String
+    var fontSize: Double
+    var color: String
+
+    init(
+        id: String = UUID().uuidString,
+        location: GeoPoint,
+        text: String,
+        fontSize: Double = 14,
+        color: String = MapPalette.label
+    ) {
+        self.id = id
+        self.location = location
+        self.text = text
+        self.fontSize = fontSize
+        self.color = color
+    }
+}
+
+/// 지도 한 장에 담기는 전부. 서버에 이 모양 그대로 오간다.
+///
+/// 웹 `MapDocument`와 키 이름까지 같아야 한다. 같은 링크를 웹과 앱이 함께 열고
+/// 함께 고치기 때문에, 한쪽만 키를 바꾸면 다른 쪽에서 그 부분이 조용히 사라진다.
+struct MapDocument: Equatable, Codable {
+    var title: String
+    var center: GeoPoint
+    var zoomLevel: Int
+    var stops: [Stop]
+    /// 단계 사이 구간. 길이는 항상 max(0, 단계 수 - 1)이다.
+    var legs: [StopLeg]
+    var strokes: [GeoStroke]
+    var labels: [MapLabel]
+    /// 자동으로 그리는 선을 켤지 끌지.
+    ///
+    /// 문서에 담는 이유: 만든 사람이 직접 동선을 그리고 자동 화살표를 껐다면, 링크를
+    /// 받은 사람에게도 꺼져 있어야 한다. 편집기 개인 설정으로 두면 공유된 지도가
+    /// 만든 사람이 의도한 모습과 달라진다.
+    var showCandidateLinks: Bool
+    var showStopArrows: Bool
+
+    init(
+        title: String = "",
+        center: GeoPoint = MapPalette.defaultCenter,
+        zoomLevel: Int = 3,
+        stops: [Stop] = [],
+        legs: [StopLeg] = [],
+        strokes: [GeoStroke] = [],
+        labels: [MapLabel] = [],
+        showCandidateLinks: Bool = true,
+        showStopArrows: Bool = true
+    ) {
+        self.title = title
+        self.center = center
+        self.zoomLevel = zoomLevel
+        self.stops = stops
+        self.legs = legs
+        self.strokes = strokes
+        self.labels = labels
+        self.showCandidateLinks = showCandidateLinks
+        self.showStopArrows = showStopArrows
+    }
+
+    /// 서버가 예전 지도를 줄 때 없는 칸이 있을 수 있다. 그때 통째로 실패하면
+    /// 지도를 아예 못 연다. 빠진 것은 기본값으로 채운다.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        title = try container.decodeIfPresent(String.self, forKey: .title) ?? ""
+        center = try container.decodeIfPresent(GeoPoint.self, forKey: .center) ?? MapPalette.defaultCenter
+        zoomLevel = try container.decodeIfPresent(Int.self, forKey: .zoomLevel) ?? 3
+        stops = try container.decodeIfPresent([Stop].self, forKey: .stops) ?? []
+        legs = try container.decodeIfPresent([StopLeg].self, forKey: .legs) ?? []
+        strokes = try container.decodeIfPresent([GeoStroke].self, forKey: .strokes) ?? []
+        labels = try container.decodeIfPresent([MapLabel].self, forKey: .labels) ?? []
+        showCandidateLinks = try container.decodeIfPresent(Bool.self, forKey: .showCandidateLinks) ?? true
+        showStopArrows = try container.decodeIfPresent(Bool.self, forKey: .showStopArrows) ?? true
+    }
+}
+
+/// 웹과 맞춘 값들.
 enum MapPalette {
     static let pin = "#E24B4A"
+    static let stroke = "#2D6BE4"
+    static let strokeWidth: Double = 4
+    static let label = "#2C2C2A"
+    /// 강남역. 위치 권한 없이 첫 화면을 채우기 위한 기본값이다.
+    static let defaultCenter = GeoPoint(lat: 37.4979, lng: 127.0276)
 }
 
 extension Array where Element == Stop {
