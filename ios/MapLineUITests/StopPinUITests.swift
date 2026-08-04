@@ -54,6 +54,49 @@ final class StopPinUITests: XCTestCase {
         let detailOpened = remove.waitForExistence(timeout: 10)
         attach(app, name: detailOpened ? "4-핀상세" : "4-핀상세안뜸")
         XCTAssertTrue(detailOpened, "찍어 둔 핀을 눌렀는데 상세가 열리지 않았다")
+        app.buttons["닫기"].firstMatch.tap()
+
+        try drawWalkingLeg(app, counter: counter)
+    }
+
+    /// 두 번째 단계를 담고 그 사이를 도보로 잇는다.
+    ///
+    /// 이게 이 커밋의 핵심이다. 실제 경로가 지도에 파란 점선으로 그려지는지는
+    /// 컴파일로도 유닛 테스트로도 알 수 없다 — SDK가 그린 그림을 봐야 안다.
+    private func drawWalkingLeg(_ app: XCUIApplication, counter: XCUIElement) throws {
+        // 첫 핀과 떨어진 자리를 꾹 눌러 두 번째 단계를 담는다.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.32, dy: 0.62))
+            .press(forDuration: 1.2)
+
+        let dropHere = app.descendants(matching: .any)
+            .matching(identifier: "droppin.here").firstMatch
+        guard dropHere.waitForExistence(timeout: 30) else {
+            attach(app, name: "5-두번째메뉴안뜸")
+            XCTFail("두 번째 꾹 누르기에서 메뉴가 뜨지 않았다")
+            return
+        }
+        dropHere.tap()
+        Thread.sleep(forTimeInterval: 1)
+        attach(app, name: "5-단계둘")
+
+        // 단계 칩을 눌러 동선 화면으로. 여기서 이동수단을 고른다.
+        counter.tap()
+        let walk = app.buttons["도보"].firstMatch
+        guard walk.waitForExistence(timeout: 10) else {
+            attach(app, name: "6-동선화면안뜸")
+            XCTFail("동선 화면에 이동수단 선택이 없다")
+            return
+        }
+        walk.tap()
+
+        // 길찾기가 서버를 거쳐 온다. 넉넉히 기다린 뒤 결과를 찍는다.
+        Thread.sleep(forTimeInterval: 12)
+        attach(app, name: "6-동선화면")
+
+        app.buttons["닫기"].firstMatch.tap()
+        // 시트가 내려가고 선이 그려질 틈을 준다.
+        Thread.sleep(forTimeInterval: 3)
+        attach(app, name: "7-도보경로")
     }
 
     // MARK: - 도구
