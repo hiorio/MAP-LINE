@@ -7,13 +7,13 @@ import SwiftUI
 /// 작은 버튼을 얹는다. 목록은 옆에서 꺼내 쓴다.
 struct ContentView: View {
     @State private var isDrawing = false
-    @State private var focus: MapFocus?
+    @State private var plot: MidpointPlot?
     @State private var menuOpen = false
     @State private var showMidpoint = false
 
     var body: some View {
         ZStack {
-            KakaoMapView(isDrawing: isDrawing, focus: focus)
+            KakaoMapView(isDrawing: isDrawing, plot: plot)
                 .ignoresSafeArea()
 
             controls
@@ -28,14 +28,11 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showMidpoint) {
             NavigationStack {
-                MidpointView { candidate in
-                    // 고른 자리로 지도를 옮기고 시트를 닫는다. 중간지점 찾기는
-                    // 별개의 도구가 아니라 동선을 시작할 자리를 정하는 단계다.
-                    focus = MapFocus(
-                        name: candidate.place.name,
-                        lat: candidate.place.location.lat,
-                        lng: candidate.place.location.lng
-                    )
+                MidpointView { picked in
+                    // 결과를 지도에 얹고 시트를 닫는다. 시트가 떠 있으면 지도를 가려서
+                    // 정작 그린 것이 안 보인다. 목록은 답을 고르는 자리고, 답 자체는
+                    // 지도에서 읽는다.
+                    plot = picked
                     showMidpoint = false
                 }
             }
@@ -54,13 +51,27 @@ struct ContentView: View {
 
                 Spacer()
 
-                if let focus {
-                    // 어디로 옮겨 왔는지 밝힌다. 지도만 보면 어느 동네인지 모른다.
-                    Text(focus.name)
-                        .font(.footnote.weight(.medium))
+                if let plot {
+                    // 무엇을 보고 있는지 밝힌다. 지도 위 핀만으로는 이게 몇 번째 후보인지,
+                    // 애초에 중간지점 결과인지 알 수 없다. 누르면 지운다 — 결과를 치울
+                    // 방법이 없으면 지도가 계속 그 상태로 남는다.
+                    Button {
+                        self.plot = nil
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text("\(plot.rank)순위 · \(plot.meeting.title)")
+                                .font(.footnote.weight(.medium))
+                            Image(systemName: "xmark")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        }
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
                         .background(.regularMaterial, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("map.plotChip")
+                    .accessibilityLabel("\(plot.meeting.title) 결과 지우기")
                 }
             }
 

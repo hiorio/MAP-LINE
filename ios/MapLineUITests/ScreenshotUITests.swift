@@ -57,6 +57,13 @@ final class ScreenshotUITests: XCTestCase {
             let appeared = header.waitForExistence(timeout: 60)
             shot(app, appeared ? "7-결과" : "7-결과없음")
             XCTAssertTrue(appeared, "60초 안에 결과가 오지 않았다")
+
+            // 5. 지도로 옮겨 그린다.
+            //
+            // 이 기능의 답은 목록이 아니라 이 화면이다. 누가 어디서 오는지, 모이는 곳이
+            // 그 사이 어디쯤인지는 지도에서만 읽힌다. 핀이 제자리에 붙었는지도 여기서만
+            // 확인할 수 있어서 마지막 한 장이 제일 중요하다.
+            if appeared { showOnMap(app) }
         } else {
             shot(app, "7-찾기버튼-비활성")
             XCTFail("사람을 둘 넣었는데도 찾기 버튼이 눌리지 않는다")
@@ -64,6 +71,28 @@ final class ScreenshotUITests: XCTestCase {
     }
 
     // MARK: - 도구
+
+    /// 1순위 후보를 지도에 얹고 찍는다.
+    private func showOnMap(_ app: XCUIApplication) {
+        // 후보마다 같은 버튼이 있다. 첫 번째가 1순위다.
+        let button = app.descendants(matching: .any)
+            .matching(identifier: "midpoint.showOnMap").firstMatch
+        guard button.waitForExistence(timeout: 10) else {
+            shot(app, "8-지도에서보기-없음")
+            XCTFail("결과에 '지도에서 보기'가 없다")
+            return
+        }
+        button.tap()
+
+        // 시트가 닫히고 지도가 나오면 무엇을 보고 있는지 알리는 칩이 붙는다.
+        let chip = app.descendants(matching: .any)
+            .matching(identifier: "map.plotChip").firstMatch
+        let onMap = chip.waitForExistence(timeout: 15)
+        // 카메라가 미끄러져 자리를 잡고 타일과 핀이 그려질 틈을 준다.
+        Thread.sleep(forTimeInterval: 4)
+        shot(app, onMap ? "8-지도에표시" : "8-지도로안넘어감")
+        XCTAssertTrue(onMap, "후보를 골랐는데 지도로 넘어가지 않았다")
+    }
 
     /// 장소를 검색해 한 명 추가한다.
     private func addPerson(_ app: XCUIApplication, query: String, step: String) {

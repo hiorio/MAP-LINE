@@ -24,9 +24,27 @@ final class KakaoMapViewController: UIViewController {
     private static let viewName = "mapview"
     private static let shapeLayerID = "strokes"
     private static let strokeStyleID = "strokeStyle"
+    /// 중간지점 그림은 손그림과 레이어를 나눈다. 한 레이어에 섞으면 중간지점을 지울 때
+    /// 사람이 그려 둔 획까지 같이 지워진다.
+    private static let midpointLabelLayerID = "midpointPins"
+    private static let midpointLinkLayerID = "midpointLinks"
+    private static let originStyleID = "midpointOrigin"
+    private static let linkStyleID = "midpointLink"
 
     /// 그려 둔 획들. 저장·공유는 다음 단계이고 지금은 메모리에만 둔다.
     private(set) var strokes: [GeoStroke] = []
+
+    /// 지도에 얹은 중간지점. nil이면 아무것도 그리지 않는다.
+    ///
+    /// 엔진이 뜨기 전에 받을 수 있어서 들고 있는다. 준비되는 즉시 이 값을 그린다.
+    private var midpointPlot: MidpointPlot?
+
+    /// 등록해 둔 도착지 스타일의 순위들.
+    ///
+    /// 도착지 아이콘에는 후보 번호가 박혀 있어서 순위마다 다른 그림이고, 따라서 스타일도
+    /// 순위마다 하나씩 필요하다. 같은 ID로 덮어쓰는 대신 순위를 ID에 넣고 처음 쓸 때
+    /// 한 번만 만든다. 이미 그 스타일을 쓰는 핀이 화면에 있는데 덮어쓰는 상황을 피한다.
+    private var registeredMeetingRanks: Set<Int> = []
 
     /// 처음 보여 줄 자리. 엔진이 뜨기 전에 정해야 한다.
     /// 뜬 뒤에 옮기면 기본 자리가 한 번 보였다 사라져 화면이 튄다.
@@ -83,25 +101,16 @@ final class KakaoMapViewController: UIViewController {
         }
     }
 
-    /// 이미 떠 있는 지도를 다른 자리로 옮긴다. 중간지점을 고르면 그리로 간다.
-    ///
-    /// 순간이동시키지 않고 미끄러지게 한다. 갑자기 다른 동네가 나오면 어디로 온 건지
-    /// 알 수 없다. 움직이는 걸 보면 방향과 거리가 함께 읽힌다.
-    func move(to lat: Double, lng: Double, level: Int = 16) {
+    /// 중간지점 결과를 지도에 얹는다. nil을 주면 지운다.
+    func show(midpoint plot: MidpointPlot?) {
+        midpointPlot = plot
         guard let map = kakaoMap else {
-            // 엔진이 아직이면 처음 자리를 바꿔 둔다. 뜰 때 거기서 시작한다.
-            initialCenter = (lat: lat, lng: lng)
+            // 엔진이 아직이면 시작 자리만 맞춰 둔다. 준비되면 addViewSucceeded가 그린다.
+            // 여기서 카메라를 맞추려 해도 맞출 지도가 없다.
+            if let plot { initialCenter = (lat: plot.meeting.lat, lng: plot.meeting.lng) }
             return
         }
-        let update = CameraUpdate.make(
-            target: MapPoint(longitude: lng, latitude: lat),
-            zoomLevel: level,
-            mapView: map
-        )
-        map.animateCamera(
-            cameraUpdate: update,
-            options: CameraAnimationOptions(autoElevation: false, consecutive: false, durationInMillis: 500)
-        )
+        renderMidpoint(on: map)
     }
 }
 
@@ -124,6 +133,26 @@ extension KakaoMapViewController: MapControllerDelegate {
         // 획을 담을 레이어와 스타일을 미리 만들어 둔다. zOrder는 기본 지물보다 위다.
         _ = map.getShapeManager().addShapeLayer(layerID: Self.shapeLayerID, zOrder: 10_001)
         registerStrokeStyle(on: map)
+
+        // 중간지점 그림. 잇는 선은 손그림보다 아래에 둔다. 사람이 그린 것이 위여야 한다.
+        _ = map.getShapeManager().addShapeLayer(layerID: Self.midpointLinkLayerID, zOrder: 10_000)
+        _ = map.getLabelManager().addLabelLayer(
+            option: LabelLayerOptions(
+                layerID: Self.midpointLabelLayerID,
+                // 우리 핀끼리도, 지도의 기본 지물과도 경쟁시키지 않는다. 경쟁을 켜면
+                // 출발지 이름표가 상가 이름에 밀려 사라진다. 사람이 방금 넣은 정보가
+                // 지도가 원래 알던 것에 밀리면 안 된다.
+                // 타입을 적어 둔다. `.none`만 쓰면 Optional.none으로도 읽혀 애매해진다.
+                competitionType: CompetitionType.none,
+                competitionUnit: CompetitionUnit.symbolFirst,
+                orderType: OrderingType.rank,
+                zOrder: 10_002
+            )
+        )
+        registerMidpointStyles(on: map)
+
+        // 엔진이 뜨기 전에 받아 둔 결과가 있으면 지금 그린다.
+        renderMidpoint(on: map)
 
         // UI 테스트가 지도 준비를 기다릴 수 있게 상태를 접근성 식별자로 내건다.
         // 고정 시간 대기는 러너가 느린 날 깨진다.
@@ -209,5 +238,194 @@ extension KakaoMapViewController: DrawingOverlayViewDelegate {
         let origin = map.getPosition(CGPoint(x: 0, y: 0))
         let shifted = map.getPosition(CGPoint(x: pixels, y: 0))
         return abs(shifted.wgsCoord.longitude - origin.wgsCoord.longitude)
+    }
+}
+
+// MARK: - 중간지점
+
+private extension KakaoMapViewController {
+    /// 출발지 핀, 도착지 핀, 둘을 잇는 선을 다시 그린다.
+    ///
+    /// 매번 전부 지우고 다시 그린다. 후보를 바꿔 가며 눌러 보는 것이 이 기능의 쓰임새라
+    /// 무엇이 바뀌었는지 따지는 것보다 통째로 새로 그리는 편이 틀릴 여지가 없다.
+    /// 핀은 많아야 사람 수 + 1개다.
+    func renderMidpoint(on map: KakaoMap) {
+        let labels = map.getLabelManager().getLabelLayer(layerID: Self.midpointLabelLayerID)
+        let links = map.getShapeManager().getShapeLayer(layerID: Self.midpointLinkLayerID)
+        labels?.clearAllItems()
+        links?.clearAllShapes()
+
+        guard let plot = midpointPlot else { return }
+
+        let meetingPoint = MapPoint(longitude: plot.meeting.lng, latitude: plot.meeting.lat)
+
+        for origin in plot.origins {
+            let point = MapPoint(longitude: origin.lng, latitude: origin.lat)
+
+            let options = PoiOptions(styleID: Self.originStyleID, poiID: "origin-\(origin.id)")
+            options.rank = 0
+            // 누를 것이 없다. 켜 두면 지도를 끌려다 핀을 눌러 버린다.
+            options.clickable = false
+            options.addText(PoiText(text: origin.title, styleIndex: 0))
+            labels?.addPoi(option: options, at: point)?.show()
+
+            // 출발지에서 모이는 자리로 곧게 긋는다. **실제 이동 경로가 아니다.**
+            // 서버는 구간마다 걸리는 시간과 거리만 주고 선의 모양은 주지 않는다.
+            // 곧은 선은 "이 사람은 저기서 온다"로 읽히지 "이 길로 온다"로 읽히지 않으므로
+            // 없는 정보를 지어내지 않는다. 손그림 동선과 헷갈리지 않게 가늘고 흐리게 둔다.
+            let link = MapPolylineShapeOptions(
+                shapeID: "link-\(origin.id)",
+                styleID: Self.linkStyleID,
+                zOrder: 0
+            )
+            link.polylines = [MapPolyline(line: [point, meetingPoint], styleIndex: 0)]
+            links?.addMapPolylineShape(link)?.show()
+        }
+
+        let meeting = PoiOptions(styleID: meetingStyleID(rank: plot.rank), poiID: "meeting")
+        // 겹치면 모이는 자리가 이긴다. 이 화면에서 제일 중요한 한 점이다.
+        meeting.rank = 10
+        meeting.clickable = false
+        meeting.addText(PoiText(text: plot.meeting.title, styleIndex: 0))
+        labels?.addPoi(option: meeting, at: meetingPoint)?.show()
+
+        fitCamera(to: plot, on: map)
+    }
+
+    /// 참가자와 모이는 자리가 모두 보이도록 카메라를 맞춘다.
+    ///
+    /// 도착지로 순간이동하지 않는다. 어디서 어디로 모이는지가 이 화면의 답이라, 한 점만
+    /// 크게 보여 주면 정작 "왜 거기인지"가 사라진다.
+    func fitCamera(to plot: MidpointPlot, on map: KakaoMap) {
+        let box = plot.viewport()
+        let area = AreaRect(
+            southWest: MapPoint(longitude: box.west, latitude: box.south),
+            northEast: MapPoint(longitude: box.east, latitude: box.north)
+        )
+        // levelLimit이 없으면 사람들이 같은 동네에서 올 때 최대 배율까지 파고든다.
+        map.animateCamera(
+            cameraUpdate: CameraUpdate.make(area: area, levelLimit: 17),
+            options: CameraAnimationOptions(
+                autoElevation: false,
+                consecutive: false,
+                durationInMillis: 600
+            )
+        )
+    }
+
+    // MARK: 스타일
+
+    func registerMidpointStyles(on map: KakaoMap) {
+        let manager = map.getLabelManager()
+
+        manager.addPoiStyle(
+            PoiStyle(
+                styleID: Self.originStyleID,
+                styles: [
+                    PerLevelPoiStyle(
+                        iconStyle: PoiIconStyle(
+                            symbol: circleIcon(diameter: 22, fill: .darkGray, glyph: nil),
+                            anchorPoint: CGPoint(x: 0.5, y: 0.5)
+                        ),
+                        textStyle: labelTextStyle(fontSize: 20),
+                        level: 0
+                    ),
+                ]
+            )
+        )
+
+        // 잇는 선. 지도색을 이기되 손그림(파란 실선 6pt)보다는 물러서야 해서
+        // 색을 달리하고 가늘게, 반투명하게 둔다.
+        map.getShapeManager().addPolylineStyleSet(
+            PolylineStyleSet(
+                styleSetID: Self.linkStyleID,
+                styles: [
+                    PolylineStyle(styles: [
+                        PerLevelPolylineStyle(
+                            bodyColor: UIColor.systemIndigo.withAlphaComponent(0.5),
+                            bodyWidth: 3,
+                            level: 0
+                        ),
+                    ]),
+                ]
+            )
+        )
+    }
+
+    /// 순위가 박힌 도착지 스타일. 처음 쓸 때 한 번만 만든다.
+    func meetingStyleID(rank: Int) -> String {
+        let styleID = "midpointMeeting-\(rank)"
+        guard !registeredMeetingRanks.contains(rank), let map = kakaoMap else { return styleID }
+
+        map.getLabelManager().addPoiStyle(
+            PoiStyle(
+                styleID: styleID,
+                styles: [
+                    PerLevelPoiStyle(
+                        iconStyle: PoiIconStyle(
+                            symbol: circleIcon(diameter: 34, fill: .systemIndigo, glyph: "\(rank)"),
+                            anchorPoint: CGPoint(x: 0.5, y: 0.5)
+                        ),
+                        textStyle: labelTextStyle(fontSize: 24),
+                        level: 0
+                    ),
+                ]
+            )
+        )
+        registeredMeetingRanks.insert(rank)
+        return styleID
+    }
+
+    /// 핀 아래 붙는 이름표.
+    ///
+    /// 색을 고정한다. `.label` 같은 동적 색은 다크 모드에서 흰 글씨가 되는데, 지도
+    /// 타일은 밝은 채로 남아 글자가 안 보인다. 어두운 글씨에 흰 테두리면 어느 쪽이든 읽힌다.
+    func labelTextStyle(fontSize: UInt) -> PoiTextStyle {
+        let style = PoiTextStyle(textLineStyles: [
+            PoiTextLineStyle(
+                textStyle: TextStyle(
+                    fontSize: fontSize,
+                    fontColor: UIColor(white: 0.12, alpha: 1),
+                    strokeThickness: 4,
+                    strokeColor: .white
+                )
+            ),
+        ])
+        // 아이콘 아래. 가운데에 두면 아이콘의 번호를 덮는다.
+        style.textLayouts = [.bottom]
+        return style
+    }
+
+    /// 핀 아이콘을 코드로 그린다.
+    ///
+    /// 에셋으로 넣지 않는 이유: 후보 번호가 박힌 원을 몇 개나 필요할지 미리 알 수 없고,
+    /// @2x/@3x를 손으로 관리할 일도 없어진다. 렌더러가 화면 배율에 맞춰 그려 준다.
+    func circleIcon(diameter: CGFloat, fill: UIColor, glyph: String?) -> UIImage {
+        let ring: CGFloat = 3
+        let size = CGSize(width: diameter, height: diameter)
+
+        return UIGraphicsImageRenderer(size: size).image { _ in
+            // 테두리는 선 중앙에 그려지므로 절반만큼 안으로 들여야 잘리지 않는다.
+            let path = UIBezierPath(
+                ovalIn: CGRect(origin: .zero, size: size).insetBy(dx: ring / 2, dy: ring / 2)
+            )
+            fill.setFill()
+            path.fill()
+            // 지도 위 어떤 색에도 원이 묻히지 않도록 흰 테두리를 두른다.
+            UIColor.white.setStroke()
+            path.lineWidth = ring
+            path.stroke()
+
+            guard let glyph else { return }
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: diameter * 0.5, weight: .bold),
+                .foregroundColor: UIColor.white,
+            ]
+            let bounds = glyph.size(withAttributes: attributes)
+            glyph.draw(
+                at: CGPoint(x: (diameter - bounds.width) / 2, y: (diameter - bounds.height) / 2),
+                withAttributes: attributes
+            )
+        }
     }
 }

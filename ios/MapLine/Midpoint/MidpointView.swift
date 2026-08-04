@@ -11,8 +11,11 @@ struct MidpointView: View {
     @State private var phase: Phase = .idle
     @State private var addingNew = false
 
-    /// 후보를 골라 지도로 넘길 때 쓴다. 중간지점 찾기는 지도 만들기의 시작점이다.
-    var onStartMap: ((Midpoint.Candidate) -> Void)?
+    /// 고른 후보를 지도로 넘긴다.
+    ///
+    /// 후보만 넘기지 않고 그릴 판을 여기서 만들어 준다. 참가자 이름과 후보 순위는
+    /// 이 화면만 알고 있어서, 후보만 넘기면 지도가 "친구 2"도 "2순위"도 알 수 없다.
+    var onShowOnMap: ((MidpointPlot) -> Void)?
 
     private enum Phase: Equatable {
         case idle, working, failed(String)
@@ -175,10 +178,21 @@ struct MidpointView: View {
                 }
             }
 
-            if let onStartMap {
-                Button("여기서 시작하는 지도 만들기") { onStartMap(candidate) }
-                    .font(.caption.weight(.medium))
-                    .padding(.top, 2)
+            if let onShowOnMap {
+                Button {
+                    onShowOnMap(
+                        MidpointPlot(
+                            participants: participants,
+                            candidate: candidate,
+                            rank: index + 1
+                        )
+                    )
+                } label: {
+                    Label("지도에서 보기", systemImage: "map")
+                }
+                .font(.caption.weight(.medium))
+                .padding(.top, 2)
+                .accessibilityIdentifier("midpoint.showOnMap")
             }
         }
         .padding(.vertical, 4)

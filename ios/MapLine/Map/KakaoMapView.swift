@@ -6,14 +6,16 @@ import SwiftUI
 /// UIView만 감싸면 viewWillAppear/viewWillDisappear에 해당하는 지점이 없다.
 struct KakaoMapView: UIViewControllerRepresentable {
     var isDrawing: Bool
-    /// 여기로 지도를 옮긴다. 값이 바뀔 때만 움직인다.
-    var focus: MapFocus?
+    /// 지도에 얹을 중간지점. nil이면 지운다.
+    var plot: MidpointPlot?
 
     func makeUIViewController(context: Context) -> KakaoMapViewController {
         let controller = KakaoMapViewController()
-        if let focus {
-            controller.initialCenter = (lat: focus.lat, lng: focus.lng)
-            context.coordinator.lastFocus = focus
+        if let plot {
+            // 엔진이 뜨기 전에 넘겨 둔다. 컨트롤러가 시작 자리를 여기에 맞추고,
+            // 준비되는 즉시 그린다. 뜬 뒤에 옮기면 기본 자리가 한 번 보였다 사라진다.
+            controller.show(midpoint: plot)
+            context.coordinator.lastPlot = plot
         }
         return controller
     }
@@ -22,32 +24,18 @@ struct KakaoMapView: UIViewControllerRepresentable {
         if controller.isDrawing != isDrawing {
             controller.isDrawing = isDrawing
         }
-        // 같은 자리를 다시 넘겨도 움직이지 않는다. 화면이 다시 그려질 때마다
-        // 카메라가 튀면 사람이 손으로 옮겨 둔 위치가 계속 되돌아간다.
-        if let focus, focus != context.coordinator.lastFocus {
-            context.coordinator.lastFocus = focus
-            controller.move(to: focus.lat, lng: focus.lng)
+        // 같은 값을 다시 넘겨도 다시 그리지 않는다. 화면이 갱신될 때마다 카메라가
+        // 움직이면 사람이 손으로 옮겨 둔 위치가 계속 되돌아간다. 같은 후보를 일부러
+        // 다시 고른 경우는 MidpointPlot이 고른 시각을 달리 담아 여기서 구별된다.
+        if plot != context.coordinator.lastPlot {
+            context.coordinator.lastPlot = plot
+            controller.show(midpoint: plot)
         }
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     final class Coordinator {
-        var lastFocus: MapFocus?
-    }
-}
-
-/// 지도를 옮길 자리. 같은 곳을 다시 고르는 것도 구별해야 해서 고른 시각을 함께 담는다.
-struct MapFocus: Equatable {
-    let name: String
-    let lat: Double
-    let lng: Double
-    let requestedAt: Date
-
-    init(name: String, lat: Double, lng: Double, requestedAt: Date = Date()) {
-        self.name = name
-        self.lat = lat
-        self.lng = lng
-        self.requestedAt = requestedAt
+        var lastPlot: MidpointPlot?
     }
 }
