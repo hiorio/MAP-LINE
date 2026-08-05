@@ -18,8 +18,8 @@
 - 저장소: https://github.com/hiorio/MAP-LINE (`main`)
 - DB: Supabase `chouiphlafpxmglwriix` (**서울 `ap-northeast-2`**)
 - 마이그레이션 0001~0010 적용 완료
-- iOS: 번들 ID `com.hiorio.mapline`, 팀 `W297Z9DQ9U`, **TestFlight 1.0 (5) 업로드 완료**
-  (2026-08-05 09:43 KST, Actions run `30964066655`)
+- iOS: 번들 ID `com.hiorio.mapline`, 팀 `W297Z9DQ9U`, **TestFlight 1.0 (22) 업로드 완료**
+  (2026-08-05 12:41 KST, Actions run `30972829421`)
 
 ⚠️ **가장 중요한 것: 실기기 확인이 하나도 안 됐습니다.** 앱 기능은 CI 시뮬레이터
 스크린샷으로만 봤고, 웹은 카카오톡 인앱 브라우저에서 한 번도 안 돌려봤습니다.
@@ -290,7 +290,8 @@ Railway에 올라가 있습니다: https://map-line-production.up.railway.app
 
 ### A. iOS 앱 (TestFlight)
 
-**TestFlight 1.0 (5)가 `맵라인테스트` 내부 그룹에 올라가 있습니다.** 설치해 확인할 것:
+**TestFlight 1.0 (22)를 App Store Connect에 업로드했습니다.** Apple 처리 완료 후
+`맵라인테스트` 내부 그룹에서 설치 가능 여부를 확인하고 아래 항목을 실기기에서 점검할 것:
 
 - 지도를 **꾹 눌렀을 때** 0.45초가 적당한가. 지도를 끌려다 뜨지는 않는가
 - 예식장처럼 음식점·카페·관광명소가 아닌 곳을 누르면 건물명이 뜨는가. 없으면 `검색`으로 찾을 수 있는가
