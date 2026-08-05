@@ -76,6 +76,17 @@ enum Midpoint {
             /// 길찾기가 실패하면 없다. 그 수단으로는 갈 수 없다는 뜻이다.
             let durationS: Int?
             let distanceM: Int?
+            /// 실제 이동 경로. 없으면 해당 수단으로 경로를 찾지 못한 것이다.
+            let points: [PlaceCandidate.Coordinate]?
+            /// 대중교통 탈것 구간. 구간 사이는 도보 연결선으로 그린다.
+            let transitLegs: [TransitSection]?
+
+            struct TransitSection: Decodable {
+                let type: String
+                let guidance: String
+                let pointCount: Int?
+            }
+
             var id: String { participantId }
         }
 

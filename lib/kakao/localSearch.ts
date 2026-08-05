@@ -9,6 +9,7 @@ import { recordKakaoCall } from './usage';
  * 그래서 브라우저는 이 모듈을 직접 쓰지 않고 항상 Route Handler를 경유한다.
  */
 const KEYWORD_ENDPOINT = 'https://dapi.kakao.com/v2/local/search/keyword.json';
+const ADDRESS_ENDPOINT = 'https://dapi.kakao.com/v2/local/search/address.json';
 
 /** Kakao Local 응답 문서 중 우리가 쓰는 필드만. */
 interface KakaoPlaceDocument {
@@ -22,6 +23,14 @@ interface KakaoPlaceDocument {
   y?: string;
   /** 기준 좌표를 넘겼을 때만 채워진다. 단위는 m. */
   distance?: string;
+}
+
+interface KakaoAddressDocument {
+  address_name?: string;
+  x?: string;
+  y?: string;
+  address?: { address_name?: string } | null;
+  road_address?: { address_name?: string; building_name?: string } | null;
 }
 
 export class MissingRestKeyError extends Error {
@@ -71,6 +80,46 @@ export async function searchPlaces(
 
   const body = (await response.json()) as { documents?: KakaoPlaceDocument[] };
   return (body.documents ?? []).map(toCandidate).filter((c): c is PlaceCandidate => c !== null);
+}
+
+/** 정확한 주소는 상호 키워드가 아니라 Kakao 주소 검색으로 먼저 좌표화한다. */
+export async function searchAddress(address: string, size = 3): Promise<PlaceCandidate[]> {
+  const key = process.env.KAKAO_REST_KEY;
+  if (!key) throw new MissingRestKeyError();
+
+  const url = new URL(ADDRESS_ENDPOINT);
+  url.searchParams.set('query', address);
+  url.searchParams.set('size', String(Math.min(Math.max(size, 1), 30)));
+
+  void recordKakaoCall('search');
+  const response = await fetch(url, {
+    headers: { Authorization: `KakaoAK ${key}` },
+    next: { revalidate: 86_400 },
+  });
+  if (!response.ok) throw new Error(`Kakao Local 주소 검색 실패 (${response.status})`);
+
+  const body = (await response.json()) as { documents?: KakaoAddressDocument[] };
+  return (body.documents ?? [])
+    .map(toAddressCandidate)
+    .filter((candidate): candidate is PlaceCandidate => candidate !== null);
+}
+
+export function toAddressCandidate(document: KakaoAddressDocument): PlaceCandidate | null {
+  if (document.x === undefined || document.y === undefined) return null;
+  const location = fromKakaoXY(document.x, document.y);
+  if (!Number.isFinite(location.lat) || !Number.isFinite(location.lng)) return null;
+
+  const roadAddress = document.road_address?.address_name?.trim();
+  const jibunAddress = document.address?.address_name?.trim() || document.address_name?.trim();
+  const name = document.road_address?.building_name?.trim() || roadAddress || jibunAddress;
+  if (!name) return null;
+  return {
+    kakaoPlaceId: '',
+    name,
+    ...(jibunAddress ? { address: jibunAddress } : {}),
+    ...(roadAddress ? { roadAddress } : {}),
+    location,
+  };
 }
 
 /**

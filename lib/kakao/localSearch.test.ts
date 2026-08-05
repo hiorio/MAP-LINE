@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { toCandidate } from './localSearch';
+import { toAddressCandidate, toCandidate } from './localSearch';
 
 describe('toCandidate', () => {
   const document = {
@@ -63,5 +63,29 @@ describe('toCandidate', () => {
   it('distance가 없으면 키 자체를 넣지 않는다', () => {
     expect(toCandidate(document)).not.toHaveProperty('distanceM');
     expect(toCandidate({ ...document, distance: '' })).not.toHaveProperty('distanceM');
+  });
+});
+
+describe('toAddressCandidate', () => {
+  it('정확한 도로명 주소와 건물명을 장소 후보로 바꾼다', () => {
+    expect(
+      toAddressCandidate({
+        address_name: '서울 강남구 역삼동 1',
+        x: '127.0276',
+        y: '37.4979',
+        address: { address_name: '서울 강남구 역삼동 1' },
+        road_address: { address_name: '서울 강남구 테헤란로 1', building_name: '테스트타워' },
+      }),
+    ).toEqual({
+      kakaoPlaceId: '',
+      name: '테스트타워',
+      address: '서울 강남구 역삼동 1',
+      roadAddress: '서울 강남구 테헤란로 1',
+      location: { lat: 37.4979, lng: 127.0276 },
+    });
+  });
+
+  it('좌표가 없으면 후보를 만들지 않는다', () => {
+    expect(toAddressCandidate({ address_name: '서울 강남구' })).toBeNull();
   });
 });

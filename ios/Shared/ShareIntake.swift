@@ -23,7 +23,10 @@ enum ShareIntake {
             let lng: Double
         }
 
-        var id: String { kakaoPlaceId ?? "\(name)-\(location.lat)-\(location.lng)" }
+        var id: String {
+            if let kakaoPlaceId, !kakaoPlaceId.isEmpty { return kakaoPlaceId }
+            return "\(name)-\(location.lat)-\(location.lng)"
+        }
 
         func asSavedPlace() -> SavedPlace {
             SavedPlace(
@@ -36,7 +39,23 @@ enum ShareIntake {
         }
     }
 
+    struct Parsed: Decodable {
+        let name: String
+        let address: String?
+        let region: String?
+        let query: String
+    }
+
+    struct Group: Decodable, Identifiable {
+        let parsed: Parsed
+        let places: [Candidate]
+
+        var id: String { "\(parsed.name)|\(parsed.address ?? "")" }
+    }
+
     struct Response: Decodable {
+        let parsed: Parsed?
+        let groups: [Group]?
         let places: [Candidate]?
         let error: String?
     }
@@ -67,7 +86,7 @@ enum ShareIntake {
             .joined(separator: "\n")
     }
 
-    static func lookUp(text: String, baseURL: URL) async throws -> [Candidate] {
+    static func lookUp(text: String, baseURL: URL) async throws -> [Group] {
         var request = URLRequest(url: baseURL.appendingPathComponent("api/parse-share"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -86,8 +105,11 @@ enum ShareIntake {
             throw IntakeError.server(decoded?.error ?? "검색에 실패했습니다 (\(http.statusCode))")
         }
 
-        let places = decoded?.places ?? []
-        if places.isEmpty { throw IntakeError.noName }
-        return places
+        let groups = decoded?.groups ?? {
+            guard let parsed = decoded?.parsed, let places = decoded?.places else { return [] }
+            return [Group(parsed: parsed, places: places)]
+        }()
+        if groups.flatMap(\.places).isEmpty { throw IntakeError.noName }
+        return groups
     }
 }

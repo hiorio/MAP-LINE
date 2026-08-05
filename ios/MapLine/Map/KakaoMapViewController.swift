@@ -214,7 +214,9 @@ final class KakaoMapViewController: UIViewController {
         guard let map = kakaoMap else {
             // 엔진이 아직이면 시작 자리만 맞춰 둔다. 준비되면 addViewSucceeded가 그린다.
             // 여기서 카메라를 맞추려 해도 맞출 지도가 없다.
-            if let plot { initialCenter = (lat: plot.meeting.lat, lng: plot.meeting.lng) }
+            if let meeting = plot?.meetings.first?.pin {
+                initialCenter = (lat: meeting.lat, lng: meeting.lng)
+            }
             return
         }
         renderMidpoint(on: map)
@@ -643,20 +645,21 @@ extension GeoPoint {
 // MARK: - 중간지점
 
 private extension KakaoMapViewController {
-    /// 출발지 핀, 도착지 핀, 둘을 잇는 선을 다시 그린다.
+    /// 출발지 핀, 선택한 후보 핀, 실제 이동 경로를 다시 그린다.
     ///
     /// 매번 전부 지우고 다시 그린다. 후보를 바꿔 가며 눌러 보는 것이 이 기능의 쓰임새라
     /// 무엇이 바뀌었는지 따지는 것보다 통째로 새로 그리는 편이 틀릴 여지가 없다.
     /// 핀은 많아야 사람 수 + 1개다.
     func renderMidpoint(on map: KakaoMap) {
         let labels = map.getLabelManager().getLabelLayer(layerID: Self.midpointLabelLayerID)
-        let links = map.getShapeManager().getShapeLayer(layerID: Self.midpointLinkLayerID)
+        guard let links = map.getShapeManager().getShapeLayer(layerID: Self.midpointLinkLayerID) else {
+            return
+        }
         labels?.clearAllItems()
-        links?.clearAllShapes()
+        links.clearAllShapes()
 
-        guard let plot = midpointPlot else { return }
-
-        let meetingPoint = MapPoint(longitude: plot.meeting.lng, latitude: plot.meeting.lat)
+        guard let plot = midpointPlot, !plot.meetings.isEmpty else { return }
+        let perPoint = angularEpsilon(map: map, pixels: 1)
 
         for origin in plot.origins {
             let point = MapPoint(longitude: origin.lng, latitude: origin.lat)
@@ -667,28 +670,97 @@ private extension KakaoMapViewController {
             options.clickable = false
             options.addText(PoiText(text: origin.title, styleIndex: 0))
             labels?.addPoi(option: options, at: point)?.show()
-
-            // 출발지에서 모이는 자리로 곧게 긋는다. **실제 이동 경로가 아니다.**
-            // 서버는 구간마다 걸리는 시간과 거리만 주고 선의 모양은 주지 않는다.
-            // 곧은 선은 "이 사람은 저기서 온다"로 읽히지 "이 길로 온다"로 읽히지 않으므로
-            // 없는 정보를 지어내지 않는다. 손그림 동선과 헷갈리지 않게 가늘고 흐리게 둔다.
-            let link = MapPolylineShapeOptions(
-                shapeID: "link-\(origin.id)",
-                styleID: Self.linkStyleID,
-                zOrder: 0
-            )
-            link.polylines = [MapPolyline(line: [point, meetingPoint], styleIndex: 0)]
-            links?.addMapPolylineShape(link)?.show()
         }
 
-        let meeting = PoiOptions(styleID: meetingStyleID(rank: plot.rank), poiID: "meeting")
-        // 겹치면 모이는 자리가 이긴다. 이 화면에서 제일 중요한 한 점이다.
-        meeting.rank = 10
-        meeting.clickable = false
-        meeting.addText(PoiText(text: plot.meeting.title, styleIndex: 0))
-        labels?.addPoi(option: meeting, at: meetingPoint)?.show()
+        for meeting in plot.meetings {
+            let meetingPoint = meeting.pin
+
+            for origin in plot.origins {
+                if let route = meeting.routes.first(where: { $0.participantID == origin.id }) {
+                    let segments = splitSegments(route.points, legs: route.transitLegs)
+                    for (index, segment) in segments.enumerated() {
+                        draw(
+                            segment,
+                            style: LegStyle.of(route.mode),
+                            id: "midpoint-\(meeting.pin.id)-\(origin.id)-\(index)",
+                            perPoint: perPoint,
+                            on: links
+                        )
+                    }
+                    for (index, connector) in midpointConnectors(
+                        origin: origin,
+                        meeting: meetingPoint,
+                        segments: segments
+                    ).enumerated() {
+                        draw(
+                            [connector.from, connector.to],
+                            style: LegStyle.walk,
+                            id: "midpoint-\(meeting.pin.id)-\(origin.id)-c\(index)",
+                            perPoint: perPoint,
+                            on: links
+                        )
+                    }
+                } else {
+                    // 해당 수단의 경로를 못 받은 경우에만 관계를 알리는 흐린 직선으로 대체한다.
+                    let fallback = MapPolylineShapeOptions(
+                        shapeID: "midpoint-fallback-\(meeting.pin.id)-\(origin.id)",
+                        styleID: Self.linkStyleID,
+                        zOrder: 0
+                    )
+                    fallback.polylines = [MapPolyline(
+                        line: [
+                            MapPoint(longitude: origin.lng, latitude: origin.lat),
+                            MapPoint(longitude: meetingPoint.lng, latitude: meetingPoint.lat),
+                        ],
+                        styleIndex: 0
+                    )]
+                    links.addMapPolylineShape(fallback)?.show()
+                }
+            }
+
+            let options = PoiOptions(
+                styleID: meetingStyleID(rank: meeting.rank),
+                poiID: "meeting-\(meeting.pin.id)"
+            )
+            options.rank = 10
+            options.clickable = false
+            options.addText(PoiText(text: meeting.pin.title, styleIndex: 0))
+            labels?.addPoi(
+                option: options,
+                at: MapPoint(longitude: meetingPoint.lng, latitude: meetingPoint.lat)
+            )?.show()
+        }
 
         fitCamera(to: plot, on: map)
+    }
+
+    func midpointConnectors(
+        origin: MidpointPlot.Pin,
+        meeting: MidpointPlot.Pin,
+        segments: [[GeoPoint]]
+    ) -> [Connector] {
+        guard let first = segments.first?.first, let last = segments.last?.last else { return [] }
+        var connectors: [Connector] = []
+        let start = GeoPoint(lat: origin.lat, lng: origin.lng)
+        let end = GeoPoint(lat: meeting.lat, lng: meeting.lng)
+
+        if midpointGap(start, first) > connectorMinimumDeg {
+            connectors.append(Connector(from: start, to: first))
+        }
+        for pair in zip(segments, segments.dropFirst()) {
+            guard let from = pair.0.last, let to = pair.1.first else { continue }
+            if midpointGap(from, to) > connectorMinimumDeg {
+                connectors.append(Connector(from: from, to: to))
+            }
+        }
+        if midpointGap(last, end) > connectorMinimumDeg {
+            connectors.append(Connector(from: last, to: end))
+        }
+        return connectors
+    }
+
+    func midpointGap(_ a: GeoPoint, _ b: GeoPoint) -> Double {
+        ((b.lat - a.lat) * (b.lat - a.lat) + (b.lng - a.lng) * (b.lng - a.lng)).squareRoot()
     }
 
     /// 참가자와 모이는 자리가 모두 보이도록 카메라를 맞춘다.

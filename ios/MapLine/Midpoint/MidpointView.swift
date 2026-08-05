@@ -10,6 +10,7 @@ struct MidpointView: View {
     @State private var result: Midpoint.Result?
     @State private var phase: Phase = .idle
     @State private var addingNew = false
+    @State private var selectedCandidateIDs: Set<String> = []
 
     /// 고른 후보를 지도로 넘긴다.
     ///
@@ -48,6 +49,7 @@ struct MidpointView: View {
                 )
                 // 사람이 바뀌면 이전 결과는 그 사람들의 답이 아니다.
                 result = nil
+                selectedCandidateIDs = []
             }
         }
     }
@@ -65,6 +67,7 @@ struct MidpointView: View {
                         Button {
                             participants.removeAll { $0.id == person.id }
                             result = nil
+                            selectedCandidateIDs = []
                         } label: {
                             Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)
                         }
@@ -81,7 +84,10 @@ struct MidpointView: View {
                         }
                     }
                     .pickerStyle(.segmented)
-                    .onChange(of: person.mode) { _ in result = nil }
+                    .onChange(of: person.mode) { _ in
+                        result = nil
+                        selectedCandidateIDs = []
+                    }
                 }
                 .padding(.vertical, 4)
             }
@@ -129,6 +135,22 @@ struct MidpointView: View {
             ForEach(Array(result.candidates.enumerated()), id: \.element.id) { index, candidate in
                 candidateRow(index: index, candidate: candidate)
             }
+
+            if let onShowOnMap {
+                Button {
+                    let selections = result.candidates.enumerated().compactMap { index, candidate in
+                        selectedCandidateIDs.contains(candidate.id)
+                            ? (rank: index + 1, candidate: candidate)
+                            : nil
+                    }
+                    onShowOnMap(MidpointPlot(participants: participants, selections: selections))
+                } label: {
+                    Label("선택한 \(selectedCandidateIDs.count)곳 지도에서 보기", systemImage: "map")
+                        .frame(maxWidth: .infinity)
+                }
+                .disabled(selectedCandidateIDs.isEmpty)
+                .accessibilityIdentifier("midpoint.showOnMap")
+            }
         } header: {
             Text("모이기 좋은 곳")
         } footer: {
@@ -164,6 +186,23 @@ struct MidpointView: View {
                         Text("일부 경로 없음").font(.caption2).foregroundStyle(.orange)
                     }
                 }
+
+                Button {
+                    toggle(candidate)
+                } label: {
+                    Image(systemName: selectedCandidateIDs.contains(candidate.id)
+                          ? "checkmark.circle.fill"
+                          : "circle")
+                        .font(.title3)
+                        .foregroundStyle(selectedCandidateIDs.contains(candidate.id) ? Color.accentColor : .secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("midpoint.candidate.\(index)")
+                .accessibilityLabel(
+                    selectedCandidateIDs.contains(candidate.id)
+                        ? "\(candidate.place.name) 지도 표시에서 제외"
+                        : "\(candidate.place.name) 지도 표시에 추가"
+                )
             }
 
             ForEach(candidate.legs) { leg in
@@ -177,23 +216,6 @@ struct MidpointView: View {
                     }
                 }
             }
-
-            if let onShowOnMap {
-                Button {
-                    onShowOnMap(
-                        MidpointPlot(
-                            participants: participants,
-                            candidate: candidate,
-                            rank: index + 1
-                        )
-                    )
-                } label: {
-                    Label("지도에서 보기", systemImage: "map")
-                }
-                .font(.caption.weight(.medium))
-                .padding(.top, 2)
-                .accessibilityIdentifier("midpoint.showOnMap")
-            }
         }
         .padding(.vertical, 4)
     }
@@ -203,11 +225,23 @@ struct MidpointView: View {
     private func find() async {
         phase = .working
         do {
-            result = try await Midpoint.find(participants)
+            let found = try await Midpoint.find(participants)
+            result = found
+            // 기존처럼 바로 1순위를 볼 수 있게 하되, 사용자가 2·3순위도 더 고를 수 있다.
+            selectedCandidateIDs = Set(found.candidates.prefix(1).map(\.id))
             phase = .idle
         } catch {
             result = nil
+            selectedCandidateIDs = []
             phase = .failed(error.localizedDescription)
+        }
+    }
+
+    private func toggle(_ candidate: Midpoint.Candidate) {
+        if selectedCandidateIDs.contains(candidate.id) {
+            selectedCandidateIDs.remove(candidate.id)
+        } else {
+            selectedCandidateIDs.insert(candidate.id)
         }
     }
 

@@ -10,7 +10,8 @@ struct ShareIntakeView: View {
     let onCancel: () -> Void
 
     @State private var phase: Phase = .loading
-    @State private var savedName: String?
+    @State private var savedMessage: String?
+    @State private var selected: [String: String] = [:]
     @State private var showRaw = false
 
     /// `State`라고 이름 짓지 않는다. SwiftUI의 `@State`를 가려서 프로퍼티 래퍼가
@@ -18,7 +19,7 @@ struct ShareIntakeView: View {
     /// 원인을 바로 알려 주지 않아 헤매기 쉽다.
     private enum Phase {
         case loading
-        case ready([ShareIntake.Candidate])
+        case ready([ShareIntake.Group])
         case failed(String)
     }
 
@@ -32,18 +33,16 @@ struct ShareIntakeView: View {
                     ProgressView("장소를 찾는 중…")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                case .ready(let candidates):
+                case .ready(let groups):
                     List {
-                        if let savedName {
+                        if let savedMessage {
                             Section {
-                                Label("\(savedName) 담았습니다", systemImage: "checkmark.circle.fill")
+                                Label(savedMessage, systemImage: "checkmark.circle.fill")
                                     .foregroundStyle(.green)
                             }
                         }
-                        Section("어느 곳인가요?") {
-                            ForEach(candidates) { candidate in
-                                Button { save(candidate) } label: { row(candidate) }
-                            }
+                        ForEach(groups) { group in
+                            candidateSection(group)
                         }
                         rawSection
                     }
@@ -61,11 +60,62 @@ struct ShareIntakeView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("닫기", action: savedName == nil ? onCancel : onDone)
+                    Button("닫기", action: savedMessage == nil ? onCancel : onDone)
+                }
+            }
+            .safeAreaInset(edge: .bottom) {
+                if case .ready(let groups) = phase, savedMessage == nil {
+                    Button {
+                        save(groups)
+                    } label: {
+                        Text("선택한 \(selected.count)곳 보관함에 담기")
+                            .font(.body.weight(.semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(selected.isEmpty)
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
+                    .background(.regularMaterial)
+                    .accessibilityIdentifier("share.saveSelected")
                 }
             }
         }
         .task { await lookUp() }
+    }
+
+    private func candidateSection(_ group: ShareIntake.Group) -> some View {
+        Section {
+            if group.places.isEmpty {
+                Text("이 주소의 장소를 찾지 못했습니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(group.places) { candidate in
+                    Button {
+                        if selected[group.id] == candidate.id {
+                            selected.removeValue(forKey: group.id)
+                        } else {
+                            selected[group.id] = candidate.id
+                        }
+                    } label: {
+                        HStack {
+                            row(candidate)
+                            Image(systemName: selected[group.id] == candidate.id
+                                  ? "checkmark.circle.fill"
+                                  : "circle")
+                                .foregroundStyle(selected[group.id] == candidate.id ? Color.accentColor : .secondary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        } header: {
+            Text(group.parsed.name)
+        } footer: {
+            if let address = group.parsed.address { Text(address) }
+        }
     }
 
     private func row(_ candidate: ShareIntake.Candidate) -> some View {
@@ -99,16 +149,27 @@ struct ShareIntakeView: View {
             return
         }
         do {
-            let candidates = try await ShareIntake.lookUp(text: rawText, baseURL: AppConfig.apiBaseURL)
-            phase = .ready(candidates)
+            let groups = try await ShareIntake.lookUp(text: rawText, baseURL: AppConfig.apiBaseURL)
+            selected = Dictionary(uniqueKeysWithValues: groups.compactMap { group in
+                group.places.first.map { (group.id, $0.id) }
+            })
+            phase = .ready(groups)
         } catch {
             phase = .failed(error.localizedDescription)
         }
     }
 
-    private func save(_ candidate: ShareIntake.Candidate) {
-        let added = store.add(candidate.asSavedPlace())
-        savedName = added ? candidate.name : "\(candidate.name)은(는) 이미"
+    private func save(_ groups: [ShareIntake.Group]) {
+        let candidates = groups.compactMap { group in
+            guard let selectedID = selected[group.id] else { return nil }
+            return group.places.first { $0.id == selectedID }
+        }
+        let addedCount = candidates.reduce(into: 0) { count, candidate in
+            if store.add(candidate.asSavedPlace()) { count += 1 }
+        }
+        savedMessage = addedCount > 0
+            ? "\(addedCount)곳을 보관함에 담았습니다"
+            : "선택한 장소가 이미 보관함에 있습니다"
         // 담자마자 닫으면 담긴 게 맞는지 확인할 틈이 없다. 잠깐 보여 주고 닫는다.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: onDone)
     }

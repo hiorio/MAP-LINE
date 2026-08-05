@@ -88,4 +88,22 @@ final class ShareIntakeTests: XCTestCase {
         XCTAssertEqual(ShareIntake.combine([]), "")
         XCTAssertEqual(ShareIntake.combine(["", "   "]), "")
     }
+
+    func test_여러공유장소응답을묶음으로읽는다() throws {
+        let response = try JSONDecoder().decode(
+            ShareIntake.Response.self,
+            from: Data(
+                """
+                {"parsed":{"name":"A","address":"서울 강남구 길 1","region":"강남구","query":"A 강남구"},
+                "groups":[{"parsed":{"name":"A","address":"서울 강남구 길 1","region":"강남구","query":"A 강남구"},
+                "places":[{"kakaoPlaceId":"","name":"A","address":"서울 강남구 길 1","roadAddress":null,
+                "category":null,"location":{"lat":37.5,"lng":127.0}}]}],"places":[]}
+                """.utf8
+            )
+        )
+
+        XCTAssertEqual(response.groups?.count, 1)
+        XCTAssertEqual(response.groups?.first?.places.first?.name, "A")
+        XCTAssertFalse(response.groups?.first?.places.first?.id.isEmpty ?? true)
+    }
 }

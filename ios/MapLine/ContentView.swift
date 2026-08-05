@@ -346,7 +346,7 @@ struct ContentView: View {
                         self.plot = nil
                     } label: {
                         HStack(spacing: 6) {
-                            Text("\(plot.rank)순위 · \(plot.meeting.title)")
+                            Text(plotChipTitle(plot))
                                 .font(.footnote.weight(.medium))
                             Image(systemName: "xmark")
                                 .font(.caption2.weight(.semibold))
@@ -358,7 +358,7 @@ struct ContentView: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("map.plotChip")
-                    .accessibilityLabel("\(plot.meeting.title) 결과 지우기")
+                    .accessibilityLabel("중간지점 후보 \(plot.meetings.count)곳 결과 지우기")
                 }
             }
 
@@ -443,6 +443,13 @@ struct ContentView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+    }
+
+    private func plotChipTitle(_ plot: MidpointPlot) -> String {
+        guard let first = plot.meetings.first else { return "중간지점" }
+        return plot.meetings.count == 1
+            ? "\(first.rank)순위 · \(first.pin.title)"
+            : "중간지점 후보 \(plot.meetings.count)곳"
     }
 
     private func hint(_ text: String) -> some View {

@@ -37,6 +37,11 @@ const DISTRICT = /([가-힣]+(?:시|군|구))(?:\s|$)/;
 const NOISE = /^(?:카카오맵에서\s*보기|네이버\s*지도에서\s*보기|위치\s*보기|길찾기)$/;
 
 export function parseShareText(raw: string): ParsedShare | null {
+  return parseShareTexts(raw)[0] ?? null;
+}
+
+/** 한 번의 공유에 여러 장소가 들어오면 주소 줄을 경계로 각각 분리한다. */
+export function parseShareTexts(raw: string): ParsedShare[] {
   const lines = raw
     .split(/[\r\n]+/)
     // URL을 지운 자리에 공백이 남으므로 줄 단위로 공백을 정규화한다.
@@ -44,20 +49,48 @@ export function parseShareText(raw: string): ParsedShare | null {
     .map((line) => line.replace(LEADING_BRACKET, '').trim())
     .filter((line) => line.length > 0 && !NOISE.test(line));
 
-  if (lines.length === 0) return null;
+  if (lines.length === 0) return [];
 
-  const addressIndex = lines.findIndex((line) => ADDRESS_HEAD.test(line));
-  const address = addressIndex >= 0 ? lines[addressIndex] : undefined;
+  const addressIndices = lines
+    .map((line, index) => (ADDRESS_HEAD.test(line) ? index : -1))
+    .filter((index) => index >= 0);
 
-  // 주소가 아닌 첫 줄이 장소명. 주소만 붙여넣은 경우엔 주소를 이름으로 쓴다.
-  const name = lines.find((_, i) => i !== addressIndex) ?? address;
-  if (!name) return null;
+  if (addressIndices.length === 0) {
+    const name = lines[0];
+    return name ? [{ name, query: name }] : [];
+  }
 
-  const region = address ? extractDistrict(address) : undefined;
+  const parsed: ParsedShare[] = [];
+  let previousAddressIndex = -1;
+  for (const addressIndex of addressIndices) {
+    const address = lines[addressIndex];
+    if (!address) continue;
 
+    // 지도 앱은 보통 `제목 → 장소명 → 주소` 순서로 중복해 보낸다. 주소에 가장 가까운
+    // 앞줄이 실제 장소명일 가능성이 가장 높다. 주소만 온 경우에는 주소를 이름으로 쓴다.
+    const precedingNames = lines
+      .slice(previousAddressIndex + 1, addressIndex)
+      .filter((line) => !ADDRESS_HEAD.test(line));
+    const name = precedingNames.at(-1) ?? address;
+    parsed.push(makeParsed(name, address));
+    previousAddressIndex = addressIndex;
+  }
+
+  // 같은 항목이 텍스트와 attributed text 양쪽으로 온 경우 한 번만 남긴다.
+  const seen = new Set<string>();
+  return parsed.filter((item) => {
+    const key = `${item.name}\u0000${item.address ?? ''}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function makeParsed(name: string, address: string): ParsedShare {
+  const region = extractDistrict(address);
   return {
     name,
-    ...(address ? { address } : {}),
+    address,
     ...(region ? { region } : {}),
     query: region && !name.includes(region) ? `${name} ${region}` : name,
   };

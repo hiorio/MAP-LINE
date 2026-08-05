@@ -72,9 +72,19 @@ final class ScreenshotUITests: XCTestCase {
 
     // MARK: - 도구
 
-    /// 1순위 후보를 지도에 얹고 찍는다.
+    /// 1·2순위 후보를 함께 골라 지도에 얹고 찍는다.
     private func showOnMap(_ app: XCUIApplication) {
-        // 후보마다 같은 버튼이 있다. 첫 번째가 1순위다.
+        // 1순위는 기본 선택되어 있다. 2순위도 더해 여러 후보와 경로가 함께 보이는지 본다.
+        let second = app.descendants(matching: .any)
+            .matching(identifier: "midpoint.candidate.1").firstMatch
+        if second.waitForExistence(timeout: 10) {
+            scrollUntilHittable(second, in: app)
+            second.tap()
+            shot(app, "8-후보둘선택")
+        } else {
+            XCTFail("2순위 후보 선택 항목이 없다")
+        }
+
         let button = app.descendants(matching: .any)
             .matching(identifier: "midpoint.showOnMap").firstMatch
         guard button.waitForExistence(timeout: 10) else {
@@ -82,6 +92,7 @@ final class ScreenshotUITests: XCTestCase {
             XCTFail("결과에 '지도에서 보기'가 없다")
             return
         }
+        scrollUntilHittable(button, in: app)
         button.tap()
 
         // 시트가 닫히고 지도가 나오면 무엇을 보고 있는지 알리는 칩이 붙는다.
@@ -90,8 +101,17 @@ final class ScreenshotUITests: XCTestCase {
         let onMap = chip.waitForExistence(timeout: 15)
         // 카메라가 미끄러져 자리를 잡고 타일과 핀이 그려질 틈을 준다.
         Thread.sleep(forTimeInterval: 4)
-        shot(app, onMap ? "8-지도에표시" : "8-지도로안넘어감")
+        shot(app, onMap ? "9-후보둘-지도에표시" : "9-지도로안넘어감")
         XCTAssertTrue(onMap, "후보를 골랐는데 지도로 넘어가지 않았다")
+    }
+
+    private func scrollUntilHittable(_ element: XCUIElement, in app: XCUIApplication) {
+        var attempts = 0
+        while !element.isHittable, attempts < 6 {
+            app.swipeUp()
+            attempts += 1
+        }
+        XCTAssertTrue(element.isHittable, "선택 항목을 화면 안으로 가져오지 못했다")
     }
 
     /// 장소를 검색해 한 명 추가한다.

@@ -3,11 +3,11 @@ import { MissingRestKeyError } from '@/lib/kakao/localSearch';
 import { NoRouteError, fetchRoute } from '@/lib/kakao/routing';
 import { recordKakaoCall } from '@/lib/kakao/usage';
 import {
-  centroidOf,
   dedupeStations,
   rankCandidates,
   searchRadiusM,
   shortlist,
+  travelWeightedCenter,
   type Leg,
   type Participant,
   type RankedCandidate,
@@ -18,9 +18,9 @@ import {
  *
  * 순서가 곧 비용 관리다.
  *
- *   1. 기하 중심을 구한다 (호출 0건)
+ *   1. 느린 이동수단 쪽에 무게를 둔 중심을 구한다 (호출 0건)
  *   2. 그 주변의 지하철역을 찾는다 (검색 1건, 하루 10만 건짜리 넉넉한 쿼터)
- *   3. 직선거리로 결선 후보 몇 개만 남긴다 (호출 0건)
+ *   3. 이동수단별 예상 시간으로 결선 후보 몇 개만 남긴다 (호출 0건)
  *   4. 결선 후보에만 실제 경로를 묻는다 (참가자 × 결선 후보)
  *
  * 4번이 비싸다. 길찾기는 하루 1,000건인데 곱셈으로 늘어난다. 후보를 그대로 다 부르면
@@ -41,10 +41,13 @@ const SEARCH_SIZE = 15;
 /**
  * 실제 경로를 물어볼 결선 후보 수.
  *
- * 참가자 4명이면 3 × 4 = 12건이다. 하루 1,000건이면 약 80번 계산할 수 있다.
+ * 참가자 4명이면 5 × 4 = 20건이다. 하루 1,000건이면 약 50번 계산할 수 있다.
  * 늘리면 답이 조금 나아지지만 하루 사용량이 그만큼 준다.
  */
-const FINALISTS = 3;
+const ROUTED_FINALISTS = 5;
+
+/** 실제 경로까지 비교한 뒤 사용자에게 보여 줄 후보 수. */
+const RETURNED_CANDIDATES = 3;
 
 export interface MidpointResult {
   /** 참고용 기하 중심. 이건 답이 아니라 후보를 찾은 출발점이다. */
@@ -77,7 +80,7 @@ export class NoMeetingPlaceError extends Error {
 export async function findMidpoint(participants: Participant[]): Promise<MidpointResult> {
   if (participants.length < 2) throw new NotEnoughParticipantsError();
 
-  const center = centroidOf(participants.map((p) => p.location));
+  const center = travelWeightedCenter(participants);
   if (!center) throw new NotEnoughParticipantsError();
 
   const radius = searchRadiusM(center, participants.map((p) => p.location));
@@ -86,7 +89,7 @@ export async function findMidpoint(participants: Participant[]): Promise<Midpoin
 
   // 환승역은 노선마다 따로 오므로 먼저 합친다. 합치기 전에 추리면 세 자리를
   // 같은 역이 다 차지해 고를 것이 없어지고 경로 호출도 같은 자리에 세 번 나간다.
-  const finalists = shortlist(dedupeStations(places), participants, FINALISTS);
+  const finalists = shortlist(dedupeStations(places), participants, ROUTED_FINALISTS);
 
   // 참가자 × 후보를 한꺼번에 띄운다. 순차로 돌면 사람이 기다린다.
   const entries = await Promise.all(
@@ -96,7 +99,11 @@ export async function findMidpoint(participants: Participant[]): Promise<Midpoin
     })),
   );
 
-  return { center, searchRadiusM: radius, candidates: rankCandidates(entries) };
+  return {
+    center,
+    searchRadiusM: radius,
+    candidates: rankCandidates(entries).slice(0, RETURNED_CANDIDATES),
+  };
 }
 
 /**
@@ -113,6 +120,8 @@ async function legFor(person: Participant, to: LatLng): Promise<Leg> {
       mode: person.mode,
       durationS: route.durationS,
       distanceM: route.distanceM,
+      points: route.points,
+      ...(route.legs ? { transitLegs: route.legs } : {}),
     };
   } catch (cause) {
     // 길이 없는 것과 서버가 죽은 것은 다르다. 뒤쪽은 위로 올려 보내야 고칠 수 있다.

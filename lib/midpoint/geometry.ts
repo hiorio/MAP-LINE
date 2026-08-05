@@ -1,4 +1,5 @@
 import type { LatLng } from '@/lib/geo/projection';
+import type { TransitLeg } from '@/lib/map/types';
 
 /**
  * 중간지점 계산의 순수 부분.
@@ -82,13 +83,54 @@ export interface Participant {
 }
 
 /**
+ * 이동수단에 따라 후보를 찾을 중심을 옮긴다.
+ *
+ * 같은 5km라도 걷는 사람과 지하철을 타는 사람의 부담은 다르다. 느린 수단일수록
+ * 중심을 그 사람 쪽으로 더 끌어, 실제 길찾기를 부르기 전부터 이동수단을 반영한다.
+ */
+export function travelWeightedCenter(participants: readonly Participant[]): LatLng | null {
+  if (participants.length === 0) return null;
+  const weights: Record<Participant['mode'], number> = {
+    walk: 4,
+    bicycle: 1.5,
+    transit: 1,
+  };
+  const sum = participants.reduce(
+    (acc, person) => {
+      const weight = weights[person.mode];
+      return {
+        lat: acc.lat + person.location.lat * weight,
+        lng: acc.lng + person.location.lng * weight,
+        weight: acc.weight + weight,
+      };
+    },
+    { lat: 0, lng: 0, weight: 0 },
+  );
+  return { lat: sum.lat / sum.weight, lng: sum.lng / sum.weight };
+}
+
+/** 실제 길찾기 전 후보 압축에 쓰는 이동 시간 근사치. 최종 순위는 실제 경로 시간이다. */
+export function estimatedDurationS(distance: number, mode: Participant['mode']): number {
+  switch (mode) {
+    case 'walk':
+      return distance / 1.25; // 약 4.5km/h
+    case 'bicycle':
+      return distance / 4.2; // 약 15km/h
+    case 'transit':
+      // 접근·대기 시간을 더해야 가까운 거리에서 대중교통이 지나치게 유리해지지 않는다.
+      return distance / 7 + 5 * 60; // 주행 약 25km/h + 5분
+  }
+}
+
+/**
  * 실제 경로를 물어볼 결선 후보를 고른다.
  *
  * 길찾기는 하루 1,000건이고 한 번 계산에 `참가자 수 × 후보 수`만큼 나간다. 후보를
- * 그대로 다 부르면 몇 번 만에 바닥난다. 직선거리로 미리 줄을 세워 앞의 몇 개만 남긴다.
+ * 그대로 다 부르면 몇 번 만에 바닥난다. 직선거리를 각자의 이동수단별 예상 시간으로
+ * 바꿔 미리 줄을 세운 뒤 앞의 몇 개만 남긴다.
  *
- * 직선거리로도 순서가 크게 틀리지 않는다. 실제 경로는 길을 따라 돌아갈 뿐 방향이
- * 뒤집히지는 않기 때문이다. 다만 최종 판단은 반드시 실제 시간으로 한다.
+ * 이 값은 후보를 싸게 압축하기 위한 근사치일 뿐이다. 지하철 노선과 실제 보행로는
+ * 반영하지 못하므로 최종 판단은 반드시 실제 경로 시간으로 한다.
  */
 export function shortlist<T extends { location: LatLng }>(
   candidates: readonly T[],
@@ -101,7 +143,11 @@ export function shortlist<T extends { location: LatLng }>(
       // 가장 멀리서 오는 사람을 기준으로 본다. 합이 아니라 최댓값이어야
       // 한 사람만 유난히 멀리 오는 자리를 미리 걸러 낸다.
       worst: participants.reduce(
-        (max, person) => Math.max(max, distanceM(candidate.location, person.location)),
+        (max, person) =>
+          Math.max(
+            max,
+            estimatedDurationS(distanceM(candidate.location, person.location), person.mode),
+          ),
         0,
       ),
     }))
@@ -116,6 +162,10 @@ export interface Leg {
   /** 길찾기가 실패하면 없다. 그 수단으로는 갈 수 없다는 뜻이다. */
   durationS?: number;
   distanceM?: number;
+  /** 실제 경로. 지도에서 직선 대신 이 좌표를 그린다. */
+  points?: LatLng[];
+  /** 대중교통 탈것 구간 경계. 사이의 좌표 없는 구간은 도보로 잇는다. */
+  transitLegs?: TransitLeg[];
 }
 
 export interface RankedCandidate<T> {

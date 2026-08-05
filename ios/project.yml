@@ -112,7 +112,7 @@ targets:
             # 어느 지도 앱이 무엇을 넘기는지 달라서 둘 다 열어 둔다.
             NSExtensionActivationRule:
               NSExtensionActivationSupportsText: true
-              NSExtensionActivationSupportsWebURLWithMaxCount: 1
+              NSExtensionActivationSupportsWebURLWithMaxCount: 10
     entitlements:
       path: ShareExtension/ShareExtension.entitlements
       properties:
