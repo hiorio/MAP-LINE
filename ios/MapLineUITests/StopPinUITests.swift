@@ -206,13 +206,25 @@ final class StopPinUITests: XCTestCase {
         }
         field.typeText("강남역")
 
-        let result = app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "강남역")).firstMatch
+        let result = app.descendants(matching: .any)
+            .matching(identifier: "coursePicker.result").firstMatch
         guard result.waitForExistence(timeout: 20) else {
             attach(app, name: "9-후보검색결과없음")
             XCTFail("후보 검색 결과가 뜨지 않았다")
             return
         }
-        result.tap()
+
+        // iOS 26 시뮬레이터는 검색 직후 첫 탭을 간헐적으로 키보드 정리에만 쓴다.
+        // 실제 선택 상태가 바뀐 것을 확인하고, 반영되지 않았을 때만 제한적으로 다시 누른다.
+        for _ in 0..<3 where (result.value as? String) != "선택됨" {
+            result.tap()
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+        guard (result.value as? String) == "선택됨" else {
+            attach(app, name: "9-후보선택안됨")
+            XCTFail("검색 결과를 눌렀지만 선택 상태로 바뀌지 않았다")
+            return
+        }
 
         // 웹처럼 결과를 누르는 것만으로 닫히지 않고, 여러 곳을 체크한 뒤 한 번에 담는다.
         let commit = app.descendants(matching: .any)

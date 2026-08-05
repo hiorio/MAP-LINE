@@ -202,6 +202,7 @@ struct CoursePlacePickerSheet: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier("coursePicker.result")
                     .accessibilityValue(added ? "추가됨" : checked ? "선택됨" : "선택 안 됨")
                 }
             }
