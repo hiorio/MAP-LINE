@@ -58,6 +58,23 @@ final class ScreenshotUITests: XCTestCase {
             shot(app, appeared ? "7-결과" : "7-결과없음")
             XCTAssertTrue(appeared, "60초 안에 결과가 오지 않았다")
 
+            // 검색 직후 기록에 남고, 누르면 같은 참가자와 결과로 돌아오는지 확인한다.
+            if appeared {
+                let history = app.buttons["midpoint.history"]
+                XCTAssertTrue(history.waitForExistence(timeout: 10), "검색 기록 버튼이 없다")
+                history.tap()
+
+                let entry = app.descendants(matching: .any)
+                    .matching(identifier: "midpoint.history.entry").firstMatch
+                let saved = entry.waitForExistence(timeout: 10)
+                shot(app, saved ? "7a-검색기록" : "7a-기록없음")
+                XCTAssertTrue(saved, "방금 찾은 중간지점이 기록에 남지 않았다")
+                if saved {
+                    entry.tap()
+                    XCTAssertTrue(header.waitForExistence(timeout: 10), "기록을 다시 열지 못했다")
+                }
+            }
+
             // 5. 지도로 옮겨 그린다.
             //
             // 이 기능의 답은 목록이 아니라 이 화면이다. 누가 어디서 오는지, 모이는 곳이

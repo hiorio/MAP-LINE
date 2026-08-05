@@ -11,12 +11,24 @@ struct MidpointView: View {
     @State private var phase: Phase = .idle
     @State private var addingNew = false
     @State private var selectedCandidateIDs: Set<String> = []
+    @State private var histories: [MidpointHistoryEntry] = []
+    @State private var showingHistory = false
+
+    private let historyStore: MidpointHistoryStore
 
     /// 고른 후보를 지도로 넘긴다.
     ///
     /// 후보만 넘기지 않고 그릴 판을 여기서 만들어 준다. 참가자 이름과 후보 순위는
     /// 이 화면만 알고 있어서, 후보만 넘기면 지도가 "친구 2"도 "2순위"도 알 수 없다.
-    var onShowOnMap: ((MidpointPlot) -> Void)?
+    let onShowOnMap: ((MidpointPlot) -> Void)?
+
+    init(
+        historyStore: MidpointHistoryStore = .live,
+        onShowOnMap: ((MidpointPlot) -> Void)? = nil
+    ) {
+        self.historyStore = historyStore
+        self.onShowOnMap = onShowOnMap
+    }
 
     private enum Phase: Equatable {
         case idle, working, failed(String)
@@ -32,6 +44,18 @@ struct MidpointView: View {
         }
         .navigationTitle("중간지점 찾기")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    histories = historyStore.all()
+                    showingHistory = true
+                } label: {
+                    Label("검색 기록", systemImage: "clock.arrow.circlepath")
+                }
+                .accessibilityIdentifier("midpoint.history")
+            }
+        }
+        .onAppear { histories = historyStore.all() }
         .sheet(isPresented: $addingNew) {
             PlaceSearchSheet(title: "어디서 오나요?") { place in
                 participants.append(
@@ -51,6 +75,13 @@ struct MidpointView: View {
                 result = nil
                 selectedCandidateIDs = []
             }
+        }
+        .sheet(isPresented: $showingHistory) {
+            MidpointHistoryView(
+                entries: histories,
+                onOpen: restore,
+                onDelete: removeHistory
+            )
         }
         .safeAreaInset(edge: .bottom) {
             if let result, let onShowOnMap {
@@ -232,6 +263,8 @@ struct MidpointView: View {
             result = found
             // 기존처럼 바로 1순위를 볼 수 있게 하되, 사용자가 2·3순위도 더 고를 수 있다.
             selectedCandidateIDs = Set(found.candidates.prefix(1).map(\.id))
+            historyStore.add(participants: participants, result: found)
+            histories = historyStore.all()
             phase = .idle
         } catch {
             result = nil
@@ -264,7 +297,90 @@ struct MidpointView: View {
         participants.first { $0.id == id }?.name ?? "?"
     }
 
+    private func restore(_ entry: MidpointHistoryEntry) {
+        participants = entry.participants
+        result = entry.result
+        selectedCandidateIDs = Set(entry.result.candidates.prefix(1).map(\.id))
+        phase = .idle
+        showingHistory = false
+    }
+
+    private func removeHistory(_ entry: MidpointHistoryEntry) {
+        historyStore.remove(id: entry.id)
+        histories = historyStore.all()
+    }
+
     private func defaultName() -> String {
         "친구 \(participants.count + 1)"
+    }
+}
+
+/// 이전 검색을 다시 여는 목록. 기록을 누르면 입력과 결과를 모두 복원한다.
+private struct MidpointHistoryView: View {
+    let entries: [MidpointHistoryEntry]
+    let onOpen: (MidpointHistoryEntry) -> Void
+    let onDelete: (MidpointHistoryEntry) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if entries.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label("아직 검색 기록이 없습니다", systemImage: "clock.arrow.circlepath")
+                            .font(.body.weight(.medium))
+                        Text("중간지점을 찾으면 참가자와 후보 경로가 자동으로 저장됩니다.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 4)
+                } else {
+                    ForEach(entries) { entry in
+                        Button {
+                            onOpen(entry)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text(entry.title)
+                                    .font(.body.weight(.medium))
+                                    .foregroundStyle(.primary)
+                                Text(participantSummary(entry.participants))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                                Text(searchedAtText(entry.searchedAt))
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("midpoint.history.entry")
+                        .swipeActions {
+                            Button("삭제", role: .destructive) { onDelete(entry) }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("중간지점 기록")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("닫기") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private func participantSummary(_ participants: [Midpoint.Participant]) -> String {
+        participants.map { "\($0.place.name)(\($0.mode.label))" }.joined(separator: " · ")
+    }
+
+    private func searchedAtText(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "ko_KR")
+        formatter.dateFormat = "M월 d일 HH:mm"
+        return formatter.string(from: date)
     }
 }

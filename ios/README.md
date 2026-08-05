@@ -39,7 +39,7 @@ SDK의 롱프레스 이벤트는 시간을 바꿀 수 없어 앱은 `UILongPress
 | 지도 위 메모 작성·수정·이동·삭제 | `Course/DropPinSheet.swift`, `Course/MemoSheet.swift`, `Domain/MapDocument.swift`(`MapLabel`) |
 | 저장·불러오기·공유 링크 | `Domain/MapStore.swift`, `Course/MyMapsView.swift`, `Course/ActivitySheet.swift` |
 | 보관함 (공유 익스텐션이 담은 곳) | `Course/SavedPlacesView.swift`, `Shared/SavedPlaceStore.swift` |
-| 중간지점 찾기 + 지도 표시 | `Midpoint/MidpointView.swift`, `Map/MidpointPlot.swift` |
+| 중간지점 찾기 + 기록 + 지도 표시 | `Midpoint/MidpointView.swift`, `Shared/MidpointHistory.swift`, `Map/MidpointPlot.swift` |
 | 공유 익스텐션 (다른 앱 → 보관함) | `ShareExtension/` |
 
 **웹 기능은 전부 옮겨졌습니다.** 웹에만 있고 앱에 없는 기능은 현재 없습니다
@@ -57,6 +57,9 @@ SDK의 롱프레스 이벤트는 시간을 바꿀 수 없어 앱은 `UILongPress
 모두 반영합니다. 결과 1·2·3순위를 여러 개 체크해 지도에 함께 올릴 수 있고, 지도 선도
 직선이 아니라 `/api/midpoint`가 반환한 실제 경로 좌표를 그립니다. 대중교통 탈것 사이와
 출발·도착의 좌표 없는 구간은 기존 동선과 같은 도보 점선으로 잇습니다.
+검색이 끝나면 참가자·이동수단·후보·경로를 기기에 자동 저장합니다. 상단 기록 버튼에서
+최근 20건을 다시 열거나 개별 삭제할 수 있습니다. 실제 경로 좌표가 커질 수 있어
+UserDefaults가 아니라 Application Support의 JSON 파일에 보관합니다.
 
 공유 익스텐션은 주소 줄을 기준으로 최대 10개 장소를 나눠 받습니다. 장소별 후보 하나를
 고른 뒤 하단 버튼으로 한꺼번에 보관함에 담습니다. 서버는 정확한 주소 검색 결과를 먼저

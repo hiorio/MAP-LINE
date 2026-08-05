@@ -14,7 +14,7 @@ struct PlaceCandidate: Decodable, Identifiable, Equatable {
     /// 검색 기준점에서의 거리(m). 기준점을 넘겼을 때만 온다.
     let distanceM: Double?
 
-    struct Coordinate: Decodable, Equatable {
+    struct Coordinate: Codable, Equatable {
         let lat: Double
         let lng: Double
     }
