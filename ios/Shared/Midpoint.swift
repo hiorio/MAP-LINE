@@ -44,16 +44,16 @@ enum Midpoint {
 
     // MARK: - 서버 응답
 
-    struct Result: Decodable {
+    struct Result: Codable {
         /// 참고용 기하 중심. 이건 답이 아니라 후보를 찾은 출발점이다.
         let center: Coordinate
         let searchRadiusM: Int
         let candidates: [Candidate]
 
-        struct Coordinate: Decodable { let lat: Double; let lng: Double }
+        struct Coordinate: Codable { let lat: Double; let lng: Double }
     }
 
-    struct Candidate: Decodable, Identifiable {
+    struct Candidate: Codable, Identifiable {
         let place: Place
         let legs: [Leg]
         /// 가장 오래 걸리는 사람의 시간. 순위의 기준이다.
@@ -63,19 +63,30 @@ enum Midpoint {
         let spreadS: Int?
         let complete: Bool
 
-        struct Place: Decodable {
+        struct Place: Codable {
             let kakaoPlaceId: String?
             let name: String
             let address: String?
             let location: PlaceCandidate.Coordinate
         }
 
-        struct Leg: Decodable, Identifiable {
+        struct Leg: Codable, Identifiable {
             let participantId: String
             let mode: String
             /// 길찾기가 실패하면 없다. 그 수단으로는 갈 수 없다는 뜻이다.
             let durationS: Int?
             let distanceM: Int?
+            /// 실제 이동 경로. 없으면 해당 수단으로 경로를 찾지 못한 것이다.
+            let points: [PlaceCandidate.Coordinate]?
+            /// 대중교통 탈것 구간. 구간 사이는 도보 연결선으로 그린다.
+            let transitLegs: [TransitSection]?
+
+            struct TransitSection: Codable {
+                let type: String
+                let guidance: String
+                let pointCount: Int?
+            }
+
             var id: String { participantId }
         }
 

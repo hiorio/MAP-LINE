@@ -168,6 +168,19 @@ enum MapPalette {
 }
 
 extension Array where Element == Stop {
+    /// 이미 있는 단계에 후보를 더한다.
+    ///
+    /// 웹 `useMapStore.addCandidates`와 같은 규칙이다. 단계 수와 id는 그대로 두고
+    /// 후보 배열만 늘린다. 대표가 이미 정해져 있다면 그 선택도 유지한다.
+    @discardableResult
+    mutating func addCandidates(_ candidates: [MapPlace], toStopID stopID: String) -> Bool {
+        guard !candidates.isEmpty, let index = firstIndex(where: { $0.id == stopID }) else {
+            return false
+        }
+        self[index].candidates.append(contentsOf: candidates)
+        return true
+    }
+
     /// 지도에 찍힌 모든 후보를 단계 번호와 함께 펼친다. 렌더가 쓴다.
     func flattened() -> [(place: MapPlace, stopNumber: Int)] {
         enumerated().flatMap { index, stop in
@@ -178,5 +191,20 @@ extension Array where Element == Stop {
     /// 후보 id로 그것이 속한 단계의 번호를 찾는다. 핀을 눌렀을 때 쓴다.
     func stopNumber(ofCandidate id: String) -> Int? {
         firstIndex { $0.candidates.contains { $0.id == id } }.map { $0 + 1 }
+    }
+}
+
+extension Array where Element == MapLabel {
+    /// 메모의 내용과 위치를 id로 고친다. 없는 id는 아무것도 바꾸지 않는다.
+    @discardableResult
+    mutating func updateLabel(
+        id: String,
+        text: String? = nil,
+        location: GeoPoint? = nil
+    ) -> Bool {
+        guard let index = firstIndex(where: { $0.id == id }) else { return false }
+        if let text { self[index].text = text }
+        if let location { self[index].location = location }
+        return true
     }
 }

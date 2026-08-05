@@ -7,11 +7,19 @@ import SwiftUI
 struct CourseSheet: View {
     @Binding var stops: [Stop]
     @Binding var legs: [StopLeg]
+    var searchCenter: PlaceCandidate.Coordinate?
 
     @Environment(\.dismiss) private var dismiss
     /// 지금 길찾기를 부르고 있는 구간들. 여러 구간을 동시에 바꿀 수 있다.
     @State private var loading: Set<Int> = []
     @State private var failures: [Int: String] = [:]
+    /// 검색해서 후보를 더할 단계. id만 들고 있어 검색 중 단계 배열이 바뀌어도 다시 찾는다.
+    @State private var candidateTarget: CandidateTarget?
+
+    private struct CandidateTarget: Identifiable {
+        let stopID: String
+        var id: String { stopID }
+    }
 
     var body: some View {
         NavigationStack {
@@ -38,32 +46,134 @@ struct CourseSheet: View {
                     Button("닫기") { dismiss() }
                 }
             }
+            .sheet(item: $candidateTarget) { target in
+                CoursePlacePickerSheet(
+                    stops: stops,
+                    initialTargetStopID: target.stopID,
+                    near: searchCenter
+                ) { stopID, candidates in
+                    add(candidates, toStopID: stopID)
+                }
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+            }
         }
     }
 
     // MARK: - 단계
 
     private func stopRow(index: Int, stop: Stop) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text("\(index + 1)")
-                .font(.caption.weight(.bold))
-                .frame(width: 22, height: 22)
-                .background(Color.accentColor)
-                .foregroundStyle(.white)
-                .clipShape(Circle())
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text("\(index + 1)")
+                    .font(.caption.weight(.bold))
+                    .frame(width: 22, height: 22)
+                    .background(Color.accentColor)
+                    .foregroundStyle(.white)
+                    .clipShape(Circle())
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(stop.candidates.map(\.name).joined(separator: ", "))
-                    .font(.body.weight(.medium))
-                if stop.candidates.count > 1, stop.anchor == nil {
-                    // 왜 경로가 안 그려지는지 여기서 말해 준다. 말 안 하면 고장으로 읽힌다.
-                    Text("후보 \(stop.candidates.count)곳 · 대표를 정해야 경로를 그립니다")
-                        .font(.caption2).foregroundStyle(.orange)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("후보 \(stop.candidates.count)곳")
+                        .font(.body.weight(.semibold))
+                    if stop.candidates.count > 1, stop.anchor == nil {
+                        // 왜 경로가 안 그려지는지 여기서 말해 준다. 말 안 하면 고장으로 읽힌다.
+                        Text("후보 \(stop.candidates.count)곳 · 대표를 정해야 경로를 그립니다")
+                            .font(.caption2).foregroundStyle(.orange)
+                    }
+                }
+                Spacer()
+            }
+
+            VStack(spacing: 4) {
+                ForEach(Array(stop.candidates.enumerated()), id: \.element.id) { candidateIndex, place in
+                    HStack(spacing: 8) {
+                        if stop.candidates.count > 1 {
+                            Button {
+                                togglePrimary(stopID: stop.id, placeID: place.id)
+                            } label: {
+                                Image(systemName: stop.primaryId == place.id ? "largecircle.fill.circle" : "circle")
+                                    .font(.body)
+                                    .foregroundStyle(stop.primaryId == place.id ? Color.accentColor : Color.secondary)
+                            }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel("\(place.name) 대표로 지정")
+                            .accessibilityValue(stop.primaryId == place.id ? "대표" : "대표 아님")
+                            .accessibilityIdentifier("course.primary.\(index).\(candidateIndex)")
+                        } else {
+                            Image(systemName: "mappin.circle.fill")
+                                .font(.body)
+                                .foregroundStyle(Color.accentColor)
+                        }
+
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(place.name)
+                                .font(.subheadline.weight(.medium))
+                                .lineLimit(1)
+                            if let address = place.address, !address.isEmpty {
+                                Text(address)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                        Button(role: .destructive) {
+                            removeCandidate(stopID: stop.id, placeID: place.id)
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.caption.weight(.semibold))
+                                .frame(width: 28, height: 28)
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityLabel("\(place.name) 후보에서 빼기")
+                        .accessibilityIdentifier("course.removeCandidate.\(index).\(candidateIndex)")
+                    }
                 }
             }
-            Spacer()
+            .padding(.leading, 32)
+
+            Button {
+                candidateTarget = CandidateTarget(stopID: stop.id)
+            } label: {
+                Label("이 단계에 후보 추가", systemImage: "plus.circle")
+                    .font(.caption.weight(.medium))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Color.accentColor)
+            .padding(.leading, 32)
+            .accessibilityIdentifier("course.addCandidate.\(index)")
         }
         .padding(.vertical, 2)
+    }
+
+    /// 검색 화면에서 체크한 여러 곳을 한 번에 담는다. 대상이 없으면 웹처럼 한 단계로 묶는다.
+    private func add(_ candidates: [PlaceCandidate], toStopID stopID: String?) {
+        let places = candidates.map(\.mapPlace)
+        guard !places.isEmpty else { return }
+
+        if let stopID {
+            guard stops.addCandidates(places, toStopID: stopID) else { return }
+        } else {
+            stops.append(Stop(candidates: places))
+        }
+        // 단계 수가 바뀌거나 후보가 하나에서 둘이 되면 기존 경로의 끝점이 달라질 수 있다.
+        // 구간 길이를 맞추고, 그리기 규칙이 저장된 경로의 끝점을 다시 검증한다.
+        legs = LegRules.synced(stops: stops, legs: legs)
+    }
+
+    private func togglePrimary(stopID: String, placeID: String) {
+        guard let index = stops.firstIndex(where: { $0.id == stopID }) else { return }
+        stops[index].primaryId = stops[index].primaryId == placeID ? nil : placeID
+        legs = LegRules.synced(stops: stops, legs: legs)
+    }
+
+    private func removeCandidate(stopID: String, placeID: String) {
+        guard let index = stops.firstIndex(where: { $0.id == stopID }) else { return }
+        stops[index].candidates.removeAll { $0.id == placeID }
+        if stops[index].primaryId == placeID { stops[index].primaryId = nil }
+        if stops[index].candidates.isEmpty { stops.remove(at: index) }
+        legs = LegRules.synced(stops: stops, legs: legs)
     }
 
     // MARK: - 구간

@@ -7,6 +7,8 @@ import {
   rankCandidates,
   searchRadiusM,
   shortlist,
+  estimatedDurationS,
+  travelWeightedCenter,
   type Leg,
   type Participant,
 } from './geometry';
@@ -126,6 +128,35 @@ describe('shortlist', () => {
 
   it('후보가 요청보다 적으면 있는 만큼만 준다', () => {
     expect(shortlist([{ id: 'x', location: 강남역 }], participants, 5)).toHaveLength(1);
+  });
+
+  it('직선거리가 같아도 걷는 사람의 부담을 더 크게 반영한다', () => {
+    const people: Participant[] = [
+      { id: 'walk', location: { lat: 0, lng: 0 }, mode: 'walk' },
+      { id: 'transit', location: { lat: 0, lng: 0.10 }, mode: 'transit' },
+    ];
+    const candidates = [
+      { id: '도보쪽', location: { lat: 0, lng: 0.02 } },
+      { id: '기하중심', location: { lat: 0, lng: 0.05 } },
+    ];
+
+    expect(shortlist(candidates, people, 1)[0]?.id).toBe('도보쪽');
+  });
+});
+
+describe('travelWeightedCenter / estimatedDurationS', () => {
+  it('도보 참가자 쪽으로 검색 중심을 당긴다', () => {
+    const center = travelWeightedCenter([
+      { id: 'a', location: { lat: 0, lng: 0 }, mode: 'walk' },
+      { id: 'b', location: { lat: 0, lng: 10 }, mode: 'transit' },
+    ]);
+    expect(center?.lng).toBe(2);
+  });
+
+  it('같은 거리의 예상 시간은 도보가 대중교통보다 길다', () => {
+    expect(estimatedDurationS(5_000, 'walk')).toBeGreaterThan(
+      estimatedDurationS(5_000, 'transit'),
+    );
   });
 });
 

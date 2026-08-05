@@ -15,8 +15,13 @@ final class MidpointPlotTests: XCTestCase {
             origins: origins.enumerated().map {
                 .init(id: "\($0.offset)", title: "사람\($0.offset)", lat: $0.element.0, lng: $0.element.1)
             },
-            meeting: .init(id: "m", title: "모이는 곳", lat: meeting.0, lng: meeting.1),
-            rank: 1,
+            meetings: [
+                .init(
+                    pin: .init(id: "m", title: "모이는 곳", lat: meeting.0, lng: meeting.1),
+                    rank: 1,
+                    routes: []
+                ),
+            ],
             pickedAt: Date()
         )
     }
@@ -70,17 +75,21 @@ final class MidpointPlotTests: XCTestCase {
                 """
                 {"place":{"kakaoPlaceId":"1","name":"옥수역","address":null,
                 "location":{"lat":37.54,"lng":127.01}},
-                "legs":[{"participantId":"a","mode":"transit","durationS":900,"distanceM":5000}],
+                "legs":[{"participantId":"a","mode":"transit","durationS":900,"distanceM":5000,
+                "points":[{"lat":37.4979,"lng":127.0276},{"lat":37.54,"lng":127.01}],
+                "transitLegs":[{"type":"SUBWAY","guidance":"2호선","pointCount":2}]}],
                 "maxDurationS":900,"totalDurationS":900,"spreadS":0,"complete":true}
                 """.utf8
             )
         )
 
-        let subject = MidpointPlot(participants: participants, candidate: candidate, rank: 2)
+        let subject = MidpointPlot(participants: participants, selections: [(rank: 2, candidate: candidate)])
 
         XCTAssertEqual(subject.origins.map(\.title), ["민수"])
-        XCTAssertEqual(subject.meeting.title, "옥수역")
-        XCTAssertEqual(subject.rank, 2)
+        XCTAssertEqual(subject.meetings.first?.pin.title, "옥수역")
+        XCTAssertEqual(subject.meetings.first?.rank, 2)
+        XCTAssertEqual(subject.meetings.first?.routes.first?.mode, .transit)
+        XCTAssertEqual(subject.meetings.first?.routes.first?.points.count, 2)
         XCTAssertEqual(subject.everyPoint.count, 2)
     }
 }

@@ -16,7 +16,7 @@
 | 위경도 → 화면좌표 | `containerPointFromCoords` | **공개 메서드 없음** |
 | 지도 회전 | ❌ 없음, 계획도 없음 | ✅ |
 | 도형 오버레이 | 직접 캔버스에 그림 | `ShapeManager`가 관리 |
-| 꾹 누르기·핀 탭 | 직접 만들어야 함 | SDK 이벤트로 옴 |
+| 꾹 누르기·핀 탭 | 직접 만들어야 함 | SDK 이벤트 또는 UIKit 인식기 |
 
 역방향 변환이 없는 것은 문제가 아니라 **설계의 방향**입니다. 획을 `ShapeManager`에
 등록하면 팬·줌·회전 시 재투영을 SDK가 전부 맡습니다. 웹에서는 캔버스를 손으로 따라
@@ -24,25 +24,46 @@
 
 제스처도 같습니다. 웹에서 직접 만든 꾹 누르기는 "터치만 해도 메뉴가 뜬다", "확대하고
 손 떼면 메뉴가 뜬다", "지도가 블록 지정한 것처럼 파래진다" 같은 문제를 계속 냈습니다.
-SDK의 `addTerrainLongPressedEventHandler`는 팬·줌과의 우선순위가 이미 정리된 뒤
-위경도로 옵니다. 그 부류의 문제가 구조적으로 생기지 않습니다.
+SDK의 롱프레스 이벤트는 시간을 바꿀 수 없어 앱은 `UILongPressGestureRecognizer`를
+0.45초로 두고, 8pt 이상 움직이면 실패하게 합니다. SDK 팬·줌과는 동시 인식시키고 최종
+위경도는 여전히 `getPosition(CGPoint)`으로 구합니다.
 
 ## 지금 되는 것
 
 | 기능 | 파일 |
 |---|---|
 | 손그림 (위경도 고정, RDP 단순화) | `Map/DrawingOverlayView.swift`, `Domain/GeoStroke.swift` |
-| 꾹 눌러 주변 장소 찾기 → 단계로 담기 | `Course/DropPinSheet.swift`, `Shared/PlaceLookup.swift`(`NearbyLookup`) |
-| 번호 붙은 단계 핀, 핀 탭 → 상세·대표 지정·삭제 | `Course/StopPinSheet.swift`, `Domain/MapDocument.swift` |
+| 꾹 눌러 주변 장소·건물명 찾기 또는 이름 검색 → 새 단계/기존 단계 후보로 담기 | `Course/DropPinSheet.swift`, `Shared/PlaceLookup.swift`(`NearbyLookup`) |
+| 번호 붙은 단계 핀, 복수검색·단계 선택·후보 일괄 추가, 대표 지정·삭제 | `Course/CoursePlacePickerSheet.swift`, `Course/CourseSheet.swift`, `Course/StopPinSheet.swift`, `Domain/MapDocument.swift` |
 | 구간 이동수단(직선/도보/대중교통/자전거)과 실제 경로 | `Course/CourseSheet.swift`, `Domain/StopLeg.swift`, `Domain/RouteLookup.swift`, `Domain/LegShapes.swift`, `Map/LegStyle.swift` |
-| 지도 위 메모 | `Course/DropPinSheet.swift`(메모 버튼), `Domain/MapDocument.swift`(`MapLabel`) |
+| 지도 위 메모 작성·수정·이동·삭제 | `Course/DropPinSheet.swift`, `Course/MemoSheet.swift`, `Domain/MapDocument.swift`(`MapLabel`) |
 | 저장·불러오기·공유 링크 | `Domain/MapStore.swift`, `Course/MyMapsView.swift`, `Course/ActivitySheet.swift` |
 | 보관함 (공유 익스텐션이 담은 곳) | `Course/SavedPlacesView.swift`, `Shared/SavedPlaceStore.swift` |
-| 중간지점 찾기 + 지도 표시 | `Midpoint/MidpointView.swift`, `Map/MidpointPlot.swift` |
+| 중간지점 찾기 + 기록 + 지도 표시 | `Midpoint/MidpointView.swift`, `Shared/MidpointHistory.swift`, `Map/MidpointPlot.swift` |
 | 공유 익스텐션 (다른 앱 → 보관함) | `ShareExtension/` |
 
 **웹 기능은 전부 옮겨졌습니다.** 웹에만 있고 앱에 없는 기능은 현재 없습니다
 (반대로 손그림은 앱에만 있습니다).
+
+지도 오른쪽의 `장소 추가`는 웹 검색 패널과 같은 동선 전용 흐름입니다. 검색 결과를 여러
+곳 체크하고 `새 단계` 또는 기존 `N단계`를 고른 뒤 하단 버튼으로 한 번에 담습니다.
+동선 화면의 `이 단계에 후보 추가`도 같은 시트를 해당 단계가 선택된 상태로 엽니다.
+지도에서 새 장소를 꾹 눌러 `핀 찍기`를 선택해도, 이미 단계가 있으면 `새 단계 만들기`와
+각 `N단계에 후보로 추가` 중 하나를 고릅니다. 첫 장소만 선택 단계를 생략하고 바로
+1단계가 됩니다.
+단계 핀은 20pt, 장소 이름표는 16pt입니다.
+
+중간지점은 참가자마다 정한 도보·대중교통·자전거를 후보 검색과 최종 실제 경로 시간에
+모두 반영합니다. 결과 1·2·3순위를 여러 개 체크해 지도에 함께 올릴 수 있고, 지도 선도
+직선이 아니라 `/api/midpoint`가 반환한 실제 경로 좌표를 그립니다. 대중교통 탈것 사이와
+출발·도착의 좌표 없는 구간은 기존 동선과 같은 도보 점선으로 잇습니다.
+검색이 끝나면 참가자·이동수단·후보·경로를 기기에 자동 저장합니다. 상단 기록 버튼에서
+최근 20건을 다시 열거나 개별 삭제할 수 있습니다. 실제 경로 좌표가 커질 수 있어
+UserDefaults가 아니라 Application Support의 JSON 파일에 보관합니다.
+
+공유 익스텐션은 주소 줄을 기준으로 최대 10개 장소를 나눠 받습니다. 장소별 후보 하나를
+고른 뒤 하단 버튼으로 한꺼번에 보관함에 담습니다. 서버는 정확한 주소 검색 결과를 먼저
+주고 장소명 검색 결과를 뒤에 보완합니다. Share Extension의 Web URL 활성화 상한도 10개입니다.
 
 ## 구조
 
@@ -107,6 +128,11 @@ push → .github/workflows/ios.yml
 2. **눈으로 볼 방법은 UI 테스트 스크린샷뿐입니다.** 새 화면·새 그림을 만들면
    `MapLineUITests`에 그 흐름을 걸어가는 테스트를 함께 넣으세요. 안 넣으면 그게
    화면에 어떻게 나오는지 아무도 모릅니다.
+
+중간지점 UI 테스트는 1·2순위를 함께 고른 화면과 실제 경로가 지도에 함께 올라간 화면을
+찍습니다. 공유 익스텐션 화면은 일반 앱 UI 테스트 타깃에서 직접 실행하지 못하므로 응답
+그룹 디코딩과 빈 Kakao ID 대체 식별자는 `ShareIntakeTests`에서 검증하고, 최종 화면은
+실기기 공유 시트에서 확인해야 합니다.
 
 ```bash
 gh run list --workflow=ios.yml --limit 1

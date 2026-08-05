@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { extractDistrict, parseShareText } from './parseShareText';
+import { extractDistrict, parseShareText, parseShareTexts } from './parseShareText';
 
 describe('parseShareText', () => {
   it('네이버 지도 공유 텍스트에서 이름·주소·지역을 뽑는다', () => {
@@ -61,6 +61,36 @@ describe('parseShareText', () => {
   it('안내 문구 줄은 버린다', () => {
     const result = parseShareText('경복궁\n길찾기\n위치 보기');
     expect(result?.name).toBe('경복궁');
+  });
+});
+
+describe('parseShareTexts', () => {
+  it('한 번에 공유된 여러 장소를 주소별로 모두 나눈다', () => {
+    const result = parseShareTexts(
+      [
+        '[네이버 지도] 장소 A',
+        '서울특별시 강남구 테헤란로 1',
+        'https://naver.me/a',
+        '[네이버 지도] 장소 B',
+        '서울특별시 마포구 양화로 2',
+        'https://naver.me/b',
+        '[카카오맵] 장소 C',
+        '경기도 성남시 분당구 판교역로 3',
+        '장소 D',
+        '부산광역시 해운대구 해운대로 4',
+      ].join('\n'),
+    );
+
+    expect(result.map((item) => item.name)).toEqual(['장소 A', '장소 B', '장소 C', '장소 D']);
+    expect(result.map((item) => item.address)).toHaveLength(4);
+  });
+
+  it('여러 주소만 넘어와도 각각 하나의 장소로 보존한다', () => {
+    const result = parseShareTexts(
+      ['서울특별시 종로구 세종대로 1', '서울특별시 중구 세종대로 2'].join('\n'),
+    );
+    expect(result).toHaveLength(2);
+    expect(result[1]?.name).toBe('서울특별시 중구 세종대로 2');
   });
 });
 

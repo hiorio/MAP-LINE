@@ -20,6 +20,7 @@ struct ContentView: View {
     /// 지도 위에 남긴 메모들.
     @State private var labels: [MapLabel] = []
     @State private var showCourse = false
+    @State private var showPlacePicker = false
     @State private var showSaved = false
     @State private var showMyMaps = false
 
@@ -41,6 +42,10 @@ struct ContentView: View {
     @State private var pendingPin: PendingPin?
     /// 눌러서 열어 둔 핀.
     @State private var openedPin: OpenedPin?
+    /// 눌러서 열어 둔 메모.
+    @State private var openedMemo: MapLabel?
+    /// 이 값이 있으면 다음 꾹 누르기는 새 핀이 아니라 해당 메모의 새 위치다.
+    @State private var movingMemoID: String?
 
     /// 같은 자리를 다시 꾹 눌러도 시트가 다시 뜨도록 매번 새 id를 준다.
     private struct PendingPin: Identifiable {
@@ -75,8 +80,19 @@ struct ContentView: View {
                     legs: legs,
                     strokes: strokes,
                     labels: labels,
-                    onLongPress: { pendingPin = PendingPin(coordinate: $0) },
+                    onLongPress: { coordinate in
+                        if let id = movingMemoID {
+                            labels.updateLabel(id: id, location: coordinate)
+                            movingMemoID = nil
+                        } else {
+                            pendingPin = PendingPin(coordinate: coordinate)
+                        }
+                    },
                     onTapStopPin: { id in openedPin = resolvePin(id) },
+                    onTapMemo: { id in
+                        guard movingMemoID == nil else { return }
+                        openedMemo = labels.first { $0.id == id }
+                    },
                     onStrokesChanged: { strokes = $0 },
                     onReady: { mapController = $0 }
                 )
@@ -108,13 +124,9 @@ struct ContentView: View {
             .sheet(item: $pendingPin) { pin in
                 DropPinSheet(
                     coordinate: pin.coordinate,
-                    onPick: { place in
-                        // 한 번 찍을 때마다 새 단계다. 기존 단계에 후보로 묶는 것은
-                        // 그 단계를 지목해야 하는 일이라 핀 상세에서 하게 둔다.
-                        stops.append(Stop(candidates: [place]))
-                        // 단계가 늘면 그 앞에 구간이 하나 생긴다. 길이를 맞춰 두지
-                        // 않으면 새 단계로 가는 구간이 없어 수단을 고를 자리가 안 생긴다.
-                        legs = LegRules.synced(stops: stops, legs: legs)
+                    stops: stops,
+                    onPick: { stopID, place in
+                        addCoursePlaces([place], toStopID: stopID)
                     },
                     onWriteMemo: { text in
                         labels.append(MapLabel(location: pin.coordinate, text: text))
@@ -123,7 +135,14 @@ struct ContentView: View {
                 .presentationDetents([.medium, .large])
             }
             .sheet(isPresented: $showCourse) {
-                CourseSheet(stops: $stops, legs: $legs)
+                CourseSheet(stops: $stops, legs: $legs, searchCenter: placeSearchCenter)
+            }
+            .sheet(isPresented: $showPlacePicker) {
+                CoursePlacePickerSheet(stops: stops, near: placeSearchCenter) { stopID, candidates in
+                    addCoursePlaces(candidates, toStopID: stopID)
+                }
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
             }
             .sheet(item: $shareLink) { link in
                 ActivitySheet(items: [link.url])
@@ -153,6 +172,15 @@ struct ContentView: View {
                     isPrimary: pin.isPrimary,
                     onMakePrimary: { makePrimary(pin.place) },
                     onRemove: { remove(pin.place) }
+                )
+                .presentationDetents([.medium])
+            }
+            .sheet(item: $openedMemo) { memo in
+                MemoSheet(
+                    label: memo,
+                    onSave: { text in labels.updateLabel(id: memo.id, text: text) },
+                    onMove: { movingMemoID = memo.id },
+                    onRemove: { labels.removeAll { $0.id == memo.id } }
                 )
                 .presentationDetents([.medium])
             }
@@ -235,6 +263,38 @@ struct ContentView: View {
 
     // MARK: - 단계 고치기
 
+    private var placeSearchCenter: PlaceCandidate.Coordinate? {
+        guard let center = mapController?.cameraSnapshot()?.center else { return nil }
+        return PlaceCandidate.Coordinate(lat: center.lat, lng: center.lng)
+    }
+
+    /// 웹의 장소 검색 패널과 같이 여러 결과를 새 단계 하나로 묶거나 기존 단계에 더한다.
+    private func addCoursePlaces(_ candidates: [PlaceCandidate], toStopID stopID: String?) {
+        addCoursePlaces(candidates.map(\.mapPlace), toStopID: stopID)
+    }
+
+    /// 꾹 눌러 한 곳을 고른 흐름과 검색에서 여러 곳을 고른 흐름이 같은 규칙으로
+    /// 새 단계 또는 기존 단계의 후보를 만든다.
+    private func addCoursePlaces(_ places: [MapPlace], toStopID stopID: String?) {
+        guard !places.isEmpty else { return }
+
+        if let stopID {
+            guard stops.addCandidates(places, toStopID: stopID) else { return }
+        } else {
+            stops.append(Stop(candidates: places))
+        }
+        legs = LegRules.synced(stops: stops, legs: legs)
+
+        // 새로 담은 곳들이 있는 동네로 이동한다. 한 곳만 보여 주면 같은 단계의 다른 후보가
+        // 빠진 것처럼 보이므로 평균 위치를 쓴다.
+        let count = Double(places.count)
+        let center = GeoPoint(
+            lat: places.reduce(0) { $0 + $1.location.lat } / count,
+            lng: places.reduce(0) { $0 + $1.location.lng } / count
+        )
+        mapController?.move(to: center.lat, lng: center.lng)
+    }
+
     private func resolvePin(_ candidateId: String) -> OpenedPin? {
         guard
             let index = stops.firstIndex(where: { $0.candidates.contains { $0.id == candidateId } }),
@@ -286,7 +346,7 @@ struct ContentView: View {
                         self.plot = nil
                     } label: {
                         HStack(spacing: 6) {
-                            Text("\(plot.rank)순위 · \(plot.meeting.title)")
+                            Text(plotChipTitle(plot))
                                 .font(.footnote.weight(.medium))
                             Image(systemName: "xmark")
                                 .font(.caption2.weight(.semibold))
@@ -298,7 +358,7 @@ struct ContentView: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("map.plotChip")
-                    .accessibilityLabel("\(plot.meeting.title) 결과 지우기")
+                    .accessibilityLabel("중간지점 후보 \(plot.meetings.count)곳 결과 지우기")
                 }
             }
 
@@ -330,6 +390,12 @@ struct ContentView: View {
                 Spacer()
                 VStack(spacing: 10) {
                     roundButton(
+                        "magnifyingglass",
+                        label: "장소 추가"
+                    ) { showPlacePicker = true }
+                        .accessibilityIdentifier("map.addPlace")
+
+                    roundButton(
                         "point.topleft.down.curvedto.point.bottomright.up",
                         label: "중간지점 찾기"
                     ) { showMidpoint = true }
@@ -357,7 +423,17 @@ struct ContentView: View {
                 .padding(.bottom, 24)
             }
 
-            if isDrawing {
+            if movingMemoID != nil {
+                HStack(spacing: 8) {
+                    hint("메모를 옮길 자리를 꾹 누르세요.")
+                    Button("취소") { movingMemoID = nil }
+                        .font(.caption.weight(.medium))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 9)
+                        .background(.regularMaterial, in: Capsule())
+                        .accessibilityIdentifier("memo.move.cancel")
+                }
+            } else if isDrawing {
                 hint("지도가 잠깁니다. 손가락으로 동선을 그리세요.")
             } else if stops.isEmpty {
                 // 꾹 누르기는 화면에 아무 표시가 없다. 알려 주지 않으면 아무도 안 한다.
@@ -367,6 +443,13 @@ struct ContentView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+    }
+
+    private func plotChipTitle(_ plot: MidpointPlot) -> String {
+        guard let first = plot.meetings.first else { return "중간지점" }
+        return plot.meetings.count == 1
+            ? "\(first.rank)순위 · \(first.pin.title)"
+            : "중간지점 후보 \(plot.meetings.count)곳"
     }
 
     private func hint(_ text: String) -> some View {
