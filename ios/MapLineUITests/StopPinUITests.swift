@@ -27,16 +27,13 @@ final class StopPinUITests: XCTestCase {
         Thread.sleep(forTimeInterval: 3)
         attach(app, name: "1-담기전")
 
-        // 화면 가운데를 꾹 누른다. 아래쪽 버튼들과 겹치지 않는 자리다.
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.42))
-            .press(forDuration: 0.55)
-
         // 주변 검색이 끝나야 목록이 뜬다. 검색이 실패해도 "여기에 그대로"는 있어야 한다.
-        let dropHere = app.descendants(matching: .any)
-            .matching(identifier: "droppin.here").firstMatch
-        let opened = dropHere.waitForExistence(timeout: 30)
+        // iOS 26 CI 시뮬레이터가 첫 press 이벤트를 간헐적으로 삼키므로 메뉴가 실제로
+        // 뜰 때까지 같은 좌표를 제한적으로 다시 누른다.
+        let dropHere = openDropPinMenu(app, x: 0.5, y: 0.42)
+        let opened = dropHere != nil
         attach(app, name: opened ? "2-꾹누른뒤" : "2-메뉴안뜸")
-        guard opened else {
+        guard let dropHere else {
             XCTFail("지도를 꾹 눌렀는데 메뉴가 뜨지 않았다")
             return
         }
@@ -123,12 +120,7 @@ final class StopPinUITests: XCTestCase {
     /// 컴파일로도 유닛 테스트로도 알 수 없다 — SDK가 그린 그림을 봐야 안다.
     private func drawWalkingLeg(_ app: XCUIApplication, counter: XCUIElement) throws {
         // 첫 핀과 떨어진 자리를 꾹 눌러 두 번째 단계를 담는다.
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.32, dy: 0.62))
-            .press(forDuration: 0.55)
-
-        let dropHere = app.descendants(matching: .any)
-            .matching(identifier: "droppin.here").firstMatch
-        guard dropHere.waitForExistence(timeout: 30) else {
+        guard let dropHere = openDropPinMenu(app, x: 0.32, y: 0.62) else {
             attach(app, name: "5-두번째메뉴안뜸")
             XCTFail("두 번째 꾹 누르기에서 메뉴가 뜨지 않았다")
             return
@@ -245,12 +237,7 @@ final class StopPinUITests: XCTestCase {
 
     /// 지도에서 새 장소를 꾹 누른 직후 기존 단계의 후보로 담을 수 있는가.
     private func addLongPressedPlaceToFirstStop(_ app: XCUIApplication, counter: XCUIElement) {
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.70, dy: 0.43))
-            .press(forDuration: 0.55)
-
-        let dropHere = app.descendants(matching: .any)
-            .matching(identifier: "droppin.here").firstMatch
-        guard dropHere.waitForExistence(timeout: 30) else {
+        guard let dropHere = openDropPinMenu(app, x: 0.70, y: 0.43) else {
             attach(app, name: "11-후보핀메뉴안뜸")
             XCTFail("후보로 담을 새 장소의 꾹 누르기 메뉴가 뜨지 않았다")
             return
@@ -277,6 +264,22 @@ final class StopPinUITests: XCTestCase {
     }
 
     // MARK: - 도구
+
+    private func openDropPinMenu(
+        _ app: XCUIApplication,
+        x: CGFloat,
+        y: CGFloat
+    ) -> XCUIElement? {
+        let dropHere = app.descendants(matching: .any)
+            .matching(identifier: "droppin.here").firstMatch
+        let coordinate = app.coordinate(withNormalizedOffset: CGVector(dx: x, dy: y))
+
+        for _ in 0..<3 {
+            coordinate.press(forDuration: 0.65)
+            if dropHere.waitForExistence(timeout: 10) { return dropHere }
+        }
+        return nil
+    }
 
     private func waitForMap(_ app: XCUIApplication) throws {
         let ready = app.descendants(matching: .any).matching(identifier: "mapReady").firstMatch
