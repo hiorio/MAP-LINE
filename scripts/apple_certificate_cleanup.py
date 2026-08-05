@@ -47,8 +47,15 @@ def api_request(token: str, path: str, method: str = "GET") -> tuple[int, dict |
 
 def is_ci_development_certificate(item: dict) -> bool:
     attributes = item.get("attributes", {})
+    # Apple Developer 웹의 "Name"은 API 버전/인증서 종류에 따라 name 또는
+    # displayName으로 내려온다. 두 필드 모두에서 자동 발급 표식을 찾되, 종류가
+    # 개발 인증서인 경우에만 대상으로 삼는다.
+    labels = {
+        str(attributes.get(field) or "").strip()
+        for field in ("name", "displayName")
+    }
     return (
-        attributes.get("name") == CI_CERTIFICATE_NAME
+        any(CI_CERTIFICATE_NAME in label for label in labels)
         and attributes.get("certificateType") in CI_DEVELOPMENT_TYPES
     )
 
