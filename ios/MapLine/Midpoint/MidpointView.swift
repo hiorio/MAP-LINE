@@ -52,6 +52,24 @@ struct MidpointView: View {
                 selectedCandidateIDs = []
             }
         }
+        .safeAreaInset(edge: .bottom) {
+            if let result, let onShowOnMap {
+                Button {
+                    showSelected(result, on: onShowOnMap)
+                } label: {
+                    Label("선택한 \(selectedCandidateIDs.count)곳 지도에서 보기", systemImage: "map")
+                        .font(.body.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(selectedCandidateIDs.isEmpty)
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+                .background(.regularMaterial)
+                .accessibilityIdentifier("midpoint.showOnMap")
+            }
+        }
     }
 
     // MARK: - 참가자
@@ -136,21 +154,6 @@ struct MidpointView: View {
                 candidateRow(index: index, candidate: candidate)
             }
 
-            if let onShowOnMap {
-                Button {
-                    let selections = result.candidates.enumerated().compactMap { index, candidate in
-                        selectedCandidateIDs.contains(candidate.id)
-                            ? (rank: index + 1, candidate: candidate)
-                            : nil
-                    }
-                    onShowOnMap(MidpointPlot(participants: participants, selections: selections))
-                } label: {
-                    Label("선택한 \(selectedCandidateIDs.count)곳 지도에서 보기", systemImage: "map")
-                        .frame(maxWidth: .infinity)
-                }
-                .disabled(selectedCandidateIDs.isEmpty)
-                .accessibilityIdentifier("midpoint.showOnMap")
-            }
         } header: {
             Text("모이기 좋은 곳")
         } footer: {
@@ -243,6 +246,18 @@ struct MidpointView: View {
         } else {
             selectedCandidateIDs.insert(candidate.id)
         }
+    }
+
+    private func showSelected(
+        _ result: Midpoint.Result,
+        on onShowOnMap: (MidpointPlot) -> Void
+    ) {
+        let selections = result.candidates.enumerated().compactMap { index, candidate in
+            selectedCandidateIDs.contains(candidate.id)
+                ? (rank: index + 1, candidate: candidate)
+                : nil
+        }
+        onShowOnMap(MidpointPlot(participants: participants, selections: selections))
     }
 
     private func nameFor(_ id: String) -> String {
