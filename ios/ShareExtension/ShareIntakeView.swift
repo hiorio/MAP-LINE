@@ -160,7 +160,7 @@ struct ShareIntakeView: View {
     }
 
     private func save(_ groups: [ShareIntake.Group]) {
-        let candidates = groups.compactMap { group in
+        let candidates: [ShareIntake.Candidate] = groups.compactMap { group -> ShareIntake.Candidate? in
             guard let selectedID = selected[group.id] else { return nil }
             return group.places.first { $0.id == selectedID }
         }
