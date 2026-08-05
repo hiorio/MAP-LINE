@@ -124,13 +124,9 @@ struct ContentView: View {
             .sheet(item: $pendingPin) { pin in
                 DropPinSheet(
                     coordinate: pin.coordinate,
-                    onPick: { place in
-                        // 한 번 찍을 때마다 새 단계다. 기존 단계에 후보로 묶는 것은
-                        // 그 단계를 지목해야 하는 일이라 핀 상세에서 하게 둔다.
-                        stops.append(Stop(candidates: [place]))
-                        // 단계가 늘면 그 앞에 구간이 하나 생긴다. 길이를 맞춰 두지
-                        // 않으면 새 단계로 가는 구간이 없어 수단을 고를 자리가 안 생긴다.
-                        legs = LegRules.synced(stops: stops, legs: legs)
+                    stops: stops,
+                    onPick: { stopID, place in
+                        addCoursePlaces([place], toStopID: stopID)
                     },
                     onWriteMemo: { text in
                         labels.append(MapLabel(location: pin.coordinate, text: text))
@@ -274,7 +270,12 @@ struct ContentView: View {
 
     /// 웹의 장소 검색 패널과 같이 여러 결과를 새 단계 하나로 묶거나 기존 단계에 더한다.
     private func addCoursePlaces(_ candidates: [PlaceCandidate], toStopID stopID: String?) {
-        let places = candidates.map(\.mapPlace)
+        addCoursePlaces(candidates.map(\.mapPlace), toStopID: stopID)
+    }
+
+    /// 꾹 눌러 한 곳을 고른 흐름과 검색에서 여러 곳을 고른 흐름이 같은 규칙으로
+    /// 새 단계 또는 기존 단계의 후보를 만든다.
+    private func addCoursePlaces(_ places: [MapPlace], toStopID stopID: String?) {
         guard !places.isEmpty else { return }
 
         if let stopID {

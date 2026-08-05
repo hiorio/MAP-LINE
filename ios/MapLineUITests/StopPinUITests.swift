@@ -74,6 +74,7 @@ final class StopPinUITests: XCTestCase {
 
         try drawWalkingLeg(app, counter: counter)
         addCandidateToFirstStop(app, counter: counter)
+        addLongPressedPlaceToFirstStop(app, counter: counter)
     }
 
     func test_메모를_다른위치로_옮긴다() throws {
@@ -133,6 +134,23 @@ final class StopPinUITests: XCTestCase {
             return
         }
         dropHere.tap()
+
+        // 이미 1단계가 있으므로 이제는 곧바로 새 단계가 되지 않는다. 새 단계와
+        // 기존 단계의 후보 중 어디에 담을지 먼저 고른다.
+        let newStop = app.descendants(matching: .any)
+            .matching(identifier: "droppin.target.new").firstMatch
+        guard newStop.waitForExistence(timeout: 5) else {
+            attach(app, name: "5-단계선택안뜸")
+            XCTFail("두 번째 장소를 찍었는데 담을 단계를 고르는 화면이 뜨지 않았다")
+            return
+        }
+        XCTAssertTrue(
+            app.descendants(matching: .any)
+                .matching(identifier: "droppin.target.0").firstMatch.exists,
+            "기존 1단계에 후보로 추가하는 선택지가 없다"
+        )
+        attach(app, name: "5-새단계또는후보선택")
+        newStop.tap()
         Thread.sleep(forTimeInterval: 1)
         attach(app, name: "5-단계둘")
 
@@ -223,6 +241,39 @@ final class StopPinUITests: XCTestCase {
         app.buttons["닫기"].firstMatch.tap()
         Thread.sleep(forTimeInterval: 3)
         attach(app, name: "10-같은번호핀둘")
+    }
+
+    /// 지도에서 새 장소를 꾹 누른 직후 기존 단계의 후보로 담을 수 있는가.
+    private func addLongPressedPlaceToFirstStop(_ app: XCUIApplication, counter: XCUIElement) {
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.70, dy: 0.43))
+            .press(forDuration: 0.55)
+
+        let dropHere = app.descendants(matching: .any)
+            .matching(identifier: "droppin.here").firstMatch
+        guard dropHere.waitForExistence(timeout: 30) else {
+            attach(app, name: "11-후보핀메뉴안뜸")
+            XCTFail("후보로 담을 새 장소의 꾹 누르기 메뉴가 뜨지 않았다")
+            return
+        }
+        dropHere.tap()
+
+        let firstStop = app.descendants(matching: .any)
+            .matching(identifier: "droppin.target.0").firstMatch
+        guard firstStop.waitForExistence(timeout: 5) else {
+            attach(app, name: "11-후보단계선택안뜸")
+            XCTFail("기존 단계에 후보로 추가하는 선택지가 뜨지 않았다")
+            return
+        }
+        attach(app, name: "11-후보단계선택")
+        firstStop.tap()
+
+        XCTAssertTrue(counter.waitForExistence(timeout: 10), "후보 추가 뒤 지도 화면으로 돌아오지 않았다")
+        counter.tap()
+        let summary = app.staticTexts["후보 3곳 · 대표를 정해야 경로를 그립니다"]
+        let added = summary.waitForExistence(timeout: 10)
+        attach(app, name: added ? "11-꾹눌러첫단계후보셋" : "11-꾹눌러후보안담김")
+        XCTAssertTrue(added, "꾹 눌러 고른 장소가 첫 단계 후보로 추가되지 않았다")
+        app.buttons["닫기"].firstMatch.tap()
     }
 
     // MARK: - 도구

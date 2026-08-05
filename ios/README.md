@@ -33,7 +33,7 @@ SDK의 롱프레스 이벤트는 시간을 바꿀 수 없어 앱은 `UILongPress
 | 기능 | 파일 |
 |---|---|
 | 손그림 (위경도 고정, RDP 단순화) | `Map/DrawingOverlayView.swift`, `Domain/GeoStroke.swift` |
-| 꾹 눌러 주변 장소·건물명 찾기 또는 이름 검색 → 단계로 담기 | `Course/DropPinSheet.swift`, `Shared/PlaceLookup.swift`(`NearbyLookup`) |
+| 꾹 눌러 주변 장소·건물명 찾기 또는 이름 검색 → 새 단계/기존 단계 후보로 담기 | `Course/DropPinSheet.swift`, `Shared/PlaceLookup.swift`(`NearbyLookup`) |
 | 번호 붙은 단계 핀, 복수검색·단계 선택·후보 일괄 추가, 대표 지정·삭제 | `Course/CoursePlacePickerSheet.swift`, `Course/CourseSheet.swift`, `Course/StopPinSheet.swift`, `Domain/MapDocument.swift` |
 | 구간 이동수단(직선/도보/대중교통/자전거)과 실제 경로 | `Course/CourseSheet.swift`, `Domain/StopLeg.swift`, `Domain/RouteLookup.swift`, `Domain/LegShapes.swift`, `Map/LegStyle.swift` |
 | 지도 위 메모 작성·수정·이동·삭제 | `Course/DropPinSheet.swift`, `Course/MemoSheet.swift`, `Domain/MapDocument.swift`(`MapLabel`) |
@@ -48,6 +48,9 @@ SDK의 롱프레스 이벤트는 시간을 바꿀 수 없어 앱은 `UILongPress
 지도 오른쪽의 `장소 추가`는 웹 검색 패널과 같은 동선 전용 흐름입니다. 검색 결과를 여러
 곳 체크하고 `새 단계` 또는 기존 `N단계`를 고른 뒤 하단 버튼으로 한 번에 담습니다.
 동선 화면의 `이 단계에 후보 추가`도 같은 시트를 해당 단계가 선택된 상태로 엽니다.
+지도에서 새 장소를 꾹 눌러 `핀 찍기`를 선택해도, 이미 단계가 있으면 `새 단계 만들기`와
+각 `N단계에 후보로 추가` 중 하나를 고릅니다. 첫 장소만 선택 단계를 생략하고 바로
+1단계가 됩니다.
 단계 핀은 20pt, 장소 이름표는 16pt입니다.
 
 ## 구조

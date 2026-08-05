@@ -2,17 +2,14 @@ import SwiftUI
 
 /// 지도를 꾹 눌렀을 때 나오는 선택지.
 ///
-/// 웹에서는 누른 자리에 뜨는 작은 팝업이었다. 그 방식은 화면 밖으로 밀려 나가지
-/// 않도록 위치를 계속 계산해 줘야 했고, 손가락이 메뉴를 가리는 문제도 있었다.
-/// 아래에서 올라오는 시트로 옮기면 둘 다 사라진다 — 자리가 정해져 있고, 손가락에서
-/// 먼 곳에 뜬다.
-///
-/// 먼저 그 자리 주변의 장소를 찾아 보여 준다. 화면에 보이는 가게를 눌렀는데 좌표만
-/// 찍히면 이름을 직접 쳐야 하기 때문이다. 마땅한 것이 없으면 그 지점에 그대로 찍는다.
+/// 먼저 그 자리 주변의 장소를 찾아 보여 준다. 장소를 고른 뒤에는 새 단계로 만들지,
+/// 이미 있는 단계의 후보로 담을지 고른다. 첫 장소에는 선택지가 하나뿐이므로 곧바로
+/// 1단계로 담는다.
 struct DropPinSheet: View {
     let coordinate: GeoPoint
-    /// 고른 장소를 단계로 담는다.
-    let onPick: (MapPlace) -> Void
+    let stops: [Stop]
+    /// `stopID`가 nil이면 새 단계, 값이 있으면 그 단계의 후보로 담는다.
+    let onPick: (_ stopID: String?, _ place: MapPlace) -> Void
     /// 장소가 아니라 그 자리에 할 말을 남긴다.
     let onWriteMemo: (String) -> Void
 
@@ -23,6 +20,7 @@ struct DropPinSheet: View {
     @State private var askingMemo = false
     @State private var searchingPlace = false
     @State private var memo = ""
+    @State private var pickedPlace: MapPlace?
 
     private enum Phase: Equatable {
         case loading, ready, failed(String)
@@ -30,72 +28,22 @@ struct DropPinSheet: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                if let address {
-                    Section {
-                        Text(address).font(.footnote).foregroundStyle(.secondary)
-                    }
+            Group {
+                if let pickedPlace {
+                    targetPicker(for: pickedPlace)
+                } else {
+                    placePicker
                 }
-
-                Section {
-                    switch phase {
-                    case .loading:
-                        HStack(spacing: 8) {
-                            ProgressView()
-                            Text("주변을 찾는 중…").foregroundStyle(.secondary)
-                        }
-                    case .ready where places.isEmpty:
-                        Text("주변에 등록된 장소가 없습니다.").foregroundStyle(.secondary)
-                    case .ready:
-                        ForEach(places) { place in
-                            Button { pick(place) } label: { row(place) }
-                                .buttonStyle(.plain)
-                        }
-                    case .failed(let message):
-                        // 주변을 못 찾아도 "여기에 그대로" 는 할 수 있어야 한다.
-                        Text(message).font(.footnote).foregroundStyle(.orange)
-                    }
-                } header: {
-                    Text("이 근처")
-                }
-
             }
-            // 목록 안에 두면 주변 장소가 많을 때 스크롤해야 나온다. 이건 마땅한 것이
-            // 없을 때 쓰는 대체 수단이라, 목록을 다 훑어본 사람에게 가장 필요하면서도
-            // 가장 안 보이는 자리에 있게 된다. 바닥에 붙여 항상 보이게 한다.
-            .safeAreaInset(edge: .bottom) {
-                HStack(spacing: 10) {
-                    // 카카오 대표 카테고리에 없는 예식장·상점 등도 이름으로 찾을 수 있다.
-                    bottomAction("검색", symbol: "magnifyingglass") { searchingPlace = true }
-                        .accessibilityIdentifier("droppin.search")
-
-                    bottomAction("여기에 찍기", symbol: "mappin.and.ellipse") {
-                        // 이름이 없으면 목록에서 무엇인지 알 수 없다. 좌표를 이름으로
-                        // 쓰면 읽을 수 없으니, 나중에 고쳐 쓸 수 있는 이름을 넣어 둔다.
-                        onPick(
-                            MapPlace(
-                                name: address ?? "직접 찍은 지점",
-                                address: address,
-                                location: coordinate
-                            )
-                        )
-                        dismiss()
-                    }
-                    .accessibilityIdentifier("droppin.here")
-
-                    // 장소가 아니라 할 말을 남기는 자리다. "여기 주차 어려움" 같은 것은
-                    // 단계로 만들 것이 아니라 지도에 적어 두는 편이 맞다.
-                    bottomAction("메모", symbol: "text.bubble") { askingMemo = true }
-                        .accessibilityIdentifier("droppin.memo")
-                }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 8)
-            }
-            .navigationTitle("여기에 무엇을 담을까요")
+            .navigationTitle(pickedPlace == nil ? "여기에 무엇을 담을까요" : "어디에 담을까요")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("취소") { dismiss() }
+                    if pickedPlace == nil {
+                        Button("취소") { dismiss() }
+                    } else {
+                        Button("뒤로") { pickedPlace = nil }
+                    }
                 }
             }
             .alert("메모 남기기", isPresented: $askingMemo) {
@@ -119,6 +67,141 @@ struct DropPinSheet: View {
             }
         }
         .task { await load() }
+    }
+
+    private var placePicker: some View {
+        List {
+            if let address {
+                Section {
+                    Text(address).font(.footnote).foregroundStyle(.secondary)
+                }
+            }
+
+            Section {
+                switch phase {
+                case .loading:
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text("주변을 찾는 중…").foregroundStyle(.secondary)
+                    }
+                case .ready where places.isEmpty:
+                    Text("주변에 등록된 장소가 없습니다.").foregroundStyle(.secondary)
+                case .ready:
+                    ForEach(places) { place in
+                        Button { pick(place) } label: { row(place) }
+                            .buttonStyle(.plain)
+                    }
+                case .failed(let message):
+                    // 주변 검색에 실패해도 좌표를 직접 찍을 수 있어야 한다.
+                    Text(message).font(.footnote).foregroundStyle(.orange)
+                }
+            } header: {
+                Text("이 근처")
+            }
+        }
+        // 목록이 길어도 검색·직접 찍기·메모는 항상 손이 닿는 곳에 둔다.
+        .safeAreaInset(edge: .bottom) {
+            HStack(spacing: 10) {
+                bottomAction("검색", symbol: "magnifyingglass") { searchingPlace = true }
+                    .accessibilityIdentifier("droppin.search")
+
+                bottomAction("핀 찍기", symbol: "mappin.and.ellipse") {
+                    chooseTarget(
+                        MapPlace(
+                            name: address ?? "직접 찍은 지점",
+                            address: address,
+                            location: coordinate
+                        )
+                    )
+                }
+                .accessibilityIdentifier("droppin.here")
+
+                bottomAction("메모", symbol: "text.bubble") { askingMemo = true }
+                    .accessibilityIdentifier("droppin.memo")
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 8)
+        }
+    }
+
+    /// 첫 핀은 바로 1단계가 된다. 이미 단계가 있을 때만 목적지를 묻는다.
+    private func chooseTarget(_ place: MapPlace) {
+        if stops.isEmpty {
+            onPick(nil, place)
+            dismiss()
+        } else {
+            pickedPlace = place
+        }
+    }
+
+    private func targetPicker(for place: MapPlace) -> some View {
+        List {
+            Section("고른 장소") {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(place.name).font(.body.weight(.medium))
+                    if let address = place.address, address != place.name {
+                        Text(address).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+
+            Section("담을 위치") {
+                Button {
+                    commit(place, to: nil)
+                } label: {
+                    targetRow(
+                        title: "새 단계 만들기",
+                        subtitle: "\(stops.count + 1)단계로 추가합니다",
+                        symbol: "plus.circle.fill"
+                    )
+                }
+                .accessibilityIdentifier("droppin.target.new")
+
+                ForEach(Array(stops.enumerated()), id: \.element.id) { index, stop in
+                    Button {
+                        commit(place, to: stop.id)
+                    } label: {
+                        targetRow(
+                            title: "\(index + 1)단계에 후보로 추가",
+                            subtitle: stopSummary(stop),
+                            symbol: "square.stack.3d.up.fill"
+                        )
+                    }
+                    .accessibilityIdentifier("droppin.target.\(index)")
+                }
+            }
+        }
+        .accessibilityIdentifier("droppin.targetPicker")
+    }
+
+    private func targetRow(title: String, subtitle: String, symbol: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: symbol)
+                .font(.title3)
+                .foregroundStyle(.tint)
+                .frame(width: 28)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.body.weight(.medium)).foregroundStyle(.primary)
+                Text(subtitle).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.tertiary)
+        }
+        .contentShape(Rectangle())
+    }
+
+    private func stopSummary(_ stop: Stop) -> String {
+        let names = stop.candidates.prefix(2).map(\.name).joined(separator: ", ")
+        let more = stop.candidates.count > 2 ? " 외 \(stop.candidates.count - 2)곳" : ""
+        return names + more
+    }
+
+    private func commit(_ place: MapPlace, to stopID: String?) {
+        onPick(stopID, place)
+        dismiss()
     }
 
     private func bottomAction(
@@ -153,7 +236,7 @@ struct DropPinSheet: View {
     }
 
     private func pick(_ candidate: PlaceCandidate) {
-        onPick(
+        chooseTarget(
             MapPlace(
                 name: candidate.name,
                 address: candidate.displayAddress,
@@ -161,7 +244,6 @@ struct DropPinSheet: View {
                 location: GeoPoint(lat: candidate.location.lat, lng: candidate.location.lng)
             )
         )
-        dismiss()
     }
 
     private func load() async {
