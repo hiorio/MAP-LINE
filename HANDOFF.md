@@ -18,7 +18,8 @@
 - 저장소: https://github.com/hiorio/MAP-LINE (`main`)
 - DB: Supabase `chouiphlafpxmglwriix` (**서울 `ap-northeast-2`**)
 - 마이그레이션 0001~0010 적용 완료
-- iOS: 번들 ID `com.hiorio.mapline`, 팀 `W297Z9DQ9U`, TestFlight 업로드 성공 이력 있음
+- iOS: 번들 ID `com.hiorio.mapline`, 팀 `W297Z9DQ9U`, **TestFlight 1.0 (5) 업로드 완료**
+  (2026-08-05 09:43 KST, Actions run `30964066655`)
 
 ⚠️ **가장 중요한 것: 실기기 확인이 하나도 안 됐습니다.** 앱 기능은 CI 시뮬레이터
 스크린샷으로만 봤고, 웹은 카카오톡 인앱 브라우저에서 한 번도 안 돌려봤습니다.
@@ -105,6 +106,15 @@ Supabase 프로젝트를 바꾸면 양쪽 다 고쳐야 합니다. 코드에는 
 `NEXT_PUBLIC_SUPABASE_ANON_KEY`는 아직 비어 있는데, 현재 코드에서 쓰는 곳이 없어 문제없습니다.
 뷰어(T13)가 브라우저에서 Supabase를 직접 읽게 만들 때만 필요합니다. 지금 설계에서는 뷰어도
 Route Handler를 경유하면 되므로 끝까지 안 쓸 수도 있습니다.
+
+**2026-08-05 Security Advisor 메일의 대상은 앱 테이블이 아니라
+`public.spatial_ref_sys` 한 개입니다.** 0001이 PostGIS를 스키마 지정 없이 설치하면서 생긴
+좌표계 사전입니다. `maps`/`places`/메모·동선 데이터의 RLS 누락이 아닙니다. RLS를 켜는 0011을
+시도했지만 이 테이블 소유자가 PostGIS 관리 역할이라 CLI가
+`must be owner of table spatial_ref_sys`로 거부했고 트랜잭션은 롤백됐습니다. 실패하는 0011은
+저장소에 남기지 않았습니다. 기존 의존성을 가진 PostGIS는 바로 다른 스키마로 옮길 수 없으므로,
+경고까지 없애려면 Supabase Support에 확장을 `extensions`/전용 스키마로 이전해 달라고 요청해야
+합니다. 표준 좌표계 메타데이터라 사용자 데이터 유출 징후는 아니고, 앱은 anon key도 쓰지 않습니다.
 
 ### B. Kakao REST API 키 — ✅ 완료
 
@@ -265,7 +275,7 @@ Railway에 올라가 있습니다: https://map-line-production.up.railway.app
 
 ### A. iOS 앱 (TestFlight)
 
-`.github/workflows/testflight.yml`을 수동 실행해 올린 뒤 확인할 것:
+**TestFlight 1.0 (5)가 `맵라인테스트` 내부 그룹에 올라가 있습니다.** 설치해 확인할 것:
 
 - 지도를 **꾹 눌렀을 때** 0.45초가 적당한가. 지도를 끌려다 뜨지는 않는가
 - 예식장처럼 음식점·카페·관광명소가 아닌 곳을 누르면 건물명이 뜨는가. 없으면 `검색`으로 찾을 수 있는가
@@ -392,6 +402,13 @@ gh run download <id> -n ui-screenshots -D shots   # screenshots/manifest.json에
 - **맥이 없습니다. GitHub Actions macOS 러너가 유일한 컴파일러이고 한 번에 약 10분입니다.**
   추측으로 고쳐 밀어 넣지 마세요. SDK 시그니처는 바이너리에서 직접 읽을 수 있습니다
   (`ios/README.md`의 "SDK 시그니처를 확인하는 법").
+- **TestFlight 임시 러너의 개발 인증서를 계정에 남기면 안 됩니다.** API 키와
+  `-allowProvisioningUpdates`만 준 러너는 매 실행 `Created via API` 개발 인증서를 새로 만들고,
+  Apple의 활성 인증서 한도를 채웁니다. 2026-08-05에 쌓인 10개를 정리했습니다.
+  `testflight.yml`은 이제 실행을 한 번에 하나로 제한하고, 시작 전 과거 CI 개발 인증서를 정리하며,
+  종료 시 이번 인증서도 회수합니다. `scripts/apple_certificate_cleanup.py`는
+  `name`/`displayName`에 `Created via API`가 있고 종류가 개발 인증서일 때만 삭제합니다.
+  개인 인증서와 배포 인증서는 테스트로 제외합니다.
 - **눈으로 볼 방법은 UI 테스트 스크린샷뿐입니다.** 새 화면·새 그림을 만들면 그 흐름을
   걸어가는 UI 테스트를 함께 넣으세요. 안 넣으면 그게 어떻게 보이는지 아무도 모릅니다.
 - **그림만으로 원인을 못 좁히면 숫자를 화면 밖으로 내보내세요.** "선이 핀에 안 닿는다"를
