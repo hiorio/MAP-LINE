@@ -38,7 +38,7 @@ SDK의 롱프레스 이벤트는 시간을 바꿀 수 없어 앱은 `UILongPress
 | 구간 이동수단(직선/도보/대중교통/자전거)과 실제 경로 | `Course/CourseSheet.swift`, `Domain/StopLeg.swift`, `Domain/RouteLookup.swift`, `Domain/LegShapes.swift`, `Map/LegStyle.swift` |
 | 지도 위 메모 작성·수정·이동·삭제 | `Course/DropPinSheet.swift`, `Course/MemoSheet.swift`, `Domain/MapDocument.swift`(`MapLabel`) |
 | 저장·불러오기·공유 링크 | `Domain/MapStore.swift`, `Course/MyMapsView.swift`, `Course/ActivitySheet.swift` |
-| 보관함 (공유 익스텐션이 담은 곳) | `Course/SavedPlacesView.swift`, `Shared/SavedPlaceStore.swift` |
+| 보관함 폴더·마크·직접 장소 추가·공유 수신 | `Course/SavedPlacesView.swift`, `Shared/SavedPlaceGroup.swift`, `Shared/SavedPlaceStore.swift` |
 | 중간지점 찾기 + 기록 + 지도 표시 | `Midpoint/MidpointView.swift`, `Shared/MidpointHistory.swift`, `Map/MidpointPlot.swift` |
 | 공유 익스텐션 (다른 앱 → 보관함) | `ShareExtension/` |
 
@@ -53,6 +53,15 @@ SDK의 롱프레스 이벤트는 시간을 바꿀 수 없어 앱은 `UILongPress
 1단계가 됩니다.
 단계 핀은 20pt, 장소 이름표는 16pt입니다.
 
+중간지점 찾기는 사이드 메뉴에만 둡니다. 지도 오른쪽의 떠 있는 버튼은 자주 쓰는
+`장소 추가`·`동선 만들기`·`공유`만 남겨 같은 기능이 두 곳에 반복되지 않게 했습니다.
+
+보관함은 공유 수신함이 아니라 개인 장소 라이브러리입니다. `받은 장소` 기본 폴더 외에
+사용자가 폴더를 만들고 8종 마크와 7종 색을 정할 수 있습니다. 폴더 안에서 장소를 직접
+검색해 넣거나 기존 장소를 다른 폴더로 옮기고, 동선 단계로 올리면 폴더 색이 핀 색으로
+이어집니다. 예전 `saved-places.json`에는 폴더 키가 없으므로 읽을 때 자동으로 `받은 장소`에
+넣습니다. 폴더를 삭제해도 장소 자체는 지우지 않고 `받은 장소`로 이동합니다.
+
 중간지점은 참가자마다 정한 도보·대중교통·자전거를 후보 검색과 최종 실제 경로 시간에
 모두 반영합니다. 결과 1·2·3순위를 여러 개 체크해 지도에 함께 올릴 수 있고, 지도 선도
 직선이 아니라 `/api/midpoint`가 반환한 실제 경로 좌표를 그립니다. 대중교통 탈것 사이와
@@ -61,8 +70,8 @@ SDK의 롱프레스 이벤트는 시간을 바꿀 수 없어 앱은 `UILongPress
 최근 20건을 다시 열거나 개별 삭제할 수 있습니다. 실제 경로 좌표가 커질 수 있어
 UserDefaults가 아니라 Application Support의 JSON 파일에 보관합니다.
 
-공유 익스텐션은 주소 줄을 기준으로 최대 10개 장소를 나눠 받습니다. 장소별 후보 하나를
-고른 뒤 하단 버튼으로 한꺼번에 보관함에 담습니다. 서버는 정확한 주소 검색 결과를 먼저
+공유 익스텐션은 주소 줄을 기준으로 최대 10개 장소를 나눠 받습니다. 담을 보관함 폴더를
+고르고 장소별 후보 하나를 고른 뒤 하단 버튼으로 한꺼번에 담습니다. 서버는 정확한 주소 검색 결과를 먼저
 주고 장소명 검색 결과를 뒤에 보완합니다. Share Extension의 Web URL 활성화 상한도 10개입니다.
 
 ## 구조
