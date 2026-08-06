@@ -14,6 +14,7 @@ final class StopPinUITests: XCTestCase {
 
     func test_꾹눌러_단계를_담는다() throws {
         let app = XCUIApplication()
+        app.launchArguments.append("-uiTesting")
         app.launch()
 
         let draw = app.descendants(matching: .any).matching(identifier: "map.draw").firstMatch
@@ -76,6 +77,7 @@ final class StopPinUITests: XCTestCase {
 
     func test_지도기본POI를한번눌러_핀메뉴를연다() throws {
         let app = XCUIApplication()
+        app.launchArguments.append("-uiTesting")
         app.launch()
         try waitForMap(app)
 
@@ -125,6 +127,7 @@ final class StopPinUITests: XCTestCase {
 
     func test_메모를_다른위치로_옮긴다() throws {
         let app = XCUIApplication()
+        app.launchArguments.append("-uiTesting")
         app.launch()
         try waitForMap(app)
 
@@ -206,6 +209,10 @@ final class StopPinUITests: XCTestCase {
             XCTFail("동선 화면에 이동수단 선택이 없다")
             return
         }
+        XCTAssertTrue(
+            app.descendants(matching: .any).matching(identifier: "course.reorder").firstMatch.exists,
+            "동선 화면에서 단계 순서를 바꿀 수 없다"
+        )
         walk.tap()
 
         // 길찾기가 서버를 거쳐 온다. 넉넉히 기다린 뒤 결과를 찍는다.

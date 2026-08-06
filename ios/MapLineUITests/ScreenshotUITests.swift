@@ -16,6 +16,7 @@ final class ScreenshotUITests: XCTestCase {
 
     func test_화면들을_찍는다() throws {
         let app = XCUIApplication()
+        app.launchArguments.append("-uiTesting")
         app.launch()
 
         // 1. 첫 화면은 지도다.
@@ -24,6 +25,10 @@ final class ScreenshotUITests: XCTestCase {
         // 따라 다르고, 틀리면 "없다"고만 나와 원인을 알기 어렵다.
         let menu = app.descendants(matching: .any).matching(identifier: "map.menu").firstMatch
         XCTAssertTrue(menu.waitForExistence(timeout: 30), "지도 화면이 뜨지 않았다")
+        XCTAssertTrue(
+            app.descendants(matching: .any).matching(identifier: "map.title").firstMatch.exists,
+            "현재 지도 이름과 저장 상태가 지도 위에 보이지 않는다"
+        )
         // 타일이 그려질 틈을 준다.
         Thread.sleep(forTimeInterval: 3)
         shot(app, "1-지도")
@@ -33,6 +38,14 @@ final class ScreenshotUITests: XCTestCase {
             menu.tap()
             Thread.sleep(forTimeInterval: 1)
             shot(app, "2-메뉴")
+            XCTAssertTrue(
+                app.descendants(matching: .any).matching(identifier: "menu.newMap").firstMatch.exists,
+                "메뉴에 새 지도 시작이 없다"
+            )
+            XCTAssertTrue(
+                app.descendants(matching: .any).matching(identifier: "menu.renameMap").firstMatch.exists,
+                "메뉴에 지도 이름 변경이 없다"
+            )
             // 중간지점은 지도 버튼을 없애고 메뉴에서만 들어간다.
             let fromMenu = app.descendants(matching: .any).matching(identifier: "menu.midpoint").firstMatch
             XCTAssertTrue(fromMenu.exists, "메뉴에 중간지점 찾기가 없다")

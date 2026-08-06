@@ -18,7 +18,7 @@ struct MyMapsView: View {
                     Section {
                         VStack(alignment: .leading, spacing: 6) {
                             Text("아직 저장한 지도가 없습니다.").font(.body)
-                            Text("장소를 담고 공유 버튼을 누르면 저장됩니다.")
+                            Text("장소·메모·손그림을 추가하면 자동으로 저장됩니다.")
                                 .font(.footnote).foregroundStyle(.secondary)
                         }
                         .padding(.vertical, 4)

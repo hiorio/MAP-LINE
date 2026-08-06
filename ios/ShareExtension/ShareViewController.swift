@@ -22,6 +22,7 @@ final class ShareViewController: UIViewController {
             let pieces = await collectSharedText()
             present(ShareIntakeView(
                 rawText: ShareIntake.combine(pieces),
+                sourcePieceCount: pieces.count,
                 onDone: { [weak self] in self?.finish() },
                 onCancel: { [weak self] in self?.finish() }
             ))

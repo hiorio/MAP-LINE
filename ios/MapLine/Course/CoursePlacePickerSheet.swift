@@ -70,6 +70,9 @@ struct CoursePlacePickerSheet: View {
                     }
                 }
 
+
+                selectedSection
+
                 statusSection
                 resultSection
             }
@@ -102,6 +105,36 @@ struct CoursePlacePickerSheet: View {
                 .padding(.vertical, 10)
                 .background(.regularMaterial)
                 .accessibilityIdentifier("coursePicker.commit")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var selectedSection: some View {
+        if !selected.isEmpty {
+            Section("선택한 장소 \(selected.count)곳") {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(selected) { place in
+                            Button {
+                                selected.removeAll { $0.id == place.id }
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Text(place.name).lineLimit(1)
+                                    Image(systemName: "xmark.circle.fill")
+                                        .foregroundStyle(.secondary)
+                                }
+                                .font(.caption.weight(.medium))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 7)
+                                .background(Color.accentColor.opacity(0.12), in: Capsule())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("\(place.name) 선택 해제")
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
             }
         }
     }

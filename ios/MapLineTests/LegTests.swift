@@ -39,6 +39,23 @@ final class LegTests: XCTestCase {
         XCTAssertEqual(kept.map(\.mode), [.walk, .straight])
     }
 
+    func test_단계순서를바꾸면그대로남은인접구간만보존한다() {
+        let a = Stop(id: "a", candidates: [place("pa")])
+        let b = Stop(id: "b", candidates: [place("pb")])
+        let c = Stop(id: "c", candidates: [place("pc")])
+        let old = [a, b, c]
+        let oldLegs = [StopLeg(mode: .walk), StopLeg(mode: .transit)]
+
+        let reordered = LegRules.reordered(
+            oldStops: old,
+            newStops: [b, c, a],
+            oldLegs: oldLegs
+        )
+
+        // b→c는 그대로지만 c→a는 새 구간이다.
+        XCTAssertEqual(reordered.map(\.mode), [.transit, .straight])
+    }
+
     // MARK: - 그려도 되는 경로인가
 
     func test_끝점이바뀌면경로를버린다() {

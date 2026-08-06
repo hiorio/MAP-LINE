@@ -9,6 +9,7 @@ final class SavedPlacesUITests: XCTestCase {
 
     func test_보관함에서폴더와마크를만든다() {
         let app = XCUIApplication()
+        app.launchArguments.append("-uiTesting")
         app.launch()
 
         let menu = app.descendants(matching: .any).matching(identifier: "map.menu").firstMatch

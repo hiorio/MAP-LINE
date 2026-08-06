@@ -3,7 +3,8 @@ import UIKit
 
 /// 개인 장소 보관함. 공유로 받은 곳뿐 아니라 직접 찾은 장소도 폴더별로 모아 둔다.
 struct SavedPlacesView: View {
-    let onAdd: (MapPlace) -> Void
+    let stops: [Stop]
+    let onAdd: (_ stopID: String?, _ places: [MapPlace]) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var groups: [SavedPlaceGroup] = []
@@ -29,6 +30,7 @@ struct SavedPlacesView: View {
                             SavedPlaceGroupView(
                                 group: group,
                                 groups: groups,
+                                stops: stops,
                                 onAdd: onAdd,
                                 onChanged: reload
                             )
@@ -136,13 +138,22 @@ struct SavedPlacesView: View {
 private struct SavedPlaceGroupView: View {
     let group: SavedPlaceGroup
     let groups: [SavedPlaceGroup]
-    let onAdd: (MapPlace) -> Void
+    let stops: [Stop]
+    let onAdd: (_ stopID: String?, _ places: [MapPlace]) -> Void
     let onChanged: () -> Void
 
     @State private var places: [SavedPlace] = []
     @State private var added: Set<String> = []
     @State private var searching = false
     @State private var movingPlace: SavedPlace?
+    @State private var selectingForCourse = false
+    @State private var courseSelection: Set<String> = []
+    @State private var pendingCoursePlaces: CoursePlaces?
+
+    private struct CoursePlaces: Identifiable {
+        let id = UUID()
+        let places: [SavedPlace]
+    }
 
     private let store = SavedPlaceStore(storage: AppGroupPlaceStorage())
 
@@ -179,6 +190,11 @@ private struct SavedPlaceGroupView: View {
                 Section("장소 \(places.count)곳") {
                     ForEach(places) { place in
                         placeRow(place)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                guard selectingForCourse else { return }
+                                toggleCourseSelection(place)
+                            }
                             .swipeActions(edge: .leading, allowsFullSwipe: false) {
                                 Button { movingPlace = place } label: {
                                     Label("이동", systemImage: "folder")
@@ -205,6 +221,16 @@ private struct SavedPlaceGroupView: View {
         .navigationTitle(group.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .secondaryAction) {
+                Button(selectingForCourse ? "완료" : "선택") {
+                    withAnimation {
+                        selectingForCourse.toggle()
+                        if !selectingForCourse { courseSelection = [] }
+                    }
+                }
+                .disabled(places.isEmpty)
+                .accessibilityIdentifier("saved.group.select")
+            }
             ToolbarItem(placement: .primaryAction) {
                 Button { searching = true } label: {
                     Label("장소 추가", systemImage: "plus")
@@ -224,6 +250,39 @@ private struct SavedPlaceGroupView: View {
                 reload()
             }
         }
+        .sheet(item: $pendingCoursePlaces) { picked in
+            CourseTargetSheet(
+                places: picked.places.map(mapPlace),
+                stops: stops
+            ) { stopID in
+                let mapped = picked.places.map(mapPlace)
+                onAdd(stopID, mapped)
+                added.formUnion(picked.places.map(\.id))
+                courseSelection = []
+                selectingForCourse = false
+            }
+            .presentationDetents([.medium, .large])
+        }
+        .safeAreaInset(edge: .bottom) {
+            if selectingForCourse {
+                Button {
+                    let picked = places.filter { courseSelection.contains($0.id) }
+                    guard !picked.isEmpty else { return }
+                    pendingCoursePlaces = CoursePlaces(places: picked)
+                } label: {
+                    Text("선택한 \(courseSelection.count)곳 동선에 담기")
+                        .font(.body.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 48)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(courseSelection.isEmpty)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(.regularMaterial)
+                .accessibilityIdentifier("saved.group.addSelected")
+            }
+        }
         .onAppear(perform: reload)
     }
 
@@ -241,25 +300,23 @@ private struct SavedPlaceGroupView: View {
                 }
             }
             Spacer()
-            Button {
-                onAdd(
-                    MapPlace(
-                        name: place.name,
-                        address: place.address,
-                        kakaoPlaceId: place.kakaoPlaceId,
-                        location: GeoPoint(lat: place.lat, lng: place.lng),
-                        pinColor: group.colorHex
-                    )
-                )
-                added.insert(place.id)
-            } label: {
-                Image(systemName: added.contains(place.id) ? "checkmark.circle.fill" : "plus.circle")
+            if selectingForCourse {
+                Image(systemName: courseSelection.contains(place.id) ? "checkmark.circle.fill" : "circle")
                     .font(.title3)
+                    .foregroundStyle(courseSelection.contains(place.id) ? Color.accentColor : Color.secondary)
+                    .accessibilityLabel("\(place.name) 선택")
+            } else {
+                Button {
+                    pendingCoursePlaces = CoursePlaces(places: [place])
+                } label: {
+                    Image(systemName: added.contains(place.id) ? "checkmark.circle.fill" : "plus.circle")
+                        .font(.title3)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(added.contains(place.id) ? Color.secondary : groupColor(group))
+                .disabled(added.contains(place.id))
+                .accessibilityLabel("\(place.name) 동선에 담기")
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(added.contains(place.id) ? Color.secondary : groupColor(group))
-            .disabled(added.contains(place.id))
-            .accessibilityLabel("\(place.name) 단계로 올리기")
         }
         .padding(.vertical, 2)
     }
@@ -272,6 +329,24 @@ private struct SavedPlaceGroupView: View {
     private func remove(_ place: SavedPlace) {
         store.remove(id: place.id)
         reload()
+    }
+
+    private func toggleCourseSelection(_ place: SavedPlace) {
+        if courseSelection.contains(place.id) {
+            courseSelection.remove(place.id)
+        } else {
+            courseSelection.insert(place.id)
+        }
+    }
+
+    private func mapPlace(_ place: SavedPlace) -> MapPlace {
+        MapPlace(
+            name: place.name,
+            address: place.address,
+            kakaoPlaceId: place.kakaoPlaceId,
+            location: GeoPoint(lat: place.lat, lng: place.lng),
+            pinColor: group.colorHex
+        )
     }
 }
 

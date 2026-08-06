@@ -18,7 +18,8 @@ enum RouteLookup {
     /// 그 수단으로는 갈 수 없다는 답.
     ///
     /// 실패와 구별해야 한다. 서버가 잠깐 죽은 것이면 다시 부르면 되지만, 이건 다시
-    /// 불러도 같은 답이 온다. 부르는 쪽이 직선으로 되돌려야 한다.
+    /// 불러도 같은 답일 가능성이 높다. 선택 수단은 유지하고 이유를 보여 줘야 사용자가
+    /// 직선 경로로 오해하지 않으며, 일시적인 데이터 갱신에 대비해 재시도할 수 있다.
     struct NoRoute: LocalizedError {
         let message: String
         var errorDescription: String? { message }

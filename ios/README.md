@@ -34,11 +34,11 @@ SDK의 롱프레스 이벤트는 시간을 바꿀 수 없어 앱은 `UILongPress
 |---|---|
 | 손그림 (위경도 고정, RDP 단순화) | `Map/DrawingOverlayView.swift`, `Domain/GeoStroke.swift` |
 | 꾹 눌러 주변 장소·건물명 찾기 또는 이름 검색 → 새 단계/기존 단계 후보로 담기 | `Course/DropPinSheet.swift`, `Shared/PlaceLookup.swift`(`NearbyLookup`) |
-| 번호 붙은 단계 핀, 복수검색·단계 선택·후보 일괄 추가, 대표 지정·삭제 | `Course/CoursePlacePickerSheet.swift`, `Course/CourseSheet.swift`, `Course/StopPinSheet.swift`, `Domain/MapDocument.swift` |
+| 번호 붙은 단계 핀, 복수검색·단계 선택·후보 일괄 추가, 대표 지정·재정렬·삭제 복구 | `Course/CoursePlacePickerSheet.swift`, `Course/CourseSheet.swift`, `Course/StopPinSheet.swift`, `Domain/MapDocument.swift` |
 | 구간 이동수단(직선/도보/대중교통/자전거), 실제 경로와 선 중간 거리·시간 표시 | `Course/CourseSheet.swift`, `Domain/StopLeg.swift`, `Domain/RouteLookup.swift`, `Domain/LegShapes.swift`, `Map/LegStyle.swift` |
 | 지도 위 메모 작성·수정·롱프레스 드래그 이동·삭제 | `Map/KakaoMapViewController.swift`, `Course/DropPinSheet.swift`, `Course/MemoSheet.swift`, `Domain/MapDocument.swift`(`MapLabel`) |
-| 저장·불러오기·공유 링크 | `Domain/MapStore.swift`, `Course/MyMapsView.swift`, `Course/ActivitySheet.swift` |
-| 보관함 폴더·마크·직접 장소 추가·공유 수신 | `Course/SavedPlacesView.swift`, `Shared/SavedPlaceGroup.swift`, `Shared/SavedPlaceStore.swift` |
+| 자동 초안·서버 저장·지도 이름·새 지도·불러오기·공유 링크 | `Domain/MapDraftStore.swift`, `Domain/MapStore.swift`, `Course/MapTitleSheet.swift`, `Course/MyMapsView.swift` |
+| 보관함 폴더·마크·직접 장소 추가·복수 선택 후 단계 지정·공유 수신 | `Course/SavedPlacesView.swift`, `Course/CourseTargetSheet.swift`, `Shared/SavedPlaceGroup.swift`, `Shared/SavedPlaceStore.swift` |
 | 중간지점 찾기 + 기록 + 지도 표시 | `Midpoint/MidpointView.swift`, `Shared/MidpointHistory.swift`, `Map/MidpointPlot.swift` |
 | 공유 익스텐션 (다른 앱 → 보관함) | `ShareExtension/` |
 
@@ -55,16 +55,30 @@ SDK의 롱프레스 이벤트는 시간을 바꿀 수 없어 앱은 `UILongPress
 터치 영역입니다. 저장된 핀 상세의 대표 지정·삭제 행도 같은 규칙을 씁니다.
 단계 핀은 20pt, 장소 이름표는 16pt입니다.
 
+편집 중인 지도는 변경 즉시 Application Support의 JSON 초안에 원자적으로 저장되고,
+1.5초 동안 입력이 멈추면 서버에도 자동 저장됩니다. 지도 위 이름 칩에서 `기기에 저장됨`·
+`저장 중`·`저장됨`·`기기에만 저장됨`을 구분해 보여 줍니다. 메뉴에서 지도 이름을 바꾸거나
+현재 지도를 먼저 저장한 뒤 새 지도를 시작할 수 있습니다. 다른 지도를 열기 전에도 현재
+지도를 먼저 저장합니다. UI 테스트에서는 테스트끼리 초안이 섞이지 않도록 `-uiTesting`
+실행 인자로 초안을 지우고 서버 자동 저장만 끕니다.
+
+동선 화면의 `순서 변경`은 단계 카드를 드래그해 번호를 바꿉니다. 순서를 바꿔도 같은
+방향으로 계속 인접한 구간만 기존 이동수단·경로를 보존하고, 새로 맞닿은 구간은 직선으로
+초기화합니다. 후보·핀·메모를 삭제한 직후에는 5초 동안 `실행 취소`가 표시됩니다.
+경로 탐색 실패 시 선택한 이동수단을 직선으로 조용히 바꾸지 않고 이유와 `다시 시도`를
+보여 줍니다.
+
 지도 메모는 메모 글자를 0.45초간 누른 뒤 그대로 끌면 손가락을 따라 움직이고, 손을 떼는
 순간 새 좌표로 확정됩니다. 드래그 중에는 지도가 움직이지 않습니다. 메모 편집 화면의
 `위치 옮기기`는 드래그가 어려운 경우를 위한 보조 경로로 남겨 두었습니다.
 
 중간지점 찾기는 사이드 메뉴에만 둡니다. 지도 오른쪽의 떠 있는 버튼은 자주 쓰는
-`장소 추가`·`동선 만들기`·`공유`만 남겨 같은 기능이 두 곳에 반복되지 않게 했습니다.
+`장소 추가`·`손그림`·`공유하기`는 아이콘과 글자를 함께 보여 의미를 추측하지 않게 했습니다.
 
 보관함은 공유 수신함이 아니라 개인 장소 라이브러리입니다. `받은 장소` 기본 폴더 외에
 사용자가 폴더를 만들고 8종 마크와 7종 색을 정할 수 있습니다. 폴더 안에서 장소를 직접
-검색해 넣거나 기존 장소를 다른 폴더로 옮기고, 동선 단계로 올리면 폴더 색이 핀 색으로
+검색해 넣거나 기존 장소를 다른 폴더로 옮기고, 한 곳 또는 여러 곳을 선택해 `새 단계`나
+기존 `N단계 후보`로 올릴 수 있습니다. 동선에 올리면 폴더 색이 핀 색으로
 이어집니다. 예전 `saved-places.json`에는 폴더 키가 없으므로 읽을 때 자동으로 `받은 장소`에
 넣습니다. 폴더를 삭제해도 장소 자체는 지우지 않고 `받은 장소`로 이동합니다.
 
@@ -79,7 +93,9 @@ SDK의 롱프레스 이벤트는 시간을 바꿀 수 없어 앱은 `UILongPress
 최근 20건을 다시 열거나 개별 삭제할 수 있습니다. 실제 경로 좌표가 커질 수 있어
 UserDefaults가 아니라 Application Support의 JSON 파일에 보관합니다.
 
-공유 익스텐션은 주소 줄을 기준으로 최대 10개 장소를 나눠 받습니다. 담을 보관함 폴더를
+공유 익스텐션은 주소 줄을 기준으로 최대 10개 장소를 나눠 받습니다. 상단에 공유 앱에서
+실제로 넘긴 원문 조각 수, 장소로 구분한 건수, 후보 확인/찾지 못한 건수를 함께 보여 줘
+파싱 전 누락과 검색 실패를 구분합니다. 담을 보관함 폴더를
 고르고 장소별 후보 하나를 고른 뒤 하단 버튼으로 한꺼번에 담습니다. 서버는 정확한 주소 검색 결과를 먼저
 주고 장소명 검색 결과를 뒤에 보완합니다. Share Extension의 Web URL 활성화 상한도 10개입니다.
 
@@ -102,6 +118,7 @@ ios/
       GeoStroke.swift      RDP 단순화
       MapDocument.swift    Stop / MapPlace / MapLabel / MapDocument
       StopLeg.swift        TravelMode / RoutePath / LegRules
+      MapDraftStore.swift  현재 편집 초안의 Application Support JSON 저장
       LegShapes.swift      구간을 어떻게 그릴지 (대중교통 구간 자르기)
       MapStore.swift       /api/maps 클라이언트, 편집 토큰, 내 지도 목록
       RouteLookup.swift    /api/route 클라이언트

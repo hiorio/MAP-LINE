@@ -15,10 +15,21 @@ struct CourseSheet: View {
     @State private var failures: [Int: String] = [:]
     /// 검색해서 후보를 더할 단계. id만 들고 있어 검색 중 단계 배열이 바뀌어도 다시 찾는다.
     @State private var candidateTarget: CandidateTarget?
+    @State private var editMode: EditMode = .inactive
+    @State private var undoRemoval: RemovalUndo?
+    @State private var undoTask: Task<Void, Never>?
+    @State private var routeRevision = 0
 
     private struct CandidateTarget: Identifiable {
         let stopID: String
         var id: String { stopID }
+    }
+
+    private struct RemovalUndo: Identifiable {
+        let id = UUID()
+        let message: String
+        let stops: [Stop]
+        let legs: [StopLeg]
     }
 
     var body: some View {
@@ -38,10 +49,18 @@ struct CourseSheet: View {
                         if index < stops.count - 1 { legRow(index: index) }
                     }
                 }
+                .onMove(perform: moveStops)
             }
             .navigationTitle("동선")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(editMode == .active ? "완료" : "순서 변경") {
+                        withAnimation { editMode = editMode == .active ? .inactive : .active }
+                    }
+                    .disabled(stops.count < 2)
+                    .accessibilityIdentifier("course.reorder")
+                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("닫기") { dismiss() }
                 }
@@ -57,6 +76,15 @@ struct CourseSheet: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
             }
+            .environment(\.editMode, $editMode)
+            .safeAreaInset(edge: .bottom) {
+                if let undoRemoval {
+                    UndoBanner(message: undoRemoval.message) { restoreRemoval() }
+                        .padding(.bottom, 8)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .onDisappear { undoTask?.cancel() }
         }
     }
 
@@ -160,20 +188,57 @@ struct CourseSheet: View {
         // 단계 수가 바뀌거나 후보가 하나에서 둘이 되면 기존 경로의 끝점이 달라질 수 있다.
         // 구간 길이를 맞추고, 그리기 규칙이 저장된 경로의 끝점을 다시 검증한다.
         legs = LegRules.synced(stops: stops, legs: legs)
+        invalidatePendingRoutes()
     }
 
     private func togglePrimary(stopID: String, placeID: String) {
         guard let index = stops.firstIndex(where: { $0.id == stopID }) else { return }
         stops[index].primaryId = stops[index].primaryId == placeID ? nil : placeID
         legs = LegRules.synced(stops: stops, legs: legs)
+        invalidatePendingRoutes()
     }
 
     private func removeCandidate(stopID: String, placeID: String) {
         guard let index = stops.firstIndex(where: { $0.id == stopID }) else { return }
+        let removedName = stops[index].candidates.first { $0.id == placeID }?.name ?? "장소"
+        let snapshot = RemovalUndo(
+            message: "\(removedName)을(를) 동선에서 뺐습니다.",
+            stops: stops,
+            legs: legs
+        )
         stops[index].candidates.removeAll { $0.id == placeID }
         if stops[index].primaryId == placeID { stops[index].primaryId = nil }
         if stops[index].candidates.isEmpty { stops.remove(at: index) }
         legs = LegRules.synced(stops: stops, legs: legs)
+        invalidatePendingRoutes()
+        showUndo(snapshot)
+    }
+
+    private func moveStops(from source: IndexSet, to destination: Int) {
+        let oldStops = stops
+        let oldLegs = legs
+        stops.move(fromOffsets: source, toOffset: destination)
+        legs = LegRules.reordered(oldStops: oldStops, newStops: stops, oldLegs: oldLegs)
+        invalidatePendingRoutes()
+    }
+
+    private func showUndo(_ snapshot: RemovalUndo) {
+        undoTask?.cancel()
+        withAnimation { undoRemoval = snapshot }
+        undoTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation { undoRemoval = nil }
+        }
+    }
+
+    private func restoreRemoval() {
+        guard let snapshot = undoRemoval else { return }
+        undoTask?.cancel()
+        stops = snapshot.stops
+        legs = snapshot.legs
+        invalidatePendingRoutes()
+        withAnimation { undoRemoval = nil }
     }
 
     // MARK: - 구간
@@ -196,7 +261,14 @@ struct CourseSheet: View {
                     Text("경로를 찾는 중…").font(.caption2).foregroundStyle(.secondary)
                 }
             } else if let message = failures[index] {
-                Text(message).font(.caption2).foregroundStyle(.orange)
+                HStack(spacing: 8) {
+                    Text(message).font(.caption2).foregroundStyle(.orange)
+                    Spacer()
+                    Button("다시 시도") { Task { await fetchRoute(index) } }
+                        .font(.caption.weight(.semibold))
+                        .buttonStyle(.borderless)
+                        .accessibilityIdentifier("course.retry.\(index)")
+                }
             } else if let route = LegRules.drawableRoute(stops: stops, index: index, leg: leg) {
                 HStack(spacing: 8) {
                     Text(formatDistance(Double(route.distanceM)))
@@ -230,6 +302,7 @@ struct CourseSheet: View {
         guard let ends = LegRules.endpoints(stops: stops, index: index) else { return }
         let mode = legs.indices.contains(index) ? legs[index].mode : .straight
         guard mode.needsRoute else { return }
+        let revision = routeRevision
 
         loading.insert(index)
         defer { loading.remove(index) }
@@ -237,15 +310,27 @@ struct CourseSheet: View {
         do {
             let route = try await RouteLookup.find(mode: mode, from: ends.from, to: ends.to)
             // 기다리는 동안 사람이 수단을 또 바꿨을 수 있다. 그러면 이 답은 남의 것이다.
-            guard legs.indices.contains(index), legs[index].mode == mode else { return }
+            guard routeRevision == revision,
+                  legs.indices.contains(index),
+                  legs[index].mode == mode
+            else { return }
             legs[index].route = route
         } catch let error as RouteLookup.NoRoute {
-            // 실패가 아니라 "그 수단으로는 못 간다"는 답이다. 직선으로 되돌린다.
-            guard legs.indices.contains(index), legs[index].mode == mode else { return }
-            legs[index] = StopLeg(mode: .straight)
+            // 선택한 수단은 그대로 둔다. 직선으로 조용히 바꾸면 사용자는 실제 경로인 줄
+            // 알 수 있으므로, 이유와 재시도 버튼을 보여 준다.
+            guard routeRevision == revision,
+                  legs.indices.contains(index),
+                  legs[index].mode == mode
+            else { return }
             failures[index] = error.message
         } catch {
+            guard routeRevision == revision else { return }
             failures[index] = error.localizedDescription
         }
+    }
+
+    private func invalidatePendingRoutes() {
+        routeRevision += 1
+        failures = [:]
     }
 }

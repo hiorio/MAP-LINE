@@ -6,6 +6,8 @@ import SwiftUI
 /// 싶은 것은 언제나 지도다. 목록은 지도를 가리는 문턱일 뿐이었다. 지도를 깔고 그 위에
 /// 작은 버튼을 얹는다. 목록은 옆에서 꺼내 쓴다.
 struct ContentView: View {
+    @Environment(\.scenePhase) private var scenePhase
+
     @State private var isDrawing = false
     @State private var plot: MidpointPlot?
     @State private var menuOpen = false
@@ -23,6 +25,11 @@ struct ContentView: View {
     @State private var showPlacePicker = false
     @State private var showSaved = false
     @State private var showMyMaps = false
+    @State private var showTitleEditor = false
+    @State private var confirmingNewMap = false
+
+    /// 사용자가 알아볼 수 있는 지도 이름. 비어 있는 제목을 자동 장소명으로 덮지 않는다.
+    @State private var title = "새 지도"
 
     /// 서버에 저장된 지도. 아직 저장한 적 없으면 nil이다.
     @State private var slug: String?
@@ -30,9 +37,15 @@ struct ContentView: View {
     @State private var updatedAt: String?
     @State private var saving = false
     @State private var saveError: String?
+    @State private var persistenceStatus: PersistenceStatus = .local
+    @State private var autoSaveTask: Task<Void, Never>?
+    @State private var pendingServerSave = false
+    @State private var restoredDraft = false
+    @State private var lastDraftFingerprint: EditFingerprint?
     @State private var shareLink: ShareLink?
     /// 지금 보고 있는 자리를 물어보기 위해 들고 있는다.
     @State private var mapController: KakaoMapViewController?
+    @State private var pendingCameraCenter: GeoPoint?
 
     private struct ShareLink: Identifiable {
         let url: URL
@@ -46,6 +59,43 @@ struct ContentView: View {
     @State private var openedMemo: MapLabel?
     /// 이 값이 있으면 다음 꾹 누르기는 새 핀이 아니라 해당 메모의 새 위치다.
     @State private var movingMemoID: String?
+    @State private var undoState: UndoState?
+    @State private var undoTask: Task<Void, Never>?
+
+    private let draftStore: MapDraftStore
+
+    init(draftStore: MapDraftStore = .live) {
+        self.draftStore = draftStore
+    }
+
+    private enum PersistenceStatus: Equatable {
+        case local, saving, saved, failed
+
+        var text: String {
+            switch self {
+            case .local: return "기기에 저장됨"
+            case .saving: return "저장 중…"
+            case .saved: return "저장됨"
+            case .failed: return "기기에만 저장됨"
+            }
+        }
+    }
+
+    private struct UndoState: Identifiable {
+        let id = UUID()
+        let message: String
+        let stops: [Stop]
+        let legs: [StopLeg]
+        let labels: [MapLabel]
+    }
+
+    private struct EditFingerprint: Equatable {
+        let title: String
+        let stops: [Stop]
+        let legs: [StopLeg]
+        let strokes: [GeoStroke]
+        let labels: [MapLabel]
+    }
 
     /// 같은 자리를 다시 꾹 눌러도 시트가 다시 뜨도록 매번 새 id를 준다.
     private struct PendingPin: Identifiable {
@@ -110,7 +160,13 @@ struct ContentView: View {
                         labels.updateLabel(id: id, location: location)
                     },
                     onStrokesChanged: { strokes = $0 },
-                    onReady: { mapController = $0 }
+                    onReady: { controller in
+                        mapController = controller
+                        if let center = pendingCameraCenter {
+                            controller.move(to: center.lat, lng: center.lng)
+                            pendingCameraCenter = nil
+                        }
+                    }
                 )
                 .ignoresSafeArea()
             }
@@ -119,6 +175,8 @@ struct ContentView: View {
                     SideMenu(
                         isOpen: $menuOpen,
                         onDrawCourse: { startDrawing() },
+                        onNewMap: { confirmingNewMap = true },
+                        onRenameMap: { showTitleEditor = true },
                         onFindMidpoint: { showMidpoint = true },
                         onOpenSaved: { showSaved = true },
                         onOpenMyMaps: { showMyMaps = true }
@@ -165,13 +223,16 @@ struct ContentView: View {
                 ActivitySheet(items: [link.url])
             }
             .sheet(isPresented: $showSaved) {
-                SavedPlacesView { place in
-                    stops.append(Stop(candidates: [place]))
-                    legs = LegRules.synced(stops: stops, legs: legs)
+                SavedPlacesView(stops: stops) { stopID, places in
+                    addCoursePlaces(places, toStopID: stopID)
                 }
             }
             .sheet(isPresented: $showMyMaps) {
                 MyMapsView { picked in Task { await open(slug: picked) } }
+            }
+            .sheet(isPresented: $showTitleEditor) {
+                MapTitleSheet(currentTitle: title) { title = $0 }
+                    .presentationDetents([.medium])
             }
             .alert(
                 "문제가 생겼습니다",
@@ -197,9 +258,29 @@ struct ContentView: View {
                     label: memo,
                     onSave: { text in labels.updateLabel(id: memo.id, text: text) },
                     onMove: { movingMemoID = memo.id },
-                    onRemove: { labels.removeAll { $0.id == memo.id } }
+                    onRemove: { removeMemo(memo) }
                 )
                 .presentationDetents([.medium])
+            }
+            .alert("새 지도를 만들까요?", isPresented: $confirmingNewMap) {
+                Button("새 지도 만들기") { Task { await startNewMap() } }
+                Button("취소", role: .cancel) {}
+            } message: {
+                Text("현재 지도는 먼저 저장한 뒤 새 지도를 엽니다.")
+            }
+            .task { restoreDraftIfNeeded() }
+            .onChange(of: title) { _ in documentDidChange() }
+            .onChange(of: stops) { _ in documentDidChange() }
+            .onChange(of: legs) { _ in documentDidChange() }
+            .onChange(of: strokes) { _ in documentDidChange() }
+            .onChange(of: labels) { _ in documentDidChange() }
+            .onChange(of: scenePhase) { phase in
+                if phase != .active { persistDraft() }
+            }
+            .onDisappear {
+                autoSaveTask?.cancel()
+                undoTask?.cancel()
+                persistDraft()
             }
     }
 
@@ -209,9 +290,7 @@ struct ContentView: View {
     private func currentDocument() -> MapDocument {
         let camera = mapController?.cameraSnapshot()
         return MapDocument(
-            // 제목은 아직 받는 자리가 없다. 첫 단계 이름이 있으면 그걸 쓴다 —
-            // 목록에서 "제목 없음"만 늘어놓는 것보다 무엇인지 알아볼 수 있다.
-            title: stops.first?.candidates.first?.name ?? "",
+            title: title,
             center: camera?.center ?? MapPalette.defaultCenter,
             zoomLevel: camera?.zoomLevel ?? 3,
             stops: stops,
@@ -221,13 +300,20 @@ struct ContentView: View {
         )
     }
 
-    /// 처음이면 만들고, 그다음부터는 덮어쓴다.
-    private func save() async {
-        guard !saving else { return }
+    /// 처음이면 만들고, 그다음부터는 덮어쓴다. 자동 저장 실패는 작업을 막지 않고
+    /// 기기 초안에 남기며, 공유·지도 전환처럼 사람이 요청한 저장만 경고를 띄운다.
+    @discardableResult
+    private func save(reportError: Bool) async -> Bool {
+        guard !saving else {
+            pendingServerSave = true
+            return false
+        }
         saving = true
-        defer { saving = false }
+        persistenceStatus = .saving
+        saveError = nil
 
         let document = currentDocument()
+        var succeeded = false
         do {
             let target: String
             if let slug {
@@ -245,27 +331,32 @@ struct ContentView: View {
                 document: document,
                 expectedUpdatedAt: updatedAt
             )
+            persistenceStatus = .saved
+            succeeded = true
+            persistDraft()
         } catch {
-            saveError = error.localizedDescription
+            persistenceStatus = .failed
+            if reportError { saveError = error.localizedDescription }
         }
+
+        saving = false
+        if pendingServerSave {
+            pendingServerSave = false
+            Task { await save(reportError: false) }
+        }
+        return succeeded
     }
 
     /// 저장해 둔 지도를 화면에 올린다.
     private func open(slug picked: String) async {
+        if picked != slug, hasMeaningfulContent {
+            autoSaveTask?.cancel()
+            await waitForCurrentSave()
+            guard await save(reportError: true) else { return }
+        }
         do {
             let loaded = try await MapStore.load(slug: picked)
-            stops = loaded.document.stops
-            legs = LegRules.synced(stops: loaded.document.stops, legs: loaded.document.legs)
-            strokes = loaded.document.strokes
-            labels = loaded.document.labels
-            slug = picked
-            updatedAt = loaded.updatedAt
-            // 만든 사람이 보던 자리로 옮긴다. 다른 동네가 떠 있으면 핀을 찾아 헤맨다.
-            mapController?.show(midpoint: nil)
-            mapController?.move(
-                to: loaded.document.center.lat,
-                lng: loaded.document.center.lng
-            )
+            apply(document: loaded.document, slug: picked, updatedAt: loaded.updatedAt)
         } catch {
             saveError = error.localizedDescription
         }
@@ -273,9 +364,109 @@ struct ContentView: View {
 
     /// 저장한 뒤 링크를 내놓는다. 저장 안 된 지도의 링크는 빈 지도를 가리킨다.
     private func share() async {
-        await save()
-        guard saveError == nil, let slug else { return }
+        autoSaveTask?.cancel()
+        await waitForCurrentSave()
+        guard await save(reportError: true), let slug else { return }
         shareLink = ShareLink(url: MapStore.shareURL(slug: slug))
+    }
+
+    private var hasMeaningfulContent: Bool {
+        !stops.isEmpty || !strokes.isEmpty || !labels.isEmpty || title != "새 지도"
+    }
+
+    private var isUITesting: Bool {
+        ProcessInfo.processInfo.arguments.contains("-uiTesting")
+    }
+
+    /// 모든 편집은 먼저 로컬 초안에 원자적으로 쓰고, 잠시 입력이 멈추면 서버에도 저장한다.
+    private func documentDidChange() {
+        guard restoredDraft else { return }
+        let current = editFingerprint
+        guard current != lastDraftFingerprint else { return }
+        lastDraftFingerprint = current
+        persistDraft()
+        persistenceStatus = .local
+        guard hasMeaningfulContent, !isUITesting else { return }
+
+        autoSaveTask?.cancel()
+        autoSaveTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard !Task.isCancelled else { return }
+            autoSaveTask = nil
+            _ = await save(reportError: false)
+        }
+    }
+
+    private func persistDraft() {
+        guard restoredDraft else { return }
+        try? draftStore.save(
+            MapDraft(document: currentDocument(), slug: slug, updatedAt: updatedAt)
+        )
+    }
+
+    private func restoreDraftIfNeeded() {
+        guard !restoredDraft else { return }
+        restoredDraft = true
+        if isUITesting {
+            try? draftStore.clear()
+            return
+        }
+        guard let draft = draftStore.load() else { return }
+        apply(document: draft.document, slug: draft.slug, updatedAt: draft.updatedAt)
+        persistenceStatus = draft.slug == nil ? .local : .saved
+    }
+
+    private func apply(document: MapDocument, slug: String?, updatedAt: String?) {
+        self.slug = slug
+        self.updatedAt = updatedAt
+        title = document.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "새 지도"
+            : document.title
+        stops = document.stops
+        legs = LegRules.synced(stops: document.stops, legs: document.legs)
+        strokes = document.strokes
+        labels = document.labels
+        lastDraftFingerprint = editFingerprint
+        plot = nil
+        mapController?.show(midpoint: nil)
+        if let mapController {
+            mapController.move(to: document.center.lat, lng: document.center.lng)
+        } else {
+            pendingCameraCenter = document.center
+        }
+        persistDraft()
+    }
+
+    private var editFingerprint: EditFingerprint {
+        EditFingerprint(title: title, stops: stops, legs: legs, strokes: strokes, labels: labels)
+    }
+
+    private func waitForCurrentSave() async {
+        while saving {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+    }
+
+    private func startNewMap() async {
+        autoSaveTask?.cancel()
+        if hasMeaningfulContent {
+            await waitForCurrentSave()
+            guard await save(reportError: true) else { return }
+        }
+
+        title = "새 지도"
+        stops = []
+        legs = []
+        strokes = []
+        labels = []
+        plot = nil
+        slug = nil
+        updatedAt = nil
+        persistenceStatus = .local
+        lastDraftFingerprint = editFingerprint
+        mapController?.show(midpoint: nil)
+        try? draftStore.clear()
+        persistDraft()
     }
 
     // MARK: - 단계 고치기
@@ -333,6 +524,12 @@ struct ContentView: View {
     }
 
     private func remove(_ place: MapPlace) {
+        let snapshot = UndoState(
+            message: "\(place.name)을(를) 동선에서 뺐습니다.",
+            stops: stops,
+            legs: legs,
+            labels: labels
+        )
         for index in stops.indices {
             stops[index].candidates.removeAll { $0.id == place.id }
             // 대표를 지웠으면 대표도 함께 없앤다. 남겨 두면 없는 후보를 가리킨다.
@@ -341,6 +538,37 @@ struct ContentView: View {
         // 후보가 하나도 없는 단계는 번호만 차지한다.
         stops.removeAll { $0.candidates.isEmpty }
         legs = LegRules.synced(stops: stops, legs: legs)
+        showUndo(snapshot)
+    }
+
+    private func removeMemo(_ memo: MapLabel) {
+        let snapshot = UndoState(
+            message: "메모를 삭제했습니다.",
+            stops: stops,
+            legs: legs,
+            labels: labels
+        )
+        labels.removeAll { $0.id == memo.id }
+        showUndo(snapshot)
+    }
+
+    private func showUndo(_ snapshot: UndoState) {
+        undoTask?.cancel()
+        withAnimation { undoState = snapshot }
+        undoTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation { undoState = nil }
+        }
+    }
+
+    private func restoreUndo() {
+        guard let snapshot = undoState else { return }
+        undoTask?.cancel()
+        stops = snapshot.stops
+        legs = snapshot.legs
+        labels = snapshot.labels
+        withAnimation { undoState = nil }
     }
 
     // MARK: - 지도 위 조작
@@ -355,16 +583,35 @@ struct ContentView: View {
 
                 Spacer()
 
-                if let plot {
-                    // 무엇을 보고 있는지 밝힌다. 지도 위 핀만으로는 이게 몇 번째 후보인지,
-                    // 애초에 중간지점 결과인지 알 수 없다. 누르면 지운다 — 결과를 치울
-                    // 방법이 없으면 지도가 계속 그 상태로 남는다.
-                    Button {
-                        self.plot = nil
-                    } label: {
+                Button { showTitleEditor = true } label: {
+                    VStack(alignment: .trailing, spacing: 1) {
+                        HStack(spacing: 5) {
+                            Text(title).lineLimit(1)
+                            Image(systemName: "pencil")
+                                .font(.caption2)
+                        }
+                        .font(.footnote.weight(.semibold))
+                        Text(persistenceStatus.text)
+                            .font(.caption2)
+                            .foregroundStyle(persistenceStatus == .failed ? Color.orange : Color.secondary)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    .background(.regularMaterial, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("map.title")
+                .accessibilityLabel("지도 이름 \(title), \(persistenceStatus.text)")
+            }
+
+            if let plot {
+                // 무엇을 보고 있는지 밝힌다. 지도 위 핀만으로는 이게 몇 번째 후보인지,
+                // 애초에 중간지점 결과인지 알 수 없다. 누르면 지운다.
+                HStack {
+                    Spacer()
+                    Button { self.plot = nil } label: {
                         HStack(spacing: 6) {
-                            Text(plotChipTitle(plot))
-                                .font(.footnote.weight(.medium))
+                            Text(plotChipTitle(plot)).font(.footnote.weight(.medium))
                             Image(systemName: "xmark")
                                 .font(.caption2.weight(.semibold))
                                 .foregroundStyle(.secondary)
@@ -377,6 +624,7 @@ struct ContentView: View {
                     .accessibilityIdentifier("map.plotChip")
                     .accessibilityLabel("중간지점 후보 \(plot.meetings.count)곳 결과 지우기")
                 }
+                .padding(.top, 6)
             }
 
             if !stops.isEmpty {
@@ -406,22 +654,22 @@ struct ContentView: View {
             HStack(alignment: .bottom) {
                 Spacer()
                 VStack(spacing: 10) {
-                    roundButton(
+                    mapActionButton(
                         "magnifyingglass",
                         label: "장소 추가"
                     ) { showPlacePicker = true }
                         .accessibilityIdentifier("map.addPlace")
 
-                    roundButton(
+                    mapActionButton(
                         "scribble.variable",
-                        label: "동선 만들기",
+                        label: "손그림",
                         active: isDrawing
                     ) { startDrawing() }
                         .accessibilityIdentifier("map.draw")
 
                     // 담은 것이 없으면 나눠 볼 것도 없다.
                     if !stops.isEmpty || !strokes.isEmpty || !labels.isEmpty {
-                        roundButton(
+                        mapActionButton(
                             saving ? "arrow.triangle.2.circlepath" : "square.and.arrow.up",
                             label: "공유하기"
                         ) { Task { await share() } }
@@ -445,11 +693,17 @@ struct ContentView: View {
                         .accessibilityIdentifier("memo.move.cancel")
                 }
             } else if isDrawing {
-                hint("지도가 잠깁니다. 손가락으로 동선을 그리세요.")
+                hint("지도가 잠깁니다. 손가락으로 선을 그리세요.")
             } else if stops.isEmpty {
                 // 꾹 누르기는 화면에 아무 표시가 없다. 알려 주지 않으면 아무도 안 한다.
                 // 한 곳이라도 담고 나면 사라진다 — 이미 아는 사람에게는 잔소리다.
                 hint("지도를 꾹 누르면 그 자리를 담습니다.")
+            }
+
+            if let undoState {
+                UndoBanner(message: undoState.message) { restoreUndo() }
+                    .padding(.top, 8)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
         .padding(.horizontal, 16)
@@ -490,6 +744,26 @@ struct ContentView: View {
         .accessibilityLabel(label)
     }
 
+    private func mapActionButton(
+        _ symbol: String,
+        label: String,
+        active: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Label(label, systemImage: symbol)
+                .font(.caption.weight(.semibold))
+                .padding(.horizontal, 13)
+                .frame(height: 44)
+                .background(active ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.regularMaterial))
+                .foregroundStyle(active ? Color.white : Color.primary)
+                .clipShape(Capsule())
+                .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+
     private func startDrawing() {
         isDrawing.toggle()
     }
@@ -502,6 +776,8 @@ struct ContentView: View {
 struct SideMenu: View {
     @Binding var isOpen: Bool
     let onDrawCourse: () -> Void
+    let onNewMap: () -> Void
+    let onRenameMap: () -> Void
     let onFindMidpoint: () -> Void
     let onOpenSaved: () -> Void
     let onOpenMyMaps: () -> Void
@@ -522,7 +798,19 @@ struct SideMenu: View {
                     .padding(.top, 24)
                     .padding(.bottom, 20)
 
-                item("scribble.variable", "동선 만들기", "지도에 직접 그립니다") {
+                item("plus.square.on.square", "새 지도", "현재 지도를 저장하고 새로 시작합니다") {
+                    close()
+                    onNewMap()
+                }
+                .accessibilityIdentifier("menu.newMap")
+
+                item("pencil", "지도 이름 변경", "내 지도에서 알아보기 쉽게 이름을 붙입니다") {
+                    close()
+                    onRenameMap()
+                }
+                .accessibilityIdentifier("menu.renameMap")
+
+                item("scribble.variable", "손그림", "지도에 직접 선을 그립니다") {
                     close()
                     onDrawCourse()
                 }

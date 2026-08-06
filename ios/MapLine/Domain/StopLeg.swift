@@ -86,6 +86,25 @@ enum LegRules {
         return (0..<wanted).map { legs.indices.contains($0) ? legs[$0] : StopLeg() }
     }
 
+    /// 단계 순서를 바꾼 뒤에도 그대로 남은 인접 구간은 이동수단과 경로를 보존한다.
+    /// 새로 맞닿은 단계는 이전 경로를 재사용하면 틀린 선이 되므로 직선으로 시작한다.
+    static func reordered(
+        oldStops: [Stop],
+        newStops: [Stop],
+        oldLegs: [StopLeg]
+    ) -> [StopLeg] {
+        let syncedOld = synced(stops: oldStops, legs: oldLegs)
+        var byPair: [String: StopLeg] = [:]
+        for index in syncedOld.indices where oldStops.indices.contains(index + 1) {
+            byPair["\(oldStops[index].id)\u{0}\(oldStops[index + 1].id)"] = syncedOld[index]
+        }
+
+        return (0..<max(0, newStops.count - 1)).map { index in
+            let key = "\(newStops[index].id)\u{0}\(newStops[index + 1].id)"
+            return byPair[key] ?? StopLeg()
+        }
+    }
+
     /// 이 구간의 출발·도착 장소. 어느 한쪽이라도 대표가 없으면 경로를 그릴 수 없다.
     static func endpoints(stops: [Stop], index: Int) -> (from: MapPlace, to: MapPlace)? {
         guard stops.indices.contains(index), stops.indices.contains(index + 1) else { return nil }

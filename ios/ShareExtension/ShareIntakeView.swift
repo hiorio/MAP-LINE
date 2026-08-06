@@ -6,6 +6,9 @@ import SwiftUI
 /// 말없이 담으면 엉뚱한 지점이 들어간다. 웹의 붙여넣기 흐름도 같은 이유로 항상 고르게 한다.
 struct ShareIntakeView: View {
     let rawText: String
+    /// 공유 앱이 익스텐션에 실제로 넘긴 텍스트·URL 조각 수. 사용자가 보낸 개수와
+    /// 다르면 파싱 전 단계에서 이미 누락됐다는 사실을 숨기지 않는다.
+    let sourcePieceCount: Int
     let onDone: () -> Void
     let onCancel: () -> Void
 
@@ -38,6 +41,7 @@ struct ShareIntakeView: View {
 
                 case .ready(let groups):
                     List {
+                        intakeSummary(groups)
                         if let savedMessage {
                             Section {
                                 Label(savedMessage, systemImage: "checkmark.circle.fill")
@@ -61,6 +65,9 @@ struct ShareIntakeView: View {
 
                 case .failed(let message):
                     List {
+                        Section("받은 내용") {
+                            Text("공유 앱에서 원문 조각 \(sourcePieceCount)개를 받았습니다.")
+                        }
                         Section {
                             Text(message).foregroundStyle(.secondary)
                         }
@@ -97,6 +104,19 @@ struct ShareIntakeView: View {
         .task {
             destinationGroups = groupStore.all()
             await lookUp()
+        }
+    }
+
+    private func intakeSummary(_ groups: [ShareIntake.Group]) -> some View {
+        let found = groups.filter { !$0.places.isEmpty }.count
+        let missing = groups.count - found
+        return Section("받은 내용") {
+            Text("원문 조각 \(sourcePieceCount)개 · 장소로 구분 \(groups.count)건")
+            Label(
+                missing == 0 ? "후보 확인 \(found)건" : "후보 확인 \(found)건 · 찾지 못함 \(missing)건",
+                systemImage: missing == 0 ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
+            )
+            .foregroundStyle(missing == 0 ? Color.green : Color.orange)
         }
     }
 

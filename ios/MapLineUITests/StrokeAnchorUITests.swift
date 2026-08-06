@@ -19,6 +19,7 @@ final class StrokeAnchorUITests: XCTestCase {
 
     func test_지도를_옮겨도_획이_따라오는가() throws {
         let app = XCUIApplication()
+        app.launchArguments.append("-uiTesting")
         app.launch()
 
         // 첫 화면이 곧 지도다. 그리기 버튼은 그 위에 얹혀 있다.
