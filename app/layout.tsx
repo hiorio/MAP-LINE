@@ -24,8 +24,11 @@ const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000';
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
-  title: 'MAP-LINE',
-  description: '손으로 그린 지도를 링크 하나로 공유합니다.',
+  title: {
+    default: '도화지',
+    template: '%s | 도화지',
+  },
+  description: '핀, 메모, 손그림과 실제 이동 경로를 한 장의 지도로 만들고 공유합니다.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
