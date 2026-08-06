@@ -23,6 +23,11 @@ final class SavedPlacesUITests: XCTestCase {
         let addGroup = app.descendants(matching: .any)
             .matching(identifier: "saved.addGroup").firstMatch
         XCTAssertTrue(addGroup.waitForExistence(timeout: 10), "보관함에 새 폴더 버튼이 없다")
+        XCTAssertTrue(app.searchFields.firstMatch.exists, "보관함 전체 검색창이 없다")
+        XCTAssertTrue(
+            app.descendants(matching: .any).matching(identifier: "saved.sortGroups").firstMatch.exists,
+            "보관함에 폴더 정렬 버튼이 없다"
+        )
         attach(app, name: "보관함-폴더목록")
         addGroup.tap()
 
@@ -36,6 +41,26 @@ final class SavedPlacesUITests: XCTestCase {
         XCTAssertTrue(coffee.exists, "카페 마크 선택지가 없다")
         coffee.tap()
         attach(app, name: "보관함-폴더마크편집")
+    }
+
+    func test_내지도에썸네일이름과단계수가보인다() {
+        let app = XCUIApplication()
+        app.launchArguments.append(contentsOf: ["-uiTesting", "-uiTestingSeedMaps"])
+        app.launch()
+
+        let menu = app.descendants(matching: .any).matching(identifier: "map.menu").firstMatch
+        XCTAssertTrue(menu.waitForExistence(timeout: 30), "지도 화면이 뜨지 않았다")
+        menu.tap()
+
+        let myMaps = app.descendants(matching: .any).matching(identifier: "menu.myMaps").firstMatch
+        XCTAssertTrue(myMaps.waitForExistence(timeout: 5), "메뉴에 내 지도가 없다")
+        myMaps.tap()
+
+        let row = app.descendants(matching: .any).matching(identifier: "mymaps.row.ui-map").firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "내 지도 항목이 보이지 않는다")
+        XCTAssertTrue(app.staticTexts["주말 나들이"].exists, "지도 이름이 보이지 않는다")
+        XCTAssertTrue(app.staticTexts["3단계"].exists, "단계 수가 보이지 않는다")
+        attach(app, name: "내지도-썸네일-이름-단계수")
     }
 
     private func attach(_ app: XCUIApplication, name: String) {

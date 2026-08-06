@@ -51,8 +51,15 @@ struct SavedPlaceStore {
     }
 
     func move(id: String, to groupID: String) {
+        move(ids: Set([id]), to: groupID)
+    }
+
+    /// 선택한 여러 장소를 한 번의 파일 쓰기로 옮긴다. 한 곳씩 쓸 경우 공유 익스텐션이
+    /// 같은 파일을 읽는 사이에 절반만 이동한 상태가 보일 수 있다.
+    func move(ids: Set<String>, to groupID: String) {
+        guard !ids.isEmpty else { return }
         storage.write(storage.read().map { place in
-            place.id == id ? place.assigned(to: groupID) : place
+            ids.contains(place.id) ? place.assigned(to: groupID) : place
         })
     }
 
@@ -86,9 +93,10 @@ struct SavedPlaceGroupStore {
     }
 
     func all() -> [SavedPlaceGroup] {
+        // JSON 배열 순서가 사용자가 정한 폴더 순서다. 예전 파일도 생성 순서대로
+        // 저장돼 있으므로 별도 마이그레이션 없이 그대로 이어진다.
         let custom = storage.read()
             .filter { $0.id != SavedPlaceGroup.inboxID }
-            .sorted { $0.createdAt < $1.createdAt }
         return [SavedPlaceGroup.inbox] + custom
     }
 
@@ -121,6 +129,20 @@ struct SavedPlaceGroupStore {
     func remove(id: String) {
         guard id != SavedPlaceGroup.inboxID else { return }
         storage.write(storage.read().filter { $0.id != id && $0.id != SavedPlaceGroup.inboxID })
+    }
+
+    /// 받은 장소는 항상 맨 위에 고정하고 사용자 폴더만 원하는 순서로 저장한다.
+    func reorder(customGroupIDs: [String]) {
+        let current = storage.read().filter { $0.id != SavedPlaceGroup.inboxID }
+        let byID = Dictionary(uniqueKeysWithValues: current.map { ($0.id, $0) })
+        var seen = Set<String>()
+        var reordered = customGroupIDs.compactMap { id -> SavedPlaceGroup? in
+            guard seen.insert(id).inserted else { return nil }
+            return byID[id]
+        }
+        // 동시에 다른 프로세스가 만든 폴더가 목록에서 사라지지 않게 뒤에 보존한다.
+        reordered.append(contentsOf: current.filter { !seen.contains($0.id) })
+        storage.write(reordered)
     }
 }
 

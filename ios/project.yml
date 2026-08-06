@@ -74,6 +74,7 @@ targets:
         # 앱 키는 저장소에 넣지 않는다. Config.xcconfig(gitignore)나 CI 시크릿에서 온다.
         KakaoNativeAppKey: $(KAKAO_NATIVE_APP_KEY)
         ApiBaseURL: $(API_BASE_URL)
+        NSLocationWhenInUseUsageDescription: 현재 위치를 지도에서 바로 찾을 때만 사용합니다.
     entitlements:
       path: MapLine/MapLine.entitlements
       properties:

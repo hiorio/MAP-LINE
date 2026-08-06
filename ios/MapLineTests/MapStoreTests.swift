@@ -18,9 +18,10 @@ final class MapStoreTests: XCTestCase {
     }
 
     func test_저장한지도가목록에남는다() {
-        MapStore.remember(slug: "abc123", title: "강남 코스")
+        MapStore.remember(slug: "abc123", title: "강남 코스", stopCount: 3)
         XCTAssertEqual(MapStore.rememberedMaps().map(\.slug), ["abc123"])
         XCTAssertEqual(MapStore.rememberedMaps().first?.title, "강남 코스")
+        XCTAssertEqual(MapStore.rememberedMaps().first?.stopCount, 3)
     }
 
     func test_같은지도를두번담지않는다() {
@@ -30,6 +31,17 @@ final class MapStoreTests: XCTestCase {
 
         XCTAssertEqual(MapStore.rememberedMaps().count, 1)
         XCTAssertEqual(MapStore.rememberedMaps().first?.title, "고친 제목")
+    }
+
+    func test_예전내지도목록은단계수없이도읽는다() throws {
+        let data = Data("""
+        {"slug":"old","title":"옛 지도","savedAt":"2026-08-01T00:00:00Z"}
+        """.utf8)
+
+        let entry = try JSONDecoder().decode(MapStore.Entry.self, from: data)
+
+        XCTAssertEqual(entry.title, "옛 지도")
+        XCTAssertNil(entry.stopCount)
     }
 
     func test_최근에저장한것이위로온다() {
@@ -66,5 +78,21 @@ final class MapStoreTests: XCTestCase {
                 "왜 안 되는지 사람이 읽을 수 있어야 한다: \(error.localizedDescription)"
             )
         }
+    }
+
+    func test_복제본은이름만바꾸고지도내용을그대로둔다() {
+        let source = MapDocument(
+            title: "서울 하루",
+            center: GeoPoint(lat: 37.5, lng: 127.0),
+            stops: [Stop(candidates: [MapPlace(name: "카페", location: GeoPoint(lat: 37.5, lng: 127.0))])],
+            labels: [MapLabel(location: GeoPoint(lat: 37.51, lng: 127.01), text: "약속")]
+        )
+
+        let copy = duplicatedMapDocument(source)
+
+        XCTAssertEqual(copy.title, "서울 하루 복사본")
+        XCTAssertEqual(copy.stops, source.stops)
+        XCTAssertEqual(copy.labels, source.labels)
+        XCTAssertEqual(copy.center, source.center)
     }
 }

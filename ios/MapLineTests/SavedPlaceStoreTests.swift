@@ -106,6 +106,17 @@ final class SavedPlaceStoreTests: XCTestCase {
         XCTAssertEqual(store.all(in: "favorites").map(\.name), ["카페"])
     }
 
+    func test_고른여러장소를한번에다른폴더로옮긴다() {
+        store.add(place("A", id: "a"))
+        store.add(place("B", id: "b", lat: 37.6))
+        store.add(place("남을 곳", id: "stay", lat: 37.7))
+
+        store.move(ids: ["a", "b"], to: "trip")
+
+        XCTAssertEqual(Set(store.all(in: "trip").map(\.id)), Set(["a", "b"]))
+        XCTAssertEqual(store.all(in: SavedPlaceGroup.inboxID).map(\.id), ["stay"])
+    }
+
     func test_앱검색으로이미있는장소를새폴더에담으면복제하지않고옮긴다() {
         store.add(place("카페", kakaoPlaceId: "111"))
 
@@ -163,6 +174,16 @@ final class SavedPlaceGroupStoreTests: XCTestCase {
     func test_기본폴더는지울수없다() {
         store.remove(id: SavedPlaceGroup.inboxID)
         XCTAssertEqual(store.all(), [SavedPlaceGroup.inbox])
+    }
+
+    func test_사용자가정한폴더순서를저장한다() {
+        XCTAssertTrue(store.add(SavedPlaceGroup(id: "a", name: "A")))
+        XCTAssertTrue(store.add(SavedPlaceGroup(id: "b", name: "B")))
+        XCTAssertTrue(store.add(SavedPlaceGroup(id: "c", name: "C")))
+
+        store.reorder(customGroupIDs: ["c", "a", "b"])
+
+        XCTAssertEqual(store.all().map(\.id), [SavedPlaceGroup.inboxID, "c", "a", "b"])
     }
 }
 

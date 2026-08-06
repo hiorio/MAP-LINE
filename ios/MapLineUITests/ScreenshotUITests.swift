@@ -29,6 +29,10 @@ final class ScreenshotUITests: XCTestCase {
             app.descendants(matching: .any).matching(identifier: "map.title").firstMatch.exists,
             "현재 지도 이름과 저장 상태가 지도 위에 보이지 않는다"
         )
+        XCTAssertTrue(
+            app.descendants(matching: .any).matching(identifier: "map.currentLocation").firstMatch.exists,
+            "현재 위치로 이동하는 버튼이 지도에 없다"
+        )
         // 타일이 그려질 틈을 준다.
         Thread.sleep(forTimeInterval: 3)
         shot(app, "1-지도")

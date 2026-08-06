@@ -31,7 +31,26 @@ enum MapStore {
         let slug: String
         var title: String
         var savedAt: String
+        /// 예전 목록 파일에는 없을 수 있다. 그 경우 내 지도 화면이 서버에서 한 번 보완한다.
+        var stopCount: Int?
         var id: String { slug }
+
+        init(slug: String, title: String, savedAt: String, stopCount: Int?) {
+            self.slug = slug
+            self.title = title
+            self.savedAt = savedAt
+            self.stopCount = stopCount
+        }
+
+        private enum CodingKeys: String, CodingKey { case slug, title, savedAt, stopCount }
+
+        init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            slug = try values.decode(String.self, forKey: .slug)
+            title = try values.decode(String.self, forKey: .title)
+            savedAt = try values.decode(String.self, forKey: .savedAt)
+            stopCount = try values.decodeIfPresent(Int.self, forKey: .stopCount)
+        }
     }
 
     private static let indexKey = "mapline.maps"
@@ -45,10 +64,22 @@ enum MapStore {
         return entries.sorted { $0.savedAt > $1.savedAt }
     }
 
-    static func remember(slug: String, title: String, savedAt: Date = Date()) {
-        var entries = rememberedMaps().filter { $0.slug != slug }
+    static func remember(
+        slug: String,
+        title: String,
+        stopCount: Int? = nil,
+        savedAt: Date = Date()
+    ) {
+        let current = rememberedMaps()
+        let existingCount = current.first { $0.slug == slug }?.stopCount
+        var entries = current.filter { $0.slug != slug }
         entries.append(
-            Entry(slug: slug, title: title, savedAt: ISO8601DateFormatter().string(from: savedAt))
+            Entry(
+                slug: slug,
+                title: title,
+                savedAt: ISO8601DateFormatter().string(from: savedAt),
+                stopCount: stopCount ?? existingCount
+            )
         )
         guard let data = try? JSONEncoder().encode(entries) else { return }
         UserDefaults.standard.set(data, forKey: indexKey)
@@ -188,8 +219,28 @@ enum MapStore {
 
         // 저장에 성공했을 때만 목록에 올린다. 실패한 지도가 목록에 있으면
         // 눌렀을 때 없는 지도를 불러오게 된다.
-        remember(slug: slug, title: document.title)
+        remember(slug: slug, title: document.title, stopCount: document.stops.count)
         return decoded?.updatedAt
+    }
+
+    // MARK: - 복제와 썸네일
+
+    /// 서버의 OG 이미지가 지도 한 장을 이미 렌더링하므로 내 지도 목록도 같은 그림을 쓴다.
+    static func thumbnailURL(slug: String) -> URL {
+        AppConfig.apiBaseURL.appendingPathComponent("api/og/\(slug)")
+    }
+
+    /// 원본 링크와 편집 토큰은 건드리지 않고 새 지도·새 편집 토큰을 만든다.
+    static func duplicate(slug: String) async throws -> String {
+        let loaded = try await load(slug: slug)
+        let copy = duplicatedMapDocument(loaded.document)
+        let newSlug = try await create(
+            title: copy.title,
+            center: copy.center,
+            zoomLevel: copy.zoomLevel
+        )
+        _ = try await save(slug: newSlug, document: copy, expectedUpdatedAt: nil)
+        return newSlug
     }
 
     /// 문서를 JSON 객체로. 서버가 본문 안에 중첩해서 받으므로 한 번 풀어야 한다.
@@ -205,4 +256,12 @@ enum MapStore {
     static func shareURL(slug: String) -> URL {
         AppConfig.apiBaseURL.appendingPathComponent("m/\(slug)")
     }
+}
+
+/// 복제본은 내용과 카메라를 그대로 두고 사람에게 구별되는 이름만 붙인다.
+func duplicatedMapDocument(_ source: MapDocument) -> MapDocument {
+    var copy = source
+    let title = source.title.trimmingCharacters(in: .whitespacesAndNewlines)
+    copy.title = title.isEmpty ? "새 지도 복사본" : "\(title) 복사본"
+    return copy
 }

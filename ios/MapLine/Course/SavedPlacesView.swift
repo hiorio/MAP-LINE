@@ -11,6 +11,8 @@ struct SavedPlacesView: View {
     @State private var places: [SavedPlace] = []
     @State private var editor: GroupEditorTarget?
     @State private var deletingGroup: SavedPlaceGroup?
+    @State private var query = ""
+    @State private var editMode: EditMode = .inactive
 
     private let placeStore = SavedPlaceStore(storage: AppGroupPlaceStorage())
     private let groupStore = SavedPlaceGroupStore(storage: AppGroupSavedPlaceGroupStorage())
@@ -24,51 +26,70 @@ struct SavedPlacesView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                Section("내 폴더") {
-                    ForEach(groups) { group in
-                        NavigationLink {
-                            SavedPlaceGroupView(
-                                group: group,
-                                groups: groups,
-                                stops: stops,
-                                onAdd: onAdd,
-                                onChanged: reload
-                            )
-                        } label: {
-                            groupRow(group)
+                if normalizedQuery.isEmpty {
+                    Section("내 폴더") {
+                        if let inbox = groups.first(where: { $0.id == SavedPlaceGroup.inboxID }) {
+                            groupLink(inbox)
                         }
-                        .accessibilityIdentifier("saved.group.\(group.id)")
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            if group.id != SavedPlaceGroup.inboxID {
-                                Button(role: .destructive) { deletingGroup = group } label: {
-                                    Label("삭제", systemImage: "trash")
-                                }
-                                Button { editor = GroupEditorTarget(group: group) } label: {
-                                    Label("편집", systemImage: "pencil")
-                                }
-                                .tint(.blue)
+                        ForEach(customGroups) { group in
+                            groupLink(group)
+                        }
+                        .onMove(perform: moveGroups)
+                    }
+                } else {
+                    Section("전체 검색 결과 \(searchResults.count)곳") {
+                        if searchResults.isEmpty {
+                            VStack(spacing: 8) {
+                                Image(systemName: "magnifyingglass")
+                                    .font(.title2)
+                                    .foregroundStyle(.secondary)
+                                Text("찾은 장소가 없습니다").font(.headline)
+                                Text("장소명·주소·폴더 이름으로 다시 찾아보세요.")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                                    .multilineTextAlignment(.center)
                             }
-                        }
-                        .contextMenu {
-                            if group.id != SavedPlaceGroup.inboxID {
-                                Button { editor = GroupEditorTarget(group: group) } label: {
-                                    Label("폴더 편집", systemImage: "pencil")
-                                }
-                                Button(role: .destructive) { deletingGroup = group } label: {
-                                    Label("폴더 삭제", systemImage: "trash")
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 20)
+                        } else {
+                            ForEach(searchResults) { place in
+                                if let group = group(for: place) {
+                                    NavigationLink {
+                                        SavedPlaceGroupView(
+                                            group: group,
+                                            groups: groups,
+                                            stops: stops,
+                                            onAdd: onAdd,
+                                            onChanged: reload
+                                        )
+                                    } label: {
+                                        searchResultRow(place, group: group)
+                                    }
+                                    .accessibilityIdentifier("saved.searchResult")
                                 }
                             }
                         }
                     }
                 }
             }
+            .environment(\.editMode, $editMode)
+            .searchable(text: $query, prompt: "장소·주소·폴더 검색")
             .navigationTitle("보관함")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("닫기") { dismiss() }
                 }
-                ToolbarItem(placement: .primaryAction) {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    if normalizedQuery.isEmpty {
+                        Button(editMode.isEditing ? "완료" : "정렬") {
+                            withAnimation {
+                                editMode = editMode.isEditing ? .inactive : .active
+                            }
+                        }
+                        .disabled(customGroups.count < 2)
+                        .accessibilityIdentifier("saved.sortGroups")
+                    }
                     Button { editor = GroupEditorTarget(group: nil) } label: {
                         Label("새 폴더", systemImage: "folder.badge.plus")
                     }
@@ -121,6 +142,86 @@ struct SavedPlacesView: View {
         .padding(.vertical, 3)
     }
 
+    private var normalizedQuery: String {
+        query.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var customGroups: [SavedPlaceGroup] {
+        groups.filter { $0.id != SavedPlaceGroup.inboxID }
+    }
+
+    private var searchResults: [SavedPlace] {
+        let text = normalizedQuery
+        guard !text.isEmpty else { return [] }
+        return places.filter { place in
+            place.name.localizedCaseInsensitiveContains(text)
+                || (place.address?.localizedCaseInsensitiveContains(text) ?? false)
+                || (group(for: place)?.name.localizedCaseInsensitiveContains(text) ?? false)
+        }
+    }
+
+    private func group(for place: SavedPlace) -> SavedPlaceGroup? {
+        groups.first { $0.id == place.groupID }
+            ?? groups.first { $0.id == SavedPlaceGroup.inboxID }
+    }
+
+    private func groupLink(_ group: SavedPlaceGroup) -> some View {
+        NavigationLink {
+            SavedPlaceGroupView(
+                group: group,
+                groups: groups,
+                stops: stops,
+                onAdd: onAdd,
+                onChanged: reload
+            )
+        } label: {
+            groupRow(group)
+        }
+        .accessibilityIdentifier("saved.group.\(group.id)")
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            if group.id != SavedPlaceGroup.inboxID {
+                Button(role: .destructive) { deletingGroup = group } label: {
+                    Label("삭제", systemImage: "trash")
+                }
+                Button { editor = GroupEditorTarget(group: group) } label: {
+                    Label("편집", systemImage: "pencil")
+                }
+                .tint(.blue)
+            }
+        }
+        .contextMenu {
+            if group.id != SavedPlaceGroup.inboxID {
+                Button { editor = GroupEditorTarget(group: group) } label: {
+                    Label("폴더 편집", systemImage: "pencil")
+                }
+                Button(role: .destructive) { deletingGroup = group } label: {
+                    Label("폴더 삭제", systemImage: "trash")
+                }
+            }
+        }
+    }
+
+    private func searchResultRow(_ place: SavedPlace, group: SavedPlaceGroup) -> some View {
+        HStack(spacing: 11) {
+            groupMark(group, size: 34)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(place.name).font(.body.weight(.medium)).foregroundStyle(.primary)
+                Text([place.address, Optional(group.name)].compactMap { $0 }.joined(separator: " · "))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func moveGroups(from source: IndexSet, to destination: Int) {
+        var reordered = customGroups
+        reordered.move(fromOffsets: source, toOffset: destination)
+        groupStore.reorder(customGroupIDs: reordered.map(\.id))
+        reload()
+    }
+
     private func reload() {
         groups = groupStore.all()
         places = placeStore.all()
@@ -145,12 +246,17 @@ private struct SavedPlaceGroupView: View {
     @State private var places: [SavedPlace] = []
     @State private var added: Set<String> = []
     @State private var searching = false
-    @State private var movingPlace: SavedPlace?
+    @State private var moveRequest: MoveRequest?
     @State private var selectingForCourse = false
     @State private var courseSelection: Set<String> = []
     @State private var pendingCoursePlaces: CoursePlaces?
 
     private struct CoursePlaces: Identifiable {
+        let id = UUID()
+        let places: [SavedPlace]
+    }
+
+    private struct MoveRequest: Identifiable {
         let id = UUID()
         let places: [SavedPlace]
     }
@@ -196,7 +302,7 @@ private struct SavedPlaceGroupView: View {
                                 toggleCourseSelection(place)
                             }
                             .swipeActions(edge: .leading, allowsFullSwipe: false) {
-                                Button { movingPlace = place } label: {
+                                Button { moveRequest = MoveRequest(places: [place]) } label: {
                                     Label("이동", systemImage: "folder")
                                 }
                                 .tint(.blue)
@@ -207,7 +313,7 @@ private struct SavedPlaceGroupView: View {
                                 }
                             }
                             .contextMenu {
-                                Button { movingPlace = place } label: {
+                                Button { moveRequest = MoveRequest(places: [place]) } label: {
                                     Label("다른 폴더로 이동", systemImage: "folder")
                                 }
                                 Button(role: .destructive) { remove(place) } label: {
@@ -244,9 +350,15 @@ private struct SavedPlaceGroupView: View {
                 reload()
             }
         }
-        .sheet(item: $movingPlace) { place in
-            SavedPlaceMoveSheet(place: place, groups: groups) { targetID in
-                store.move(id: place.id, to: targetID)
+        .sheet(item: $moveRequest) { request in
+            SavedPlaceMoveSheet(
+                placeCount: request.places.count,
+                sourceGroupID: group.id,
+                groups: groups
+            ) { targetID in
+                store.move(ids: Set(request.places.map(\.id)), to: targetID)
+                courseSelection = []
+                selectingForCourse = false
                 reload()
             }
         }
@@ -265,22 +377,38 @@ private struct SavedPlaceGroupView: View {
         }
         .safeAreaInset(edge: .bottom) {
             if selectingForCourse {
-                Button {
-                    let picked = places.filter { courseSelection.contains($0.id) }
-                    guard !picked.isEmpty else { return }
-                    pendingCoursePlaces = CoursePlaces(places: picked)
-                } label: {
-                    Text("선택한 \(courseSelection.count)곳 동선에 담기")
-                        .font(.body.weight(.semibold))
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 48)
+                HStack(spacing: 10) {
+                    Button {
+                        let picked = places.filter { courseSelection.contains($0.id) }
+                        guard !picked.isEmpty else { return }
+                        moveRequest = MoveRequest(places: picked)
+                    } label: {
+                        Label("이동", systemImage: "folder")
+                            .font(.body.weight(.semibold))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(courseSelection.isEmpty)
+                    .accessibilityIdentifier("saved.group.moveSelected")
+
+                    Button {
+                        let picked = places.filter { courseSelection.contains($0.id) }
+                        guard !picked.isEmpty else { return }
+                        pendingCoursePlaces = CoursePlaces(places: picked)
+                    } label: {
+                        Text("\(courseSelection.count)곳 동선에 담기")
+                            .font(.body.weight(.semibold))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(courseSelection.isEmpty)
+                    .accessibilityIdentifier("saved.group.addSelected")
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(courseSelection.isEmpty)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
                 .background(.regularMaterial)
-                .accessibilityIdentifier("saved.group.addSelected")
             }
         }
         .onAppear(perform: reload)
@@ -351,7 +479,8 @@ private struct SavedPlaceGroupView: View {
 }
 
 private struct SavedPlaceMoveSheet: View {
-    let place: SavedPlace
+    let placeCount: Int
+    let sourceGroupID: String
     let groups: [SavedPlaceGroup]
     let onMove: (String) -> Void
 
@@ -359,7 +488,7 @@ private struct SavedPlaceMoveSheet: View {
 
     var body: some View {
         NavigationStack {
-            List(groups.filter { $0.id != place.groupID }) { group in
+            List(groups.filter { $0.id != sourceGroupID }) { group in
                 Button {
                     onMove(group.id)
                     dismiss()
@@ -370,7 +499,7 @@ private struct SavedPlaceMoveSheet: View {
                     }
                 }
             }
-            .navigationTitle("다른 폴더로 이동")
+            .navigationTitle(placeCount == 1 ? "다른 폴더로 이동" : "\(placeCount)곳 이동")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

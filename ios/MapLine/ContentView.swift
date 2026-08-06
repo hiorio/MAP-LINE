@@ -46,6 +46,7 @@ struct ContentView: View {
     /// 지금 보고 있는 자리를 물어보기 위해 들고 있는다.
     @State private var mapController: KakaoMapViewController?
     @State private var pendingCameraCenter: GeoPoint?
+    @StateObject private var currentLocation = CurrentLocationProvider()
 
     private struct ShareLink: Identifiable {
         let url: URL
@@ -652,6 +653,14 @@ struct ContentView: View {
             Spacer()
 
             HStack(alignment: .bottom) {
+                roundButton(
+                    currentLocation.isRequesting ? "location.circle" : "location.fill",
+                    label: currentLocation.isRequesting ? "현재 위치 확인 중" : "현재 위치로 이동",
+                    active: currentLocation.isRequesting
+                ) { moveToCurrentLocation() }
+                    .disabled(currentLocation.isRequesting)
+                    .accessibilityIdentifier("map.currentLocation")
+
                 Spacer()
                 VStack(spacing: 10) {
                     mapActionButton(
@@ -766,6 +775,17 @@ struct ContentView: View {
 
     private func startDrawing() {
         isDrawing.toggle()
+    }
+
+    private func moveToCurrentLocation() {
+        currentLocation.request { result in
+            switch result {
+            case .success(let point):
+                mapController?.move(to: point.lat, lng: point.lng, level: 3)
+            case .failure(let error):
+                saveError = error.localizedDescription
+            }
+        }
     }
 }
 
