@@ -6,6 +6,8 @@ import SwiftUI
 /// UIView만 감싸면 viewWillAppear/viewWillDisappear에 해당하는 지점이 없다.
 struct KakaoMapView: UIViewControllerRepresentable {
     var isDrawing: Bool
+    /// 편집 시트의 보조 이동 모드가 켜진 동안에는 직접 메모 드래그를 시작하지 않는다.
+    var isChoosingMemoMoveTarget: Bool
     /// 지도에 얹을 중간지점. nil이면 지운다.
     var plot: MidpointPlot?
     /// 지도에 찍은 단계들.
@@ -20,6 +22,8 @@ struct KakaoMapView: UIViewControllerRepresentable {
     var onTapStopPin: (String) -> Void
     var onTapMapPoi: (GeoPoint, String) -> Void
     var onTapMemo: (String) -> Void
+    /// 메모를 길게 누른 채 끌고 손을 뗐을 때 확정된 위치.
+    var onMoveMemo: (String, GeoPoint) -> Void
     var onStrokesChanged: ([GeoStroke]) -> Void
     /// 지금 보고 있는 자리를 물어볼 수 있게 컨트롤러를 넘겨준다. 저장할 때 쓴다.
     var onReady: (KakaoMapViewController) -> Void
@@ -59,7 +63,9 @@ struct KakaoMapView: UIViewControllerRepresentable {
         controller.onTapStopPin = onTapStopPin
         controller.onTapMapPoi = onTapMapPoi
         controller.onTapMemo = onTapMemo
+        controller.onMoveMemo = onMoveMemo
         controller.onStrokesChanged = onStrokesChanged
+        controller.memoDragEnabled = !isChoosingMemoMoveTarget
         // 컨트롤러 쪽 didSet이 같은 값이면 다시 그리지 않는다.
         // 단계를 먼저 넣는다. 구간은 단계를 근거로 그려지므로 순서가 뒤바뀌면
         // 아직 없는 단계를 가리키는 구간을 한 번 그리게 된다.

@@ -18,6 +18,16 @@ final class KakaoMapViewController: UIViewController {
     private var longPressRecognizer: UILongPressGestureRecognizer?
     /// 롱프레스가 끝날 때 같은 손가락을 POI 탭으로 한 번 더 해석하는 것을 막는다.
     private var lastLongPressAt: TimeInterval = 0
+    /// 메모를 길게 누른 채 끌고 있는 동안의 상태. 모델은 손을 뗄 때 한 번만 고친다.
+    private var memoDrag: MemoDrag?
+
+    private struct MemoDrag {
+        let id: String
+        let originalLocation: GeoPoint
+        let latitudeOffset: Double
+        let longitudeOffset: Double
+        var currentLocation: GeoPoint
+    }
 
     /// 지도가 준비되기 전에는 그릴 수 없다. 준비 여부를 한 곳에서 본다.
     private var kakaoMap: KakaoMap? {
@@ -74,6 +84,10 @@ final class KakaoMapViewController: UIViewController {
     var onTapMapPoi: ((GeoPoint, String) -> Void)?
     /// 지도 위 메모를 눌렀을 때. 메모의 id를 준다.
     var onTapMemo: ((String) -> Void)?
+    /// 메모를 길게 눌러 끈 뒤 손을 뗐을 때. 중간 프레임은 지도 POI만 움직인다.
+    var onMoveMemo: ((String, GeoPoint) -> Void)?
+    /// 편집 시트의 보조 이동 모드와 직접 드래그가 한 손가락을 두고 경쟁하지 않게 한다.
+    var memoDragEnabled = true
 
     /// SDK 이벤트 구독. 놓으면 구독이 끊기므로 컨트롤러가 살아 있는 동안 들고 있는다.
     private var eventHandlers: [any DisposableEventHandler] = []
@@ -168,15 +182,131 @@ final class KakaoMapViewController: UIViewController {
     }
 
     @objc private func handleMapLongPress(_ recognizer: UILongPressGestureRecognizer) {
-        guard recognizer.state == .began,
-              !isDrawing,
+        guard !isDrawing,
               let container = mapContainer,
               let map = kakaoMap else { return }
 
-        let point = recognizer.location(in: container)
+        let point = clampedMapPoint(recognizer.location(in: container), bounds: container.bounds)
+        let fingerLocation = geoPoint(at: point, on: map)
+
+        switch recognizer.state {
+        case .began:
+            lastLongPressAt = ProcessInfo.processInfo.systemUptime
+
+            if memoDragEnabled,
+               let label = memoHitTarget(at: point, on: map, bounds: container.bounds) {
+                // 누른 글자의 어느 부분에서 시작해도 손가락과 메모 사이의 간격을 유지한다.
+                memoDrag = MemoDrag(
+                    id: label.id,
+                    originalLocation: label.location,
+                    latitudeOffset: label.location.lat - fingerLocation.lat,
+                    longitudeOffset: label.location.lng - fingerLocation.lng,
+                    currentLocation: label.location
+                )
+                setMapGesturesEnabled(false, on: map)
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                return
+            }
+
+            onLongPress?(fingerLocation)
+
+        case .changed:
+            guard var drag = memoDrag else { return }
+            let location = GeoPoint(
+                lat: fingerLocation.lat + drag.latitudeOffset,
+                lng: fingerLocation.lng + drag.longitudeOffset
+            )
+            drag.currentLocation = location
+            memoDrag = drag
+            moveMemoPoi(id: drag.id, to: location, on: map)
+
+        case .ended:
+            lastLongPressAt = ProcessInfo.processInfo.systemUptime
+            guard let drag = memoDrag else { return }
+            finishMemoDrag(on: map)
+            onMoveMemo?(drag.id, drag.currentLocation)
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+
+        case .cancelled, .failed:
+            lastLongPressAt = ProcessInfo.processInfo.systemUptime
+            guard let drag = memoDrag else { return }
+            moveMemoPoi(id: drag.id, to: drag.originalLocation, on: map)
+            finishMemoDrag(on: map)
+
+        default:
+            break
+        }
+    }
+
+    private func finishMemoDrag(on map: KakaoMap) {
+        memoDrag = nil
+        setMapGesturesEnabled(!isDrawing, on: map)
+    }
+
+    private func setMapGesturesEnabled(_ enabled: Bool, on map: KakaoMap) {
+        map.setGestureEnable(type: .pan, enable: enabled)
+        map.setGestureEnable(type: .zoom, enable: enabled)
+    }
+
+    private func geoPoint(at point: CGPoint, on map: KakaoMap) -> GeoPoint {
         let coord = map.getPosition(point).wgsCoord
-        lastLongPressAt = ProcessInfo.processInfo.systemUptime
-        onLongPress?(GeoPoint(lat: coord.latitude, lng: coord.longitude))
+        return GeoPoint(lat: coord.latitude, lng: coord.longitude)
+    }
+
+    private func clampedMapPoint(_ point: CGPoint, bounds: CGRect) -> CGPoint {
+        let safe = bounds.insetBy(dx: 1, dy: 1)
+        return CGPoint(
+            x: min(max(point.x, safe.minX), safe.maxX),
+            y: min(max(point.y, safe.minY), safe.maxY)
+        )
+    }
+
+    /// SDK에는 지도좌표 → 화면좌표 변환이 없으므로, 손가락 주위의 화면 사각형을
+    /// `getPosition`으로 지도 범위로 바꾸고 그 안에서 가장 가까운 메모를 고른다.
+    private func memoHitTarget(at point: CGPoint, on map: KakaoMap, bounds: CGRect) -> MapLabel? {
+        let touch = geoPoint(at: point, on: map)
+
+        return labels.compactMap { label -> (label: MapLabel, score: Double)? in
+            let hitSize = memoDragHitSize(label)
+            let left = geoPoint(
+                at: clampedMapPoint(CGPoint(x: point.x - hitSize.width / 2, y: point.y), bounds: bounds),
+                on: map
+            )
+            let right = geoPoint(
+                at: clampedMapPoint(CGPoint(x: point.x + hitSize.width / 2, y: point.y), bounds: bounds),
+                on: map
+            )
+            let top = geoPoint(
+                at: clampedMapPoint(CGPoint(x: point.x, y: point.y - hitSize.height / 2), bounds: bounds),
+                on: map
+            )
+            let bottom = geoPoint(
+                at: clampedMapPoint(CGPoint(x: point.x, y: point.y + hitSize.height / 2), bounds: bounds),
+                on: map
+            )
+
+            let lngTolerance = max(
+                max(abs(left.lng - touch.lng), abs(right.lng - touch.lng)),
+                0.000_000_1
+            )
+            let latTolerance = max(
+                max(abs(top.lat - touch.lat), abs(bottom.lat - touch.lat)),
+                0.000_000_1
+            )
+            let normalizedX = abs(label.location.lng - touch.lng) / lngTolerance
+            let normalizedY = abs(label.location.lat - touch.lat) / latTolerance
+            guard normalizedX <= 1, normalizedY <= 1 else { return nil }
+            return (label, normalizedX * normalizedX + normalizedY * normalizedY)
+        }
+        .min { $0.score < $1.score }?
+        .label
+    }
+
+    private func moveMemoPoi(id: String, to location: GeoPoint, on map: KakaoMap) {
+        guard let poi = map.getLabelManager()
+            .getLabelLayer(layerID: Self.memoLayerID)?
+            .getPoi(poiID: id) else { return }
+        poi.position = location.mapPoint
     }
 
     /// 이미 떠 있는 지도를 다른 자리로 옮긴다. 저장해 둔 지도를 열면 그리로 간다.
@@ -559,6 +689,17 @@ private extension KakaoMapViewController {
         registeredPinStyles.insert(styleID)
         return styleID
     }
+}
+
+/// 글자 크기와 길이를 반영하되 최소 44pt 터치 영역을 보장한다.
+/// 실제 메모는 가운데 정렬된 텍스트 POI라 이 크기를 중심 기준으로 쓴다.
+func memoDragHitSize(_ label: MapLabel) -> CGSize {
+    let renderedFontSize = CGFloat(max(14, label.fontSize * 1.6))
+    let estimatedTextWidth = CGFloat(label.text.count) * renderedFontSize * 0.92
+    return CGSize(
+        width: min(260, max(52, estimatedTextWidth + 24)),
+        height: max(48, renderedFontSize + 22)
+    )
 }
 
 // MARK: - 구간 선

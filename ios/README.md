@@ -36,7 +36,7 @@ SDK의 롱프레스 이벤트는 시간을 바꿀 수 없어 앱은 `UILongPress
 | 꾹 눌러 주변 장소·건물명 찾기 또는 이름 검색 → 새 단계/기존 단계 후보로 담기 | `Course/DropPinSheet.swift`, `Shared/PlaceLookup.swift`(`NearbyLookup`) |
 | 번호 붙은 단계 핀, 복수검색·단계 선택·후보 일괄 추가, 대표 지정·삭제 | `Course/CoursePlacePickerSheet.swift`, `Course/CourseSheet.swift`, `Course/StopPinSheet.swift`, `Domain/MapDocument.swift` |
 | 구간 이동수단(직선/도보/대중교통/자전거)과 실제 경로 | `Course/CourseSheet.swift`, `Domain/StopLeg.swift`, `Domain/RouteLookup.swift`, `Domain/LegShapes.swift`, `Map/LegStyle.swift` |
-| 지도 위 메모 작성·수정·이동·삭제 | `Course/DropPinSheet.swift`, `Course/MemoSheet.swift`, `Domain/MapDocument.swift`(`MapLabel`) |
+| 지도 위 메모 작성·수정·롱프레스 드래그 이동·삭제 | `Map/KakaoMapViewController.swift`, `Course/DropPinSheet.swift`, `Course/MemoSheet.swift`, `Domain/MapDocument.swift`(`MapLabel`) |
 | 저장·불러오기·공유 링크 | `Domain/MapStore.swift`, `Course/MyMapsView.swift`, `Course/ActivitySheet.swift` |
 | 보관함 폴더·마크·직접 장소 추가·공유 수신 | `Course/SavedPlacesView.swift`, `Shared/SavedPlaceGroup.swift`, `Shared/SavedPlaceStore.swift` |
 | 중간지점 찾기 + 기록 + 지도 표시 | `Midpoint/MidpointView.swift`, `Shared/MidpointHistory.swift`, `Map/MidpointPlot.swift` |
@@ -54,6 +54,10 @@ SDK의 롱프레스 이벤트는 시간을 바꿀 수 없어 앱은 `UILongPress
 핀 컨텍스트의 주변 장소와 단계 선택 행은 글자·아이콘뿐 아니라 행의 빈 여백까지 전체가
 터치 영역입니다. 저장된 핀 상세의 대표 지정·삭제 행도 같은 규칙을 씁니다.
 단계 핀은 20pt, 장소 이름표는 16pt입니다.
+
+지도 메모는 메모 글자를 0.45초간 누른 뒤 그대로 끌면 손가락을 따라 움직이고, 손을 떼는
+순간 새 좌표로 확정됩니다. 드래그 중에는 지도가 움직이지 않습니다. 메모 편집 화면의
+`위치 옮기기`는 드래그가 어려운 경우를 위한 보조 경로로 남겨 두었습니다.
 
 중간지점 찾기는 사이드 메뉴에만 둡니다. 지도 오른쪽의 떠 있는 버튼은 자주 쓰는
 `장소 추가`·`동선 만들기`·`공유`만 남겨 같은 기능이 두 곳에 반복되지 않게 했습니다.

@@ -77,6 +77,7 @@ struct ContentView: View {
             .background {
                 KakaoMapView(
                     isDrawing: isDrawing,
+                    isChoosingMemoMoveTarget: movingMemoID != nil,
                     plot: plot,
                     stops: stops,
                     legs: legs,
@@ -104,6 +105,9 @@ struct ContentView: View {
                     onTapMemo: { id in
                         guard movingMemoID == nil else { return }
                         openedMemo = labels.first { $0.id == id }
+                    },
+                    onMoveMemo: { id, location in
+                        labels.updateLabel(id: id, location: location)
                     },
                     onStrokesChanged: { strokes = $0 },
                     onReady: { mapController = $0 }

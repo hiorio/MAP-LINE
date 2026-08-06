@@ -142,25 +142,27 @@ final class StopPinUITests: XCTestCase {
         app.buttons["남기기"].tap()
         Thread.sleep(forTimeInterval: 2)
 
-        oldPosition.tap()
-        let move = app.descendants(matching: .any).matching(identifier: "memo.move").firstMatch
-        XCTAssertTrue(move.waitForExistence(timeout: 10), "메모를 눌러도 편집 화면이 뜨지 않았다")
-        attach(app, name: "11-메모편집")
-        move.tap()
-
-        let cancel = app.descendants(matching: .any)
-            .matching(identifier: "memo.move.cancel").firstMatch
-        XCTAssertTrue(cancel.waitForExistence(timeout: 5), "메모 이동 안내가 뜨지 않았다")
-
+        // 메모를 다시 열고 이동 버튼을 고르는 단계 없이, 메모 자체를 길게 눌러 끈다.
         let newPosition = app.coordinate(withNormalizedOffset: CGVector(dx: 0.68, dy: 0.52))
-        newPosition.press(forDuration: 0.55)
-        XCTAssertFalse(cancel.exists, "새 위치를 정했는데 메모 이동 모드가 끝나지 않았다")
+        oldPosition.press(
+            forDuration: 0.55,
+            thenDragTo: newPosition,
+            withVelocity: .slow,
+            thenHoldForDuration: 0.2
+        )
         Thread.sleep(forTimeInterval: 2)
-        attach(app, name: "12-메모이동후")
+        attach(app, name: "11-메모직접드래그후")
+        XCTAssertFalse(
+            app.navigationBars["여기에 무엇을 담을까요"].exists,
+            "메모 드래그를 빈 지도 롱프레스로 잘못 처리했다"
+        )
 
         // 새 자리에서 다시 편집 화면이 열리면 화면에만 움직인 것이 아니라 모델도 옮겨졌다.
         newPosition.tap()
-        XCTAssertTrue(move.waitForExistence(timeout: 10), "옮긴 자리에서 메모가 눌리지 않았다")
+        let memoText = app.textFields.matching(identifier: "memo.text").firstMatch
+        XCTAssertTrue(memoText.waitForExistence(timeout: 10), "옮긴 자리에서 메모가 눌리지 않았다")
+        XCTAssertEqual(memoText.value as? String, "입구에서 만나요", "드래그 뒤 메모 내용이 바뀌었다")
+        attach(app, name: "12-옮긴메모다시열림")
     }
 
     /// 두 번째 단계를 담고 그 사이를 도보로 잇는다.

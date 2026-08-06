@@ -106,4 +106,18 @@ final class MapDocumentTests: XCTestCase {
         XCTAssertEqual(labels.count, 1)
         XCTAssertEqual(labels.first?.text, "후")
     }
+
+    func test_메모드래그영역은짧은글자도손가락크기를보장하고긴글자는넓어진다() {
+        let short = memoDragHitSize(
+            MapLabel(location: GeoPoint(lat: 37.5, lng: 127.0), text: "A")
+        )
+        let long = memoDragHitSize(
+            MapLabel(location: GeoPoint(lat: 37.5, lng: 127.0), text: "입구에서 만나요")
+        )
+
+        XCTAssertGreaterThanOrEqual(short.width, 44)
+        XCTAssertGreaterThanOrEqual(short.height, 44)
+        XCTAssertGreaterThan(long.width, short.width)
+        XCTAssertLessThanOrEqual(long.width, 260)
+    }
 }
