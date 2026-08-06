@@ -108,6 +108,19 @@ final class StopPinUITests: XCTestCase {
         let prioritized = tappedPlace.waitForExistence(timeout: 15)
         attach(app, name: prioritized ? "2-기본POI탭-선택장소상단" : "2-선택장소상단없음")
         XCTAssertTrue(prioritized, "누른 기본 마커의 장소가 컨텍스트 상단에 표시되지 않았다")
+
+        // 장소명 글자가 아니라 행 오른쪽의 빈 여백을 눌러도 같은 선택으로 처리돼야 한다.
+        guard prioritized else { return }
+        tappedPlace.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        let targetPicker = app.descendants(matching: .any)
+            .matching(identifier: "droppin.targetPicker").firstMatch
+        let deadline = Date().addingTimeInterval(10)
+        while Date() < deadline, title.exists, !targetPicker.exists {
+            Thread.sleep(forTimeInterval: 0.25)
+        }
+        let progressedFromRowEdge = !title.exists || targetPicker.exists
+        attach(app, name: progressedFromRowEdge ? "3-장소행전체탭" : "3-장소행여백탭실패")
+        XCTAssertTrue(progressedFromRowEdge, "장소 행의 글자 밖 여백을 눌렀는데 다음 단계로 진행되지 않았다")
     }
 
     func test_메모를_다른위치로_옮긴다() throws {
@@ -178,7 +191,8 @@ final class StopPinUITests: XCTestCase {
             "기존 1단계에 후보로 추가하는 선택지가 없다"
         )
         attach(app, name: "5-새단계또는후보선택")
-        newStop.tap()
+        // 단계명 글자 밖의 행 오른쪽 여백도 선택 영역이어야 한다.
+        newStop.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
         Thread.sleep(forTimeInterval: 1)
         attach(app, name: "5-단계둘")
 

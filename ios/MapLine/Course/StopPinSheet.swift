@@ -41,6 +41,8 @@ struct StopPinSheet: View {
                                 isPrimary ? "이 단계의 대표입니다" : "이 단계의 대표로 지정",
                                 systemImage: isPrimary ? "checkmark.circle.fill" : "circle"
                             )
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
                         }
                         .disabled(isPrimary)
                     } footer: {
@@ -55,6 +57,8 @@ struct StopPinSheet: View {
                         dismiss()
                     } label: {
                         Label("지우기", systemImage: "trash")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
                     }
                     .accessibilityIdentifier("stop.remove")
                 }

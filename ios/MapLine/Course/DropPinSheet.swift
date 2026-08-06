@@ -200,6 +200,7 @@ struct DropPinSheet: View {
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.tertiary)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
     }
 
@@ -243,6 +244,10 @@ struct DropPinSheet: View {
                     .font(.caption2).monospacedDigit().foregroundStyle(.tertiary)
             }
         }
+        // plain 버튼은 라벨이 차지한 부분만 hit-test하므로 목록의 빈 여백도
+        // 명시적으로 버튼 영역에 포함한다.
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
     }
 
     private func pick(_ candidate: PlaceCandidate) {
