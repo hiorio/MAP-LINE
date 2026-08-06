@@ -220,8 +220,10 @@ cd ios && xcodegen generate && open MapLine.xcodeproj
 업로드합니다. **EAS 같은 유료 빌드 서비스는 필요 없습니다** — Apple 개발자 프로그램
 연회비 외에 추가 비용이 없습니다.
 
-2026-08-06 실행 `31097943123`에서 표시 이름 `도화지`와 보관함·내 지도 관리 기능을 담은
-TestFlight 빌드 27의 아카이브·업로드·CI 임시 인증서 회수까지 성공했습니다.
+2026-08-07 실행 `31118478750` 3차 시도에서 최신 `main` 커밋 `270df35`를 담은 TestFlight
+빌드 29의 아카이브·App Store Connect 업로드·CI 임시 인증서 회수까지 성공했습니다. 앞선
+두 시도는 각각 macOS hosted runner 미배정과 GitHub `Service Unavailable`로 작업 설정 전에
+끝났으며 앱 빌드나 인증서 발급은 시작되지 않았습니다.
 
 저장소 시크릿 3개가 필요합니다.
 
