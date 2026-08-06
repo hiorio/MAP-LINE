@@ -13,6 +13,8 @@ struct SavedPlace: Codable, Equatable, Identifiable {
     let lat: Double
     let lng: Double
     let savedAt: String
+    /// 어느 보관함 폴더에 속하는지. 예전 파일에는 없으므로 디코딩할 때 받은 장소로 보낸다.
+    let groupID: String
 
     init(
         id: String = UUID().uuidString,
@@ -21,7 +23,8 @@ struct SavedPlace: Codable, Equatable, Identifiable {
         kakaoPlaceId: String? = nil,
         lat: Double,
         lng: Double,
-        savedAt: String = ISO8601DateFormatter().string(from: Date())
+        savedAt: String = ISO8601DateFormatter().string(from: Date()),
+        groupID: String = SavedPlaceGroup.inboxID
     ) {
         self.id = id
         self.name = name
@@ -30,6 +33,37 @@ struct SavedPlace: Codable, Equatable, Identifiable {
         self.lat = lat
         self.lng = lng
         self.savedAt = savedAt
+        self.groupID = groupID
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, address, kakaoPlaceId, lat, lng, savedAt, groupID
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(String.self, forKey: .id)
+        name = try values.decode(String.self, forKey: .name)
+        address = try values.decodeIfPresent(String.self, forKey: .address)
+        kakaoPlaceId = try values.decodeIfPresent(String.self, forKey: .kakaoPlaceId)
+        lat = try values.decode(Double.self, forKey: .lat)
+        lng = try values.decode(Double.self, forKey: .lng)
+        savedAt = try values.decode(String.self, forKey: .savedAt)
+        groupID = try values.decodeIfPresent(String.self, forKey: .groupID)
+            ?? SavedPlaceGroup.inboxID
+    }
+
+    func assigned(to groupID: String) -> SavedPlace {
+        SavedPlace(
+            id: id,
+            name: name,
+            address: address,
+            kakaoPlaceId: kakaoPlaceId,
+            lat: lat,
+            lng: lng,
+            savedAt: savedAt,
+            groupID: groupID
+        )
     }
 }
 

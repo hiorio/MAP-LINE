@@ -28,13 +28,14 @@ enum ShareIntake {
             return "\(name)-\(location.lat)-\(location.lng)"
         }
 
-        func asSavedPlace() -> SavedPlace {
+        func asSavedPlace(groupID: String = SavedPlaceGroup.inboxID) -> SavedPlace {
             SavedPlace(
                 name: name,
                 address: roadAddress ?? address,
                 kakaoPlaceId: kakaoPlaceId,
                 lat: location.lat,
-                lng: location.lng
+                lng: location.lng,
+                groupID: groupID
             )
         }
     }

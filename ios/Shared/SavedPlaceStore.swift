@@ -13,6 +13,11 @@ protocol SavedPlaceStorage {
     func write(_ places: [SavedPlace])
 }
 
+protocol SavedPlaceGroupStorage {
+    func read() -> [SavedPlaceGroup]
+    func write(_ groups: [SavedPlaceGroup])
+}
+
 /// 보관함 규칙. 어디에 저장하든 이 규칙은 같다.
 struct SavedPlaceStore {
     private let storage: SavedPlaceStorage
@@ -24,6 +29,10 @@ struct SavedPlaceStore {
     func all() -> [SavedPlace] {
         // 최근에 담은 것이 위로. 공유로 방금 넣은 것을 앱에서 바로 찾을 수 있어야 한다.
         storage.read().sorted { $0.savedAt > $1.savedAt }
+    }
+
+    func all(in groupID: String) -> [SavedPlace] {
+        all().filter { $0.groupID == groupID }
     }
 
     /// 담는다. 이미 있는 곳이면 아무 일도 하지 않는다.
@@ -39,6 +48,79 @@ struct SavedPlaceStore {
 
     func remove(id: String) {
         storage.write(storage.read().filter { $0.id != id })
+    }
+
+    func move(id: String, to groupID: String) {
+        storage.write(storage.read().map { place in
+            place.id == id ? place.assigned(to: groupID) : place
+        })
+    }
+
+    func moveAll(from sourceGroupID: String, to targetGroupID: String) {
+        storage.write(storage.read().map { place in
+            place.groupID == sourceGroupID ? place.assigned(to: targetGroupID) : place
+        })
+    }
+
+    /// 앱 안 검색으로 장소를 특정 폴더에 담는다. 이미 다른 폴더에 있으면 복제하지 않고
+    /// 그 항목을 옮긴다. 공유 익스텐션의 `add`는 기존 분류를 받은 장소로 되돌리지 않는다.
+    @discardableResult
+    func addOrMove(_ place: SavedPlace, to groupID: String) -> Bool {
+        var places = storage.read()
+        if let index = places.firstIndex(where: { isSamePlace($0, place) }) {
+            guard places[index].groupID != groupID else { return false }
+            places[index] = places[index].assigned(to: groupID)
+        } else {
+            places.append(place.assigned(to: groupID))
+        }
+        storage.write(places)
+        return true
+    }
+}
+
+struct SavedPlaceGroupStore {
+    private let storage: SavedPlaceGroupStorage
+
+    init(storage: SavedPlaceGroupStorage) {
+        self.storage = storage
+    }
+
+    func all() -> [SavedPlaceGroup] {
+        let custom = storage.read()
+            .filter { $0.id != SavedPlaceGroup.inboxID }
+            .sorted { $0.createdAt < $1.createdAt }
+        return [SavedPlaceGroup.inbox] + custom
+    }
+
+    @discardableResult
+    func add(_ group: SavedPlaceGroup) -> Bool {
+        let name = group.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return false }
+        var groups = storage.read().filter { $0.id != SavedPlaceGroup.inboxID }
+        guard !groups.contains(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame })
+        else { return false }
+        var stored = group
+        stored.name = name
+        groups.append(stored)
+        storage.write(groups)
+        return true
+    }
+
+    func update(_ group: SavedPlaceGroup) {
+        guard group.id != SavedPlaceGroup.inboxID else { return }
+        let name = group.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        var groups = storage.read().filter { $0.id != SavedPlaceGroup.inboxID }
+        guard let index = groups.firstIndex(where: { $0.id == group.id }) else { return }
+        groups[index].name = name
+        groups[index].marker = group.marker
+        groups[index].colorHex = group.colorHex
+        storage.write(groups)
+    }
+
+    func remove(id: String) {
+        guard id != SavedPlaceGroup.inboxID else { return }
+        storage.write(storage.read().filter { $0.id != id && $0.id != SavedPlaceGroup.inboxID })
     }
 }
 
@@ -66,6 +148,26 @@ struct AppGroupPlaceStorage: SavedPlaceStorage {
     func write(_ places: [SavedPlace]) {
         guard let url = fileURL, let data = try? JSONEncoder().encode(places) else { return }
         // 쓰다가 앱이 죽어도 반쪽짜리 파일이 남지 않게 원자적으로 바꾼다.
+        try? data.write(to: url, options: .atomic)
+    }
+}
+
+struct AppGroupSavedPlaceGroupStorage: SavedPlaceGroupStorage {
+    private static let fileName = "saved-place-groups.json"
+
+    private var fileURL: URL? {
+        FileManager.default
+            .containerURL(forSecurityApplicationGroupIdentifier: AppGroupPlaceStorage.appGroupID)?
+            .appendingPathComponent(Self.fileName)
+    }
+
+    func read() -> [SavedPlaceGroup] {
+        guard let url = fileURL, let data = try? Data(contentsOf: url) else { return [] }
+        return (try? JSONDecoder().decode([SavedPlaceGroup].self, from: data)) ?? []
+    }
+
+    func write(_ groups: [SavedPlaceGroup]) {
+        guard let url = fileURL, let data = try? JSONEncoder().encode(groups) else { return }
         try? data.write(to: url, options: .atomic)
     }
 }

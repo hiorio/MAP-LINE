@@ -13,6 +13,8 @@ struct ShareIntakeView: View {
     @State private var savedMessage: String?
     @State private var selected: [String: String] = [:]
     @State private var showRaw = false
+    @State private var destinationGroups: [SavedPlaceGroup] = [SavedPlaceGroup.inbox]
+    @State private var destinationGroupID = SavedPlaceGroup.inboxID
 
     /// `State`라고 이름 짓지 않는다. SwiftUI의 `@State`를 가려서 프로퍼티 래퍼가
     /// 통째로 망가진다. 오류 메시지("enum 'State' cannot be used as an attribute")가
@@ -24,6 +26,7 @@ struct ShareIntakeView: View {
     }
 
     private let store = SavedPlaceStore(storage: AppGroupPlaceStorage())
+    private let groupStore = SavedPlaceGroupStore(storage: AppGroupSavedPlaceGroupStorage())
 
     var body: some View {
         NavigationStack {
@@ -40,6 +43,15 @@ struct ShareIntakeView: View {
                                 Label(savedMessage, systemImage: "checkmark.circle.fill")
                                     .foregroundStyle(.green)
                             }
+                        }
+                        Section("담을 폴더") {
+                            Picker("폴더", selection: $destinationGroupID) {
+                                ForEach(destinationGroups) { group in
+                                    Label(group.name, systemImage: group.marker.symbolName)
+                                        .tag(group.id)
+                                }
+                            }
+                            .pickerStyle(.menu)
                         }
                         ForEach(groups) { group in
                             candidateSection(group)
@@ -82,7 +94,10 @@ struct ShareIntakeView: View {
                 }
             }
         }
-        .task { await lookUp() }
+        .task {
+            destinationGroups = groupStore.all()
+            await lookUp()
+        }
     }
 
     private func candidateSection(_ group: ShareIntake.Group) -> some View {
@@ -165,10 +180,11 @@ struct ShareIntakeView: View {
             return group.places.first { $0.id == selectedID }
         }
         let addedCount = candidates.reduce(into: 0) { count, candidate in
-            if store.add(candidate.asSavedPlace()) { count += 1 }
+            if store.add(candidate.asSavedPlace(groupID: destinationGroupID)) { count += 1 }
         }
+        let folderName = destinationGroups.first { $0.id == destinationGroupID }?.name ?? "보관함"
         savedMessage = addedCount > 0
-            ? "\(addedCount)곳을 보관함에 담았습니다"
+            ? "\(addedCount)곳을 ‘\(folderName)’에 담았습니다"
             : "선택한 장소가 이미 보관함에 있습니다"
         // 담자마자 닫으면 담긴 게 맞는지 확인할 틈이 없다. 잠깐 보여 주고 닫는다.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: onDone)

@@ -22,13 +22,14 @@ struct PlaceCandidate: Decodable, Identifiable, Equatable {
     var id: String { kakaoPlaceId ?? "\(name)-\(location.lat)-\(location.lng)" }
     var displayAddress: String? { roadAddress ?? address }
 
-    func asSavedPlace() -> SavedPlace {
+    func asSavedPlace(groupID: String = SavedPlaceGroup.inboxID) -> SavedPlace {
         SavedPlace(
             name: name,
             address: displayAddress,
             kakaoPlaceId: kakaoPlaceId,
             lat: location.lat,
-            lng: location.lng
+            lng: location.lng,
+            groupID: groupID
         )
     }
 }

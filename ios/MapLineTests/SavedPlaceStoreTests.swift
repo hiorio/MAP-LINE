@@ -11,6 +11,12 @@ private final class MemoryStorage: SavedPlaceStorage {
     func write(_ places: [SavedPlace]) { self.places = places }
 }
 
+private final class MemoryGroupStorage: SavedPlaceGroupStorage {
+    var groups: [SavedPlaceGroup] = []
+    func read() -> [SavedPlaceGroup] { groups }
+    func write(_ groups: [SavedPlaceGroup]) { self.groups = groups }
+}
+
 final class SavedPlaceStoreTests: XCTestCase {
     private var storage: MemoryStorage!
     private var store: SavedPlaceStore!
@@ -27,9 +33,18 @@ final class SavedPlaceStoreTests: XCTestCase {
         kakaoPlaceId: String? = nil,
         lat: Double = 37.5,
         lng: Double = 127.0,
-        savedAt: String = "2026-08-01T00:00:00Z"
+        savedAt: String = "2026-08-01T00:00:00Z",
+        groupID: String = SavedPlaceGroup.inboxID
     ) -> SavedPlace {
-        SavedPlace(id: id, name: name, kakaoPlaceId: kakaoPlaceId, lat: lat, lng: lng, savedAt: savedAt)
+        SavedPlace(
+            id: id,
+            name: name,
+            kakaoPlaceId: kakaoPlaceId,
+            lat: lat,
+            lng: lng,
+            savedAt: savedAt,
+            groupID: groupID
+        )
     }
 
     func test_담으면_목록에_들어간다() {
@@ -70,6 +85,84 @@ final class SavedPlaceStoreTests: XCTestCase {
         store.add(place("남을곳"))
         store.remove(id: "target")
         XCTAssertEqual(store.all().map(\.name), ["남을곳"])
+    }
+
+    func test_예전보관함파일은받은장소폴더로읽는다() throws {
+        let oldJSON = Data(
+            """
+            {"id":"old","name":"옛 장소","lat":37.5,"lng":127.0,"savedAt":"2026-08-01T00:00:00Z"}
+            """.utf8
+        )
+
+        let decoded = try JSONDecoder().decode(SavedPlace.self, from: oldJSON)
+        XCTAssertEqual(decoded.groupID, SavedPlaceGroup.inboxID)
+    }
+
+    func test_장소를다른폴더로옮긴다() {
+        store.add(place("카페", id: "cafe"))
+        store.move(id: "cafe", to: "favorites")
+
+        XCTAssertTrue(store.all(in: SavedPlaceGroup.inboxID).isEmpty)
+        XCTAssertEqual(store.all(in: "favorites").map(\.name), ["카페"])
+    }
+
+    func test_앱검색으로이미있는장소를새폴더에담으면복제하지않고옮긴다() {
+        store.add(place("카페", kakaoPlaceId: "111"))
+
+        XCTAssertTrue(store.addOrMove(place("카페 강남점", kakaoPlaceId: "111"), to: "cafe"))
+        XCTAssertEqual(store.all().count, 1)
+        XCTAssertEqual(store.all().first?.groupID, "cafe")
+    }
+
+    func test_폴더를지우기전에장소를받은장소로모두옮긴다() {
+        store.add(place("A", groupID: "trip"))
+        store.add(place("B", groupID: "trip", lat: 37.6))
+
+        store.moveAll(from: "trip", to: SavedPlaceGroup.inboxID)
+
+        XCTAssertEqual(store.all(in: SavedPlaceGroup.inboxID).count, 2)
+        XCTAssertTrue(store.all(in: "trip").isEmpty)
+    }
+}
+
+final class SavedPlaceGroupStoreTests: XCTestCase {
+    private var storage: MemoryGroupStorage!
+    private var store: SavedPlaceGroupStore!
+
+    override func setUp() {
+        super.setUp()
+        storage = MemoryGroupStorage()
+        store = SavedPlaceGroupStore(storage: storage)
+    }
+
+    func test_받은장소기본폴더가항상첫번째다() {
+        XCTAssertEqual(store.all(), [SavedPlaceGroup.inbox])
+    }
+
+    func test_마크와색을가진폴더를만든다() {
+        let cafe = SavedPlaceGroup(
+            id: "cafe",
+            name: "가고 싶은 카페",
+            marker: .coffee,
+            colorHex: "#7A55C7",
+            createdAt: "2026-08-06T00:00:00Z"
+        )
+
+        XCTAssertTrue(store.add(cafe))
+        XCTAssertEqual(store.all().map(\.id), [SavedPlaceGroup.inboxID, "cafe"])
+        XCTAssertEqual(store.all().last?.marker, .coffee)
+        XCTAssertEqual(store.all().last?.colorHex, "#7A55C7")
+    }
+
+    func test_같은이름폴더는대소문자와공백을무시하고중복생성하지않는다() {
+        XCTAssertTrue(store.add(SavedPlaceGroup(name: " 여행 ")))
+        XCTAssertFalse(store.add(SavedPlaceGroup(name: "여행")))
+        XCTAssertEqual(store.all().count, 2)
+    }
+
+    func test_기본폴더는지울수없다() {
+        store.remove(id: SavedPlaceGroup.inboxID)
+        XCTAssertEqual(store.all(), [SavedPlaceGroup.inbox])
     }
 }
 

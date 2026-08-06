@@ -22,23 +22,23 @@ final class ScreenshotUITests: XCTestCase {
         //
         // 요소 종류를 찍어 고르지 않는다. SwiftUI가 무엇으로 낼지는 버전과 스타일에
         // 따라 다르고, 틀리면 "없다"고만 나와 원인을 알기 어렵다.
-        let midpointButton = app.descendants(matching: .any).matching(identifier: "map.midpoint").firstMatch
-        XCTAssertTrue(midpointButton.waitForExistence(timeout: 30), "지도 화면이 뜨지 않았다")
+        let menu = app.descendants(matching: .any).matching(identifier: "map.menu").firstMatch
+        XCTAssertTrue(menu.waitForExistence(timeout: 30), "지도 화면이 뜨지 않았다")
         // 타일이 그려질 틈을 준다.
         Thread.sleep(forTimeInterval: 3)
         shot(app, "1-지도")
 
         // 2. 옆 메뉴
-        let menu = app.descendants(matching: .any).matching(identifier: "map.menu").firstMatch
         if menu.exists {
             menu.tap()
             Thread.sleep(forTimeInterval: 1)
             shot(app, "2-메뉴")
-            // 메뉴에서 중간지점으로 들어간다. 지도 위 버튼과 같은 곳으로 가야 한다.
+            // 중간지점은 지도 버튼을 없애고 메뉴에서만 들어간다.
             let fromMenu = app.descendants(matching: .any).matching(identifier: "menu.midpoint").firstMatch
-            if fromMenu.exists { fromMenu.tap() } else { midpointButton.tap() }
+            XCTAssertTrue(fromMenu.exists, "메뉴에 중간지점 찾기가 없다")
+            if fromMenu.exists { fromMenu.tap() }
         } else {
-            midpointButton.tap()
+            XCTFail("지도 메뉴 버튼이 없다")
         }
         XCTAssertTrue(app.buttons["midpoint.addPerson"].waitForExistence(timeout: 10))
         shot(app, "3-중간지점-빈화면")

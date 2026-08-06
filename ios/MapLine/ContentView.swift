@@ -409,12 +409,6 @@ struct ContentView: View {
                         .accessibilityIdentifier("map.addPlace")
 
                     roundButton(
-                        "point.topleft.down.curvedto.point.bottomright.up",
-                        label: "중간지점 찾기"
-                    ) { showMidpoint = true }
-                        .accessibilityIdentifier("map.midpoint")
-
-                    roundButton(
                         "scribble.variable",
                         label: "동선 만들기",
                         active: isDrawing
@@ -540,7 +534,7 @@ struct SideMenu: View {
                 }
                 .accessibilityIdentifier("menu.midpoint")
 
-                item("bookmark", "보관함", "다른 앱에서 공유로 담아 둔 곳") {
+                item("bookmark", "보관함", "장소를 폴더와 마크로 모아 두는 곳") {
                     close()
                     onOpenSaved()
                 }
