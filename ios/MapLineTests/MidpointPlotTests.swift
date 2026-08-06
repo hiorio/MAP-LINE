@@ -90,6 +90,8 @@ final class MidpointPlotTests: XCTestCase {
         XCTAssertEqual(subject.meetings.first?.rank, 2)
         XCTAssertEqual(subject.meetings.first?.routes.first?.mode, .transit)
         XCTAssertEqual(subject.meetings.first?.routes.first?.points.count, 2)
+        XCTAssertEqual(subject.meetings.first?.routes.first?.distanceM, 5000)
+        XCTAssertEqual(subject.meetings.first?.routes.first?.durationS, 900)
         XCTAssertEqual(subject.everyPoint.count, 2)
     }
 }

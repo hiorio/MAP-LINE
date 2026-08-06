@@ -183,6 +183,34 @@ final class LegTests: XCTestCase {
         XCTAssertEqual(connectors.first?.to, to.location)
     }
 
+    // MARK: - 구간 요약
+
+    func test_경로요약은좌표개수가아니라선길이의중간에놓인다() throws {
+        let from = place("a", lat: 0, lng: 0)
+        let to = place("b", lat: 0, lng: 10)
+        let stops = [Stop(candidates: [from]), Stop(candidates: [to])]
+        let leg = StopLeg(
+            mode: .walk,
+            route: route(
+                from: "a",
+                to: "b",
+                points: [from.location, GeoPoint(lat: 0, lng: 9), to.location]
+            )
+        )
+
+        let annotation = try XCTUnwrap(legRouteAnnotations(stops: stops, legs: [leg]).first)
+        XCTAssertEqual(annotation.location.lat, 0, accuracy: 1e-9)
+        XCTAssertEqual(annotation.location.lng, 5, accuracy: 1e-9)
+        XCTAssertEqual(annotation.text, "도보 · 1.0km · 10분")
+    }
+
+    func test_실제경로가없는직선에는시간표시를만들지않는다() {
+        let stops = [Stop(candidates: [place("a")]), Stop(candidates: [place("b")])]
+        XCTAssertTrue(
+            legRouteAnnotations(stops: stops, legs: [StopLeg(mode: .straight)]).isEmpty
+        )
+    }
+
     // MARK: - 점선
 
     func test_점선은선과빈칸을번갈아낸다() {

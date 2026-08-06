@@ -47,6 +47,7 @@ final class KakaoMapViewController: UIViewController {
     /// 한쪽을 지운다고 다른 쪽이 사라지면 안 된다.
     private static let stopLabelLayerID = "stopPins"
     private static let legLayerID = "stopLegs"
+    private static let legLabelLayerID = "legLabels"
     private static let memoLayerID = "memos"
     /// UIKit 기본값(0.5초)보다 아주 조금만 빠르게 메뉴를 연다.
     private static let longPressMinimumDuration: TimeInterval = 0.45
@@ -407,6 +408,16 @@ extension KakaoMapViewController: MapControllerDelegate {
         )
         // 구간 선은 핀보다 아래, 손그림보다도 아래다. 사람이 그린 것이 제일 위여야 한다.
         _ = map.getShapeManager().addShapeLayer(layerID: Self.legLayerID, zOrder: 9_999)
+        // 구간 요약은 선 위, 단계 핀 아래다. 핀 번호와 장소 이름을 덮으면 안 된다.
+        _ = map.getLabelManager().addLabelLayer(
+            option: LabelLayerOptions(
+                layerID: Self.legLabelLayerID,
+                competitionType: CompetitionType.none,
+                competitionUnit: CompetitionUnit.symbolFirst,
+                orderType: OrderingType.rank,
+                zOrder: 10_001
+            )
+        )
         // 메모는 핀보다 위. 사람이 직접 쓴 글자가 가려지면 안 된다.
         _ = map.getLabelManager().addLabelLayer(
             option: LabelLayerOptions(
@@ -708,7 +719,8 @@ private extension KakaoMapViewController {
     /// 이동수단마다 스타일을 하나씩. 값이 고정이라 처음에 한 번만 만든다.
     func registerLegStyles(on map: KakaoMap) {
         let manager = map.getShapeManager()
-        for style in TravelMode.allCases.map(LegStyle.of) {
+        for mode in TravelMode.allCases {
+            let style = LegStyle.of(mode)
             manager.addPolylineStyleSet(
                 PolylineStyleSet(
                     styleSetID: Self.legStyleID(style.name),
@@ -719,16 +731,44 @@ private extension KakaoMapViewController {
                     ]
                 )
             )
+            registerRouteLabelStyle(mode: mode, on: map)
         }
     }
 
     static func legStyleID(_ name: String) -> String { "leg-\(name)" }
+    static func legLabelStyleID(_ mode: TravelMode) -> String { "leg-label-\(mode.rawValue)" }
+
+    func registerRouteLabelStyle(mode: TravelMode, on map: KakaoMap) {
+        let styleID = Self.legLabelStyleID(mode)
+        guard !registeredPinStyles.contains(styleID) else { return }
+
+        let textStyle = PoiTextStyle(textLineStyles: [
+            PoiTextLineStyle(
+                textStyle: TextStyle(
+                    fontSize: 17,
+                    fontColor: LegStyle.of(mode).color,
+                    strokeThickness: 6,
+                    strokeColor: .white
+                )
+            ),
+        ])
+        textStyle.textLayouts = [.center]
+        map.getLabelManager().addPoiStyle(
+            PoiStyle(
+                styleID: styleID,
+                styles: [PerLevelPoiStyle(textStyle: textStyle, level: 0)]
+            )
+        )
+        registeredPinStyles.insert(styleID)
+    }
 
     /// 단계 사이 선을 다시 그린다.
     ///
     /// 줌이 바뀔 때도 불린다. 점선 조각의 길이가 화면 배율에 달려 있어서, 같은 간격으로
     /// 보이게 하려면 줌마다 다시 잘라야 한다.
     func renderLegs(on map: KakaoMap) {
+        let labelLayer = map.getLabelManager().getLabelLayer(layerID: Self.legLabelLayerID)
+        labelLayer?.clearAllItems()
         guard let layer = map.getShapeManager().getShapeLayer(layerID: Self.legLayerID) else { return }
         layer.clearAllShapes()
 
@@ -763,13 +803,37 @@ private extension KakaoMapViewController {
             index += 1
         }
 
+        let annotations = legRouteAnnotations(stops: stops, legs: legs)
+        for annotation in annotations {
+            addRouteLabel(
+                text: annotation.text,
+                id: "leg-label-\(annotation.legIndex)",
+                location: annotation.location,
+                mode: annotation.mode,
+                to: labelLayer
+            )
+        }
+
         // 무엇을 그렸는지 화면 밖으로 내건다.
         //
         // 스크린샷만으로는 "선이 핀에 안 닿는다"의 원인을 좁힐 수 없었다. 연결선을
         // 안 만든 것인지, 만들었는데 안 그려진 것인지, 그려졌는데 짧은 것인지가
         // 그림에서는 똑같아 보인다. 맥이 없어 디버거를 붙일 수 없으니 UI 테스트가
         // 읽어 갈 수 있게 값으로 남긴다.
-        view.accessibilityValue = "legs:\(index) segs:\(drawnSegments) conns:\(drawnConnectors) perPt:\(perPoint)"
+        view.accessibilityValue = "legs:\(index) segs:\(drawnSegments) conns:\(drawnConnectors) labels:\(annotations.count) perPt:\(perPoint)"
+    }
+
+    func addRouteLabel(
+        text: String,
+        id: String,
+        location: GeoPoint,
+        mode: TravelMode,
+        to layer: LabelLayer?
+    ) {
+        let options = PoiOptions(styleID: Self.legLabelStyleID(mode), poiID: id)
+        options.clickable = false
+        options.addText(PoiText(text: text, styleIndex: 0))
+        layer?.addPoi(option: options, at: location.mapPoint)?.show()
     }
 
     /// 한 줄을 그린다. 점선이면 조각으로 잘라 한 도형에 담는다.
@@ -861,6 +925,28 @@ private extension KakaoMapViewController {
                             id: "midpoint-\(meeting.pin.id)-\(origin.id)-c\(index)",
                             perPoint: perPoint,
                             on: links
+                        )
+                    }
+                    if
+                        let distanceM = route.distanceM,
+                        let durationS = route.durationS,
+                        let middle = routeMidpoint(
+                            [GeoPoint(lat: origin.lat, lng: origin.lng)]
+                                + route.points
+                                + [GeoPoint(lat: meetingPoint.lat, lng: meetingPoint.lng)]
+                        )
+                    {
+                        addRouteLabel(
+                            text: routeAnnotationText(
+                                mode: route.mode,
+                                distanceM: distanceM,
+                                durationS: durationS,
+                                prefix: origin.title
+                            ),
+                            id: "midpoint-label-\(meeting.pin.id)-\(origin.id)",
+                            location: middle,
+                            mode: route.mode,
+                            to: labels
                         )
                     }
                 } else {

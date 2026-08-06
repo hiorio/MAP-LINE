@@ -15,6 +15,8 @@ struct MidpointPlot: Equatable {
         let mode: TravelMode
         let points: [GeoPoint]
         let transitLegs: [TransitLeg]?
+        let distanceM: Int?
+        let durationS: Int?
     }
 
     struct Meeting: Equatable {
@@ -70,7 +72,9 @@ extension MidpointPlot {
                     points: points.map { GeoPoint(lat: $0.lat, lng: $0.lng) },
                     transitLegs: leg.transitLegs?.map {
                         TransitLeg(type: $0.type, guidance: $0.guidance, pointCount: $0.pointCount)
-                    }
+                    },
+                    distanceM: leg.distanceM,
+                    durationS: leg.durationS
                 )
             }
             return Meeting(

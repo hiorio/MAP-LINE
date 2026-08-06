@@ -35,7 +35,7 @@ SDK의 롱프레스 이벤트는 시간을 바꿀 수 없어 앱은 `UILongPress
 | 손그림 (위경도 고정, RDP 단순화) | `Map/DrawingOverlayView.swift`, `Domain/GeoStroke.swift` |
 | 꾹 눌러 주변 장소·건물명 찾기 또는 이름 검색 → 새 단계/기존 단계 후보로 담기 | `Course/DropPinSheet.swift`, `Shared/PlaceLookup.swift`(`NearbyLookup`) |
 | 번호 붙은 단계 핀, 복수검색·단계 선택·후보 일괄 추가, 대표 지정·삭제 | `Course/CoursePlacePickerSheet.swift`, `Course/CourseSheet.swift`, `Course/StopPinSheet.swift`, `Domain/MapDocument.swift` |
-| 구간 이동수단(직선/도보/대중교통/자전거)과 실제 경로 | `Course/CourseSheet.swift`, `Domain/StopLeg.swift`, `Domain/RouteLookup.swift`, `Domain/LegShapes.swift`, `Map/LegStyle.swift` |
+| 구간 이동수단(직선/도보/대중교통/자전거), 실제 경로와 선 중간 거리·시간 표시 | `Course/CourseSheet.swift`, `Domain/StopLeg.swift`, `Domain/RouteLookup.swift`, `Domain/LegShapes.swift`, `Map/LegStyle.swift` |
 | 지도 위 메모 작성·수정·롱프레스 드래그 이동·삭제 | `Map/KakaoMapViewController.swift`, `Course/DropPinSheet.swift`, `Course/MemoSheet.swift`, `Domain/MapDocument.swift`(`MapLabel`) |
 | 저장·불러오기·공유 링크 | `Domain/MapStore.swift`, `Course/MyMapsView.swift`, `Course/ActivitySheet.swift` |
 | 보관함 폴더·마크·직접 장소 추가·공유 수신 | `Course/SavedPlacesView.swift`, `Shared/SavedPlaceGroup.swift`, `Shared/SavedPlaceStore.swift` |
@@ -72,6 +72,9 @@ SDK의 롱프레스 이벤트는 시간을 바꿀 수 없어 앱은 `UILongPress
 모두 반영합니다. 결과 1·2·3순위를 여러 개 체크해 지도에 함께 올릴 수 있고, 지도 선도
 직선이 아니라 `/api/midpoint`가 반환한 실제 경로 좌표를 그립니다. 대중교통 탈것 사이와
 출발·도착의 좌표 없는 구간은 기존 동선과 같은 도보 점선으로 잇습니다.
+일반 동선의 각 실제 경로 중간에는 `도보 · 1.2km · 16분` 형식의 요약을 표시합니다.
+중간지점의 참가자별 경로에는 `민수 · 대중교통 · 8.4km · 34분`처럼 참가자 이름도
+함께 표시합니다. 자동차 길찾기는 저장 정책 제약 때문에 현재 지원 수단이 아닙니다.
 검색이 끝나면 참가자·이동수단·후보·경로를 기기에 자동 저장합니다. 상단 기록 버튼에서
 최근 20건을 다시 열거나 개별 삭제할 수 있습니다. 실제 경로 좌표가 커질 수 있어
 UserDefaults가 아니라 Application Support의 JSON 파일에 보관합니다.

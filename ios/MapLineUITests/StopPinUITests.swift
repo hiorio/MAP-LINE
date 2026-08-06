@@ -224,6 +224,10 @@ final class StopPinUITests: XCTestCase {
         report.name = "8-그린것"
         report.lifetime = .keepAlways
         add(report)
+        XCTAssertTrue(
+            ((mapView.value as? String) ?? "").contains("labels:1"),
+            "실제 경로는 그려졌지만 선 중간의 이동수단·거리·시간 표시가 없다"
+        )
     }
 
     /// 웹의 `+ 이 단계에 후보 추가`와 같은 흐름이 앱에도 실제로 보이고 동작하는가.

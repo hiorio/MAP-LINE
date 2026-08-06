@@ -6,6 +6,19 @@ struct Connector: Equatable {
     let to: GeoPoint
 }
 
+/// 실제 길찾기 선 위에 표시할 이동수단·거리·시간.
+struct RouteAnnotation: Equatable {
+    let legIndex: Int
+    let location: GeoPoint
+    let mode: TravelMode
+    let distanceM: Int
+    let durationS: Int
+
+    var text: String {
+        routeAnnotationText(mode: mode, distanceM: distanceM, durationS: durationS)
+    }
+}
+
 /// 한 구간을 어떻게 그릴지.
 enum LegShape: Equatable {
     /// 실제 경로가 없다. 단계의 대표 위치를 곧게 잇는다.
@@ -94,6 +107,79 @@ func legShapes(stops: [Stop], legs: [StopLeg]) -> [LegShape] {
     }
 
     return shapes
+}
+
+/// 실제 경로의 화면상 길이 중간에 구간 요약을 하나씩 놓는다.
+/// 좌표 개수의 가운데를 쓰면 점이 촘촘한 골목 쪽으로 치우치므로 선분 길이를 누적한다.
+func legRouteAnnotations(stops: [Stop], legs: [StopLeg]) -> [RouteAnnotation] {
+    (0..<max(0, stops.count - 1)).compactMap { index in
+        guard legs.indices.contains(index) else { return nil }
+        let leg = legs[index]
+        guard
+            let route = LegRules.drawableRoute(stops: stops, index: index, leg: leg),
+            route.points.count >= 2,
+            let ends = LegRules.endpoints(stops: stops, index: index),
+            let middle = routeMidpoint(
+                [ends.from.location] + route.points + [ends.to.location]
+            )
+        else { return nil }
+
+        return RouteAnnotation(
+            legIndex: index,
+            location: middle,
+            mode: leg.mode,
+            distanceM: route.distanceM,
+            durationS: route.durationS
+        )
+    }
+}
+
+/// 경로 길이의 절반 지점. 위도에 따른 경도 축척 차이를 근사해 시각적 중앙을 잡는다.
+func routeMidpoint(_ path: [GeoPoint]) -> GeoPoint? {
+    guard path.count >= 2 else { return path.first }
+    let lengths = zip(path, path.dropFirst()).map { visualRouteDistance($0, $1) }
+    let total = lengths.reduce(0, +)
+    guard total > 0 else { return path.first }
+
+    let target = total / 2
+    var traveled = 0.0
+    for (index, length) in lengths.enumerated() {
+        guard length > 0 else { continue }
+        if traveled + length >= target {
+            let ratio = (target - traveled) / length
+            let from = path[index]
+            let to = path[index + 1]
+            return GeoPoint(
+                lat: from.lat + (to.lat - from.lat) * ratio,
+                lng: from.lng + (to.lng - from.lng) * ratio
+            )
+        }
+        traveled += length
+    }
+    return path.last
+}
+
+func routeAnnotationText(
+    mode: TravelMode,
+    distanceM: Int,
+    durationS: Int,
+    prefix: String? = nil
+) -> String {
+    [
+        prefix,
+        mode.label,
+        formatDistance(Double(distanceM)),
+        formatDuration(durationS),
+    ]
+    .compactMap { $0 }
+    .joined(separator: " · ")
+}
+
+private func visualRouteDistance(_ from: GeoPoint, _ to: GeoPoint) -> Double {
+    let middleLatitude = (from.lat + to.lat) / 2 * .pi / 180
+    let x = (to.lng - from.lng) * cos(middleLatitude)
+    let y = to.lat - from.lat
+    return (x * x + y * y).squareRoot()
 }
 
 /// 대중교통 경로를 탈것 구간마다 자른다.
