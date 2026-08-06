@@ -35,7 +35,7 @@ SDK의 롱프레스 이벤트는 시간을 바꿀 수 없어 앱은 `UILongPress
 
 | 기능 | 파일 |
 |---|---|
-| 손그림 (위경도 고정, RDP 단순화) | `Map/DrawingOverlayView.swift`, `Domain/GeoStroke.swift` |
+| 손그림 (위경도 고정, RDP 단순화, 한 획 되돌리기·전체 지우기) | `ContentView.swift`, `Map/DrawingOverlayView.swift`, `Domain/GeoStroke.swift` |
 | 꾹 눌러 주변 장소·건물명 찾기 또는 이름 검색 → 새 단계/기존 단계 후보로 담기 | `Course/DropPinSheet.swift`, `Shared/PlaceLookup.swift`(`NearbyLookup`) |
 | 번호 붙은 단계 핀, 복수검색·단계 선택·후보 일괄 추가, 대표 지정·재정렬·삭제 복구 | `Course/CoursePlacePickerSheet.swift`, `Course/CourseSheet.swift`, `Course/StopPinSheet.swift`, `Domain/MapDocument.swift` |
 | 구간 이동수단(직선/도보/대중교통/자전거), 실제 경로와 선 중간 거리·시간 표시 | `Course/CourseSheet.swift`, `Domain/StopLeg.swift`, `Domain/RouteLookup.swift`, `Domain/LegShapes.swift`, `Map/LegStyle.swift` |
@@ -84,6 +84,10 @@ SDK의 롱프레스 이벤트는 시간을 바꿀 수 없어 앱은 `UILongPress
 순간 새 좌표로 확정됩니다. 드래그 중에는 지도가 움직이지 않습니다. 메모 편집 화면의
 `위치 옮기기`는 드래그가 어려운 경우를 위한 보조 경로로 남겨 두었습니다.
 
+손그림 모드 아래에는 현재 획 수와 `한 획 되돌리기`·`전체 지우기`가 함께 나타납니다.
+되돌리기는 마지막 획부터 반복해서 하나씩 지우고, 전체 지우기는 즉시 반영한 뒤 5초
+`실행 취소`로 전부 복구할 수 있습니다. 평소에는 편집 도구를 숨겨 지도 화면을 가리지 않습니다.
+
 중간지점 찾기는 사이드 메뉴에만 둡니다. 지도 오른쪽의 떠 있는 버튼은 자주 쓰는
 `장소 추가`·`손그림`·`공유하기`는 아이콘과 글자를 함께 보여 의미를 추측하지 않게 했습니다.
 
@@ -107,6 +111,9 @@ SDK의 롱프레스 이벤트는 시간을 바꿀 수 없어 앱은 `UILongPress
 일반 동선의 각 실제 경로 중간에는 `도보 · 1.2km · 16분` 형식의 요약을 표시합니다.
 중간지점의 참가자별 경로에는 `민수 · 대중교통 · 8.4km · 34분`처럼 참가자 이름도
 함께 표시합니다. 자동차 길찾기는 저장 정책 제약 때문에 현재 지원 수단이 아닙니다.
+실제 경로는 지도 도로에 묻히지 않도록 도보 5pt, 대중교통 7pt, 자전거 6pt로 그리고,
+경로 요약 글자는 20pt와 7pt 흰 외곽선을 사용합니다. 메모는 6pt 흰 외곽선으로 지도
+글자와 구분합니다. 웹 공유 화면과 썸네일도 같은 방향으로 선 굵기와 메모 대비를 맞춥니다.
 검색이 끝나면 참가자·이동수단·후보·경로를 기기에 자동 저장합니다. 상단 기록 버튼에서
 최근 20건을 다시 열거나 개별 삭제할 수 있습니다. 실제 경로 좌표가 커질 수 있어
 UserDefaults가 아니라 Application Support의 JSON 파일에 보관합니다.
