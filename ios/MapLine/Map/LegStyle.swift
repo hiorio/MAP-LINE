@@ -22,9 +22,9 @@ struct LegStyle {
         case .walk:
             return walk
         case .transit:
-            return LegStyle(name: "transit", color: UIColor(hex: "#2D6BE4") ?? .systemBlue, width: 7, dash: nil)
+            return LegStyle(name: "transit", color: UIColor(hex: "#2D6BE4") ?? .systemBlue, width: 8, dash: nil)
         case .bicycle:
-            return LegStyle(name: "bicycle", color: UIColor(hex: "#2FA35B") ?? .systemGreen, width: 6, dash: (8, 5))
+            return LegStyle(name: "bicycle", color: UIColor(hex: "#2FA35B") ?? .systemGreen, width: 7, dash: (8, 5))
         }
     }
 
@@ -35,7 +35,7 @@ struct LegStyle {
     static let walk = LegStyle(
         name: "walk",
         color: UIColor(hex: "#2D6BE4") ?? .systemBlue,
-        width: 5,
+        width: 6,
         dash: (3, 7)
     )
 }

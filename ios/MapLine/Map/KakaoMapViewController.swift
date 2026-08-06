@@ -677,7 +677,7 @@ private extension KakaoMapViewController {
 
     /// 색·크기 조합마다 스타일 하나.
     func memoStyleID(color: String, fontSize: Double, on map: KakaoMap) -> String {
-        let styleID = "memo-v2-\(color)-\(Int(fontSize))"
+        let styleID = "memo-v3-\(color)-\(Int(fontSize))"
         guard !registeredPinStyles.contains(styleID) else { return styleID }
 
         let style = PoiTextStyle(textLineStyles: [
@@ -685,10 +685,10 @@ private extension KakaoMapViewController {
                 textStyle: TextStyle(
                     // 화면 배율을 감안해 키운다. 웹의 14pt를 그대로 넘기면 지도 위에서
                     // 읽기 어려울 만큼 작다.
-                    fontSize: UInt(max(14, fontSize * 1.6)),
+                    fontSize: UInt(max(14, fontSize * 1.7)),
                     fontColor: UIColor(hex: color) ?? .darkGray,
                     // 지도 글자·도로 위에서도 메모가 묻히지 않도록 흰 테두리를 두껍게 둔다.
-                    strokeThickness: 6,
+                    strokeThickness: 7,
                     strokeColor: .white
                 )
             ),
@@ -706,7 +706,7 @@ private extension KakaoMapViewController {
 /// 글자 크기와 길이를 반영하되 최소 44pt 터치 영역을 보장한다.
 /// 실제 메모는 가운데 정렬된 텍스트 POI라 이 크기를 중심 기준으로 쓴다.
 func memoDragHitSize(_ label: MapLabel) -> CGSize {
-    let renderedFontSize = CGFloat(max(14, label.fontSize * 1.6))
+    let renderedFontSize = CGFloat(max(14, label.fontSize * 1.7))
     let estimatedTextWidth = CGFloat(label.text.count) * renderedFontSize * 0.92
     return CGSize(
         width: min(260, max(52, estimatedTextWidth + 24)),

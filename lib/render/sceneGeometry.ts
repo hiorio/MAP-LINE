@@ -87,13 +87,13 @@ export function candidateLinks(stops: readonly Stop[], project: Projector): Cand
  * 도보와 대중교통은 같은 파랑을 쓰되 선 모양으로 가른다. 둘 다 "이동"이라 색이
  * 따로 놀 이유가 없고, 촘촘한 점선과 굵은 실선은 멀리서도 구분된다.
  */
-const WALK_STYLE = { color: '#2D6BE4', width: 4.5, dash: [1.5, 6] as [number, number] };
+const WALK_STYLE = { color: '#2D6BE4', width: 5.5, dash: [1.5, 6] as [number, number] };
 
 export const MODE_STYLE: Record<TravelMode, { color: string; width: number; dash?: [number, number] }> = {
   straight: { color: ARROW_COLOR, width: ARROW_WIDTH },
   walk: WALK_STYLE,
-  transit: { color: '#2D6BE4', width: 6 },
-  bicycle: { color: '#2FA35B', width: 5, dash: [8, 5] },
+  transit: { color: '#2D6BE4', width: 7 },
+  bicycle: { color: '#2FA35B', width: 6, dash: [8, 5] },
 };
 
 export interface StopArrow {

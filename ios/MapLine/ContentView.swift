@@ -706,10 +706,28 @@ struct ContentView: View {
 
                     mapActionButton(
                         "scribble.variable",
-                        label: "손그림",
+                        label: isDrawing ? "손그림 · \(strokes.count)획" : "손그림",
                         active: isDrawing
                     ) { startDrawing() }
                         .accessibilityIdentifier("map.draw")
+
+                    if isDrawing {
+                        drawingEditButton(
+                            "arrow.uturn.backward",
+                            label: "한 획 되돌리기",
+                            tint: .accentColor
+                        ) { undoLastStroke() }
+                            .disabled(strokes.isEmpty)
+                            .accessibilityIdentifier("map.draw.undo")
+
+                        drawingEditButton(
+                            "trash",
+                            label: "전체 지우기",
+                            tint: .red
+                        ) { clearStrokes() }
+                            .disabled(strokes.isEmpty)
+                            .accessibilityIdentifier("map.draw.clear")
+                    }
 
                     // 담은 것이 없으면 나눠 볼 것도 없다.
                     if !stops.isEmpty || !strokes.isEmpty || !labels.isEmpty {
@@ -737,10 +755,7 @@ struct ContentView: View {
                         .accessibilityIdentifier("memo.move.cancel")
                 }
             } else if isDrawing {
-                VStack(spacing: 8) {
-                    hint("지도가 잠깁니다. 손가락으로 선을 그리세요.")
-                    drawingToolbar
-                }
+                hint("지도가 잠깁니다. 손가락으로 선을 그리세요.")
             } else if stops.isEmpty {
                 // 꾹 누르기는 화면에 아무 표시가 없다. 알려 주지 않으면 아무도 안 한다.
                 // 한 곳이라도 담고 나면 사라진다 — 이미 아는 사람에게는 잔소리다.
@@ -811,44 +826,25 @@ struct ContentView: View {
         .accessibilityLabel(label)
     }
 
-    /// 그리는 동안에만 보이는 간단한 편집 도구.
-    ///
-    /// 지도 오른쪽 조작부에 계속 두면 평소 화면이 복잡해진다. 그리기 모드 아래에서
-    /// 획 수와 함께 보여 주면 지금 무엇을 지우는지도 알 수 있고, 반복해서 되돌리기도 쉽다.
-    private var drawingToolbar: some View {
-        HStack(spacing: 8) {
-            Text("\(strokes.count)획")
+    /// 손그림 버튼 바로 아래에 붙는 편집 도구. 지도 하단에서 따로 찾지 않아도 된다.
+    private func drawingEditButton(
+        _ symbol: String,
+        label: String,
+        tint: Color,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Label(label, systemImage: symbol)
                 .font(.caption.weight(.bold))
-                .foregroundStyle(.secondary)
-                .accessibilityLabel("손그림 획 수")
-                .accessibilityValue("\(strokes.count)")
-                .accessibilityIdentifier("map.draw.count")
-
-            Divider()
-                .frame(height: 22)
-
-            Button { undoLastStroke() } label: {
-                Label("한 획 되돌리기", systemImage: "arrow.uturn.backward")
-                    .frame(minHeight: 44)
-            }
-            .disabled(strokes.isEmpty)
-            .accessibilityIdentifier("map.draw.undo")
-
-            Divider()
-                .frame(height: 22)
-
-            Button(role: .destructive) { clearStrokes() } label: {
-                Label("전체 지우기", systemImage: "trash")
-                    .frame(minHeight: 44)
-            }
-            .disabled(strokes.isEmpty)
-            .accessibilityIdentifier("map.draw.clear")
+                .padding(.horizontal, 13)
+                .frame(height: 44)
+                .background(Color.white.opacity(0.96), in: Capsule())
+                .foregroundStyle(tint)
+                .overlay(Capsule().stroke(tint.opacity(0.38), lineWidth: 1.5))
+                .shadow(color: .black.opacity(0.16), radius: 6, y: 2)
         }
-        .font(.caption.weight(.semibold))
-        .padding(.horizontal, 12)
-        .background(.regularMaterial, in: Capsule())
         .buttonStyle(.plain)
-        .shadow(color: .black.opacity(0.12), radius: 5, y: 2)
+        .accessibilityLabel(label)
     }
 
     private func undoLastStroke() {
