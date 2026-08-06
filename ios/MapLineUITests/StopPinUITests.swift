@@ -83,9 +83,12 @@ final class StopPinUITests: XCTestCase {
         // 마커의 세로 위치가 조금 달라져, 실제로 메뉴가 열린 순간까지만 후보를 순회한다.
         Thread.sleep(forTimeInterval: 3)
         let likelyPoiPositions = [
-            CGVector(dx: 0.47, dy: 0.61), // 스타벅스 강남역7번출구점
-            CGVector(dx: 0.72, dy: 0.68), // 음식점 POI
-            CGVector(dx: 0.32, dy: 0.66), // 의원 POI
+            CGVector(dx: 0.48, dy: 0.26), // 의원 POI
+            CGVector(dx: 0.69, dy: 0.27), // 스타벅스 케이스퀘어점
+            CGVector(dx: 0.28, dy: 0.42), // 스타벅스 몬테소리점
+            CGVector(dx: 0.51, dy: 0.63), // 스타벅스 강남역7번출구점
+            CGVector(dx: 0.65, dy: 0.66), // 스타벅스 강남역신분당역사점
+            CGVector(dx: 0.91, dy: 0.17), // 음식점 POI
         ]
         let title = app.navigationBars["여기에 무엇을 담을까요"]
 
