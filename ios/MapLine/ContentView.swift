@@ -387,9 +387,13 @@ struct ContentView: View {
 
     #if DEBUG
     private var appStorePreviewDocument: MapDocument? {
-        ProcessInfo.processInfo.arguments.contains("-uiTestingGangwonTrip")
-            ? AppStorePreview.gangwonTrip
-            : nil
+        if ProcessInfo.processInfo.arguments.contains("-uiTestingDateCourse") {
+            return AppStorePreview.seongsuDate
+        }
+        if ProcessInfo.processInfo.arguments.contains("-uiTestingGangwonTrip") {
+            return AppStorePreview.gangwonTrip
+        }
+        return nil
     }
     #endif
 
