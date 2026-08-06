@@ -37,8 +37,9 @@ SDK의 롱프레스 이벤트는 시간을 바꿀 수 없어 앱은 `UILongPress
 | 번호 붙은 단계 핀, 복수검색·단계 선택·후보 일괄 추가, 대표 지정·재정렬·삭제 복구 | `Course/CoursePlacePickerSheet.swift`, `Course/CourseSheet.swift`, `Course/StopPinSheet.swift`, `Domain/MapDocument.swift` |
 | 구간 이동수단(직선/도보/대중교통/자전거), 실제 경로와 선 중간 거리·시간 표시 | `Course/CourseSheet.swift`, `Domain/StopLeg.swift`, `Domain/RouteLookup.swift`, `Domain/LegShapes.swift`, `Map/LegStyle.swift` |
 | 지도 위 메모 작성·수정·롱프레스 드래그 이동·삭제 | `Map/KakaoMapViewController.swift`, `Course/DropPinSheet.swift`, `Course/MemoSheet.swift`, `Domain/MapDocument.swift`(`MapLabel`) |
-| 자동 초안·서버 저장·지도 이름·새 지도·불러오기·공유 링크 | `Domain/MapDraftStore.swift`, `Domain/MapStore.swift`, `Course/MapTitleSheet.swift`, `Course/MyMapsView.swift` |
-| 보관함 폴더·마크·직접 장소 추가·복수 선택 후 단계 지정·공유 수신 | `Course/SavedPlacesView.swift`, `Course/CourseTargetSheet.swift`, `Shared/SavedPlaceGroup.swift`, `Shared/SavedPlaceStore.swift` |
+| 자동 초안·서버 저장·지도 이름·새 지도·불러오기·썸네일·단계 수·복제·공유 링크 | `Domain/MapDraftStore.swift`, `Domain/MapStore.swift`, `Course/MapTitleSheet.swift`, `Course/MyMapsView.swift` |
+| 보관함 전체 검색·폴더 정렬·마크·직접 장소 추가·복수 선택 후 단계 지정/폴더 이동·공유 수신 | `Course/SavedPlacesView.swift`, `Course/CourseTargetSheet.swift`, `Shared/SavedPlaceGroup.swift`, `Shared/SavedPlaceStore.swift` |
+| 현재 위치로 지도 이동(일회성 위치 요청) | `ContentView.swift`, `Map/CurrentLocationProvider.swift` |
 | 중간지점 찾기 + 기록 + 지도 표시 | `Midpoint/MidpointView.swift`, `Shared/MidpointHistory.swift`, `Map/MidpointPlot.swift` |
 | 공유 익스텐션 (다른 앱 → 보관함) | `ShareExtension/` |
 
@@ -62,6 +63,11 @@ SDK의 롱프레스 이벤트는 시간을 바꿀 수 없어 앱은 `UILongPress
 지도를 먼저 저장합니다. UI 테스트에서는 테스트끼리 초안이 섞이지 않도록 `-uiTesting`
 실행 인자로 초안을 지우고 서버 자동 저장만 끕니다.
 
+`내 지도`에는 공유 미리보기 썸네일·지도 이름·단계 수·저장 시각을 함께 표시합니다. 기존에
+단계 수가 저장되지 않은 목록은 화면을 연 뒤 지도를 읽어 보완합니다. 행의 스와이프 또는
+컨텍스트 메뉴에서 `지도 복제`를 고르면 단계·후보·그림·메모·구간 경로를 보존한 새 지도를
+만들고 이름 뒤에 `복사본`을 붙입니다.
+
 동선 화면의 `순서 변경`은 단계 카드를 드래그해 번호를 바꿉니다. 순서를 바꿔도 같은
 방향으로 계속 인접한 구간만 기존 이동수단·경로를 보존하고, 새로 맞닿은 구간은 직선으로
 초기화합니다. 후보·핀·메모를 삭제한 직후에는 5초 동안 `실행 취소`가 표시됩니다.
@@ -81,6 +87,12 @@ SDK의 롱프레스 이벤트는 시간을 바꿀 수 없어 앱은 `UILongPress
 기존 `N단계 후보`로 올릴 수 있습니다. 동선에 올리면 폴더 색이 핀 색으로
 이어집니다. 예전 `saved-places.json`에는 폴더 키가 없으므로 읽을 때 자동으로 `받은 장소`에
 넣습니다. 폴더를 삭제해도 장소 자체는 지우지 않고 `받은 장소`로 이동합니다.
+보관함 첫 화면의 검색은 장소 이름·주소·폴더 이름을 모든 폴더에서 한 번에 찾습니다.
+`정렬`에서는 사용자 폴더를 드래그해 순서를 저장하고, `받은 장소`는 항상 맨 위에 둡니다.
+폴더 안에서 여러 장소를 선택하면 한 번의 작업으로 원하는 폴더에 일괄 이동할 수 있습니다.
+
+지도 왼쪽 아래의 현재 위치 버튼은 탭할 때만 위치 권한과 좌표를 한 번 요청해 그곳으로
+지도를 이동합니다. 계속 추적하거나 위치를 서버에 저장하지 않습니다.
 
 중간지점은 참가자마다 정한 도보·대중교통·자전거를 후보 검색과 최종 실제 경로 시간에
 모두 반영합니다. 결과 1·2·3순위를 여러 개 체크해 지도에 함께 올릴 수 있고, 지도 선도
