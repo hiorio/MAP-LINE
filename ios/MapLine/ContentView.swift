@@ -164,6 +164,11 @@ struct ContentView: View {
                     onStrokesChanged: { strokes = $0 },
                     onReady: { controller in
                         mapController = controller
+                        #if DEBUG
+                        if let preview = appStorePreviewDocument {
+                            controller.fit(points: preview.stops.flatMap { $0.candidates.map(\.location) })
+                        }
+                        #endif
                         if let center = pendingCameraCenter {
                             controller.move(to: center.lat, lng: center.lng)
                             pendingCameraCenter = nil
@@ -380,6 +385,14 @@ struct ContentView: View {
         ProcessInfo.processInfo.arguments.contains("-uiTesting")
     }
 
+    #if DEBUG
+    private var appStorePreviewDocument: MapDocument? {
+        ProcessInfo.processInfo.arguments.contains("-uiTestingGangwonTrip")
+            ? AppStorePreview.gangwonTrip
+            : nil
+    }
+    #endif
+
     /// 모든 편집은 먼저 로컬 초안에 원자적으로 쓰고, 잠시 입력이 멈추면 서버에도 저장한다.
     private func documentDidChange() {
         guard restoredDraft else { return }
@@ -411,6 +424,12 @@ struct ContentView: View {
         restoredDraft = true
         if isUITesting {
             try? draftStore.clear()
+            #if DEBUG
+            if let preview = appStorePreviewDocument {
+                apply(document: preview, slug: nil, updatedAt: nil)
+                mapController?.fit(points: preview.stops.flatMap { $0.candidates.map(\.location) })
+            }
+            #endif
             return
         }
         guard let draft = draftStore.load() else { return }
@@ -706,32 +725,35 @@ struct ContentView: View {
 
                     mapActionButton(
                         "scribble.variable",
-                        label: isDrawing ? "손그림 · \(strokes.count)획" : "손그림",
+                        label: "손그림",
                         active: isDrawing
                     ) { startDrawing() }
                         .accessibilityIdentifier("map.draw")
+                        .accessibilityValue(isDrawing ? "\(strokes.count)획" : "")
 
                     if isDrawing {
-                        drawingEditButton(
-                            "arrow.uturn.backward",
-                            label: "한 획 되돌리기",
-                            tint: .accentColor
-                        ) { undoLastStroke() }
-                            .disabled(strokes.isEmpty)
-                            .accessibilityIdentifier("map.draw.undo")
+                        HStack(spacing: 10) {
+                            mapIconButton(
+                                "arrow.uturn.backward",
+                                label: "한 획 되돌리기",
+                                tint: .accentColor
+                            ) { undoLastStroke() }
+                                .disabled(strokes.isEmpty)
+                                .accessibilityIdentifier("map.draw.undo")
 
-                        drawingEditButton(
-                            "trash",
-                            label: "전체 지우기",
-                            tint: .red
-                        ) { clearStrokes() }
-                            .disabled(strokes.isEmpty)
-                            .accessibilityIdentifier("map.draw.clear")
+                            mapIconButton(
+                                "trash",
+                                label: "전체 지우기",
+                                tint: .red
+                            ) { clearStrokes() }
+                                .disabled(strokes.isEmpty)
+                                .accessibilityIdentifier("map.draw.clear")
+                        }
                     }
 
                     // 담은 것이 없으면 나눠 볼 것도 없다.
                     if !stops.isEmpty || !strokes.isEmpty || !labels.isEmpty {
-                        mapActionButton(
+                        mapIconButton(
                             saving ? "arrow.triangle.2.circlepath" : "square.and.arrow.up",
                             label: "공유하기"
                         ) { Task { await share() } }
@@ -826,21 +848,20 @@ struct ContentView: View {
         .accessibilityLabel(label)
     }
 
-    /// 손그림 버튼 바로 아래에 붙는 편집 도구. 지도 하단에서 따로 찾지 않아도 된다.
-    private func drawingEditButton(
+    /// 화면에는 아이콘만 남기되 VoiceOver에는 기능 이름을 그대로 제공한다.
+    private func mapIconButton(
         _ symbol: String,
         label: String,
-        tint: Color,
+        tint: Color = .primary,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            Label(label, systemImage: symbol)
-                .font(.caption.weight(.bold))
-                .padding(.horizontal, 13)
-                .frame(height: 44)
-                .background(Color.white.opacity(0.96), in: Capsule())
+            Image(systemName: symbol)
+                .font(.system(size: 18, weight: .semibold))
+                .frame(width: 46, height: 46)
+                .background(Color.white.opacity(0.96), in: Circle())
                 .foregroundStyle(tint)
-                .overlay(Capsule().stroke(tint.opacity(0.38), lineWidth: 1.5))
+                .overlay(Circle().stroke(tint.opacity(0.32), lineWidth: 1.5))
                 .shadow(color: .black.opacity(0.16), radius: 6, y: 2)
         }
         .buttonStyle(.plain)

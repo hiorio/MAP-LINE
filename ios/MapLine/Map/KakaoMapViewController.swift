@@ -117,6 +117,8 @@ final class KakaoMapViewController: UIViewController {
     /// 처음 보여 줄 자리. 엔진이 뜨기 전에 정해야 한다.
     /// 뜬 뒤에 옮기면 기본 자리가 한 번 보였다 사라져 화면이 튄다.
     var initialCenter: (lat: Double, lng: Double) = (lat: 37.4979, lng: 127.0276) // 강남역
+    /// 엔진 준비 전에 전체 동선을 맞춰 달라는 요청이 오면 준비 직후 적용한다.
+    private var pendingFitPoints: [GeoPoint] = []
 
     // MARK: - 생명주기
 
@@ -331,6 +333,34 @@ final class KakaoMapViewController: UIViewController {
         )
     }
 
+    /// 여러 장소가 한 화면에 모두 들어오도록 카메라를 맞춘다.
+    func fit(points: [GeoPoint]) {
+        guard !points.isEmpty else { return }
+        pendingFitPoints = points
+        let center = GeoPoint(
+            lat: points.reduce(0) { $0 + $1.lat } / Double(points.count),
+            lng: points.reduce(0) { $0 + $1.lng } / Double(points.count)
+        )
+        initialCenter = (lat: center.lat, lng: center.lng)
+        guard let map = kakaoMap else { return }
+
+        let south = points.map(\.lat).min() ?? center.lat
+        let north = points.map(\.lat).max() ?? center.lat
+        let west = points.map(\.lng).min() ?? center.lng
+        let east = points.map(\.lng).max() ?? center.lng
+        let latPadding = max((north - south) * 0.12, 0.003)
+        let lngPadding = max((east - west) * 0.12, 0.003)
+        let area = AreaRect(
+            southWest: MapPoint(longitude: west - lngPadding, latitude: south - latPadding),
+            northEast: MapPoint(longitude: east + lngPadding, latitude: north + latPadding)
+        )
+        map.animateCamera(
+            cameraUpdate: CameraUpdate.make(area: area, levelLimit: 17),
+            options: CameraAnimationOptions(autoElevation: false, consecutive: false, durationInMillis: 600)
+        )
+        pendingFitPoints = []
+    }
+
     /// 지금 보고 있는 자리와 배율.
     ///
     /// 저장할 때 함께 담는다. 링크를 받은 사람이 만든 사람과 다른 동네를 보고 있으면
@@ -438,6 +468,7 @@ extension KakaoMapViewController: MapControllerDelegate {
         renderLegs(on: map)
         renderStrokes(on: map)
         renderLabels(on: map)
+        if !pendingFitPoints.isEmpty { fit(points: pendingFitPoints) }
 
         // UI 테스트가 지도 준비를 기다릴 수 있게 상태를 접근성 식별자로 내건다.
         // 고정 시간 대기는 러너가 느린 날 깨진다.
@@ -677,7 +708,7 @@ private extension KakaoMapViewController {
 
     /// 색·크기 조합마다 스타일 하나.
     func memoStyleID(color: String, fontSize: Double, on map: KakaoMap) -> String {
-        let styleID = "memo-v3-\(color)-\(Int(fontSize))"
+        let styleID = "memo-v4-\(color)-\(Int(fontSize))"
         guard !registeredPinStyles.contains(styleID) else { return styleID }
 
         let style = PoiTextStyle(textLineStyles: [
@@ -685,7 +716,7 @@ private extension KakaoMapViewController {
                 textStyle: TextStyle(
                     // 화면 배율을 감안해 키운다. 웹의 14pt를 그대로 넘기면 지도 위에서
                     // 읽기 어려울 만큼 작다.
-                    fontSize: UInt(max(14, fontSize * 1.7)),
+                    fontSize: UInt(max(14, fontSize * 1.8)),
                     fontColor: UIColor(hex: color) ?? .darkGray,
                     // 지도 글자·도로 위에서도 메모가 묻히지 않도록 흰 테두리를 두껍게 둔다.
                     strokeThickness: 7,
@@ -706,7 +737,7 @@ private extension KakaoMapViewController {
 /// 글자 크기와 길이를 반영하되 최소 44pt 터치 영역을 보장한다.
 /// 실제 메모는 가운데 정렬된 텍스트 POI라 이 크기를 중심 기준으로 쓴다.
 func memoDragHitSize(_ label: MapLabel) -> CGSize {
-    let renderedFontSize = CGFloat(max(14, label.fontSize * 1.7))
+    let renderedFontSize = CGFloat(max(14, label.fontSize * 1.8))
     let estimatedTextWidth = CGFloat(label.text.count) * renderedFontSize * 0.92
     return CGSize(
         width: min(260, max(52, estimatedTextWidth + 24)),
