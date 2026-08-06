@@ -304,11 +304,8 @@ Railway에 올라가 있습니다: https://map-line-production.up.railway.app
 
 ### A. iOS 앱 (TestFlight)
 
-**TestFlight 1.0 (24)을 App Store Connect에 업로드했습니다.** Apple 처리 완료 후
+**TestFlight 1.0 (25)을 App Store Connect에 업로드했습니다.** Apple 처리 완료 후
 `맵라인테스트` 내부 그룹에서 설치 가능 여부를 확인하고 아래 항목을 실기기에서 점검할 것:
-
-현재 소스의 핀 컨텍스트 전체 행 터치 개선은 빌드 24 이후 변경이라 아직 TestFlight에는
-들어가지 않았습니다.
 
 - 지도를 **꾹 눌렀을 때** 0.45초가 적당한가. 지도를 끌려다 뜨지는 않는가
 - 스타벅스처럼 지도에 보이는 기본 장소 마커를 한 번 탭하면 핀 컨텍스트가 바로 열리고,
