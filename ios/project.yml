@@ -60,7 +60,7 @@ targets:
     info:
       path: MapLine/Info.plist
       properties:
-        CFBundleDisplayName: MAP-LINE
+        CFBundleDisplayName: 도화지
         # 수출 규정 준수 답변을 미리 박아 둔다. 없으면 올라간 빌드가 "규정 준수 누락"에
         # 걸려 테스터에게 배포되지 않고, 빌드마다 사람이 웹에서 같은 질문에 답해야 한다.
         #

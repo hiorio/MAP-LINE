@@ -812,7 +812,7 @@ struct SideMenu: View {
                 .onTapGesture { close() }
 
             VStack(alignment: .leading, spacing: 0) {
-                Text("MAP-LINE")
+                Text("도화지")
                     .font(.title2.weight(.bold))
                     .padding(.horizontal, 20)
                     .padding(.top, 24)
