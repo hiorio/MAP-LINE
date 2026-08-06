@@ -40,9 +40,9 @@ SDK의 롱프레스 이벤트는 시간을 바꿀 수 없어 앱은 `UILongPress
 | 번호 붙은 단계 핀, 복수검색·단계 선택·후보 일괄 추가, 대표 지정·재정렬·삭제 복구 | `Course/CoursePlacePickerSheet.swift`, `Course/CourseSheet.swift`, `Course/StopPinSheet.swift`, `Domain/MapDocument.swift` |
 | 구간 이동수단(직선/도보/대중교통/자전거), 실제 경로와 선 중간 거리·시간 표시 | `Course/CourseSheet.swift`, `Domain/StopLeg.swift`, `Domain/RouteLookup.swift`, `Domain/LegShapes.swift`, `Map/LegStyle.swift` |
 | 지도 위 메모 작성·수정·롱프레스 드래그 이동·삭제 | `Map/KakaoMapViewController.swift`, `Course/DropPinSheet.swift`, `Course/MemoSheet.swift`, `Domain/MapDocument.swift`(`MapLabel`) |
-| 자동 초안·서버 저장·지도 이름·새 지도·불러오기·썸네일·단계 수·복제·공유 링크 | `Domain/MapDraftStore.swift`, `Domain/MapStore.swift`, `Course/MapTitleSheet.swift`, `Course/MyMapsView.swift` |
-| 보관함 전체 검색·폴더 정렬·마크·직접 장소 추가·복수 선택 후 단계 지정/폴더 이동·공유 수신 | `Course/SavedPlacesView.swift`, `Course/CourseTargetSheet.swift`, `Shared/SavedPlaceGroup.swift`, `Shared/SavedPlaceStore.swift` |
-| 현재 위치로 지도 이동(일회성 위치 요청) | `ContentView.swift`, `Map/CurrentLocationProvider.swift` |
+| 자동 초안·서버 저장·지도 이름·이름 모달의 새 지도·불러오기·썸네일·단계 수·복제·공유 링크 | `Domain/MapDraftStore.swift`, `Domain/MapStore.swift`, `Course/MapTitleSheet.swift`, `Course/MyMapsView.swift` |
+| 보관함 전체 검색·폴더 정렬·마크·지도 상시 표시·직접 장소 추가·복수 선택 후 단계 지정/폴더 이동·공유 수신 | `Course/SavedPlacesView.swift`, `Course/CourseTargetSheet.swift`, `Map/SavedPlacePin.swift`, `Shared/SavedPlaceGroup.swift`, `Shared/SavedPlaceStore.swift` |
+| 현재 위치로 지도 이동·파란 위치점(최근 캐시 또는 제한시간 내 일회성 갱신) | `ContentView.swift`, `Map/CurrentLocationProvider.swift` |
 | 중간지점 찾기 + 기록 + 지도 표시 | `Midpoint/MidpointView.swift`, `Shared/MidpointHistory.swift`, `Map/MidpointPlot.swift` |
 | 공유 익스텐션 (다른 앱 → 보관함) | `ShareExtension/` |
 
@@ -58,6 +58,12 @@ SDK의 롱프레스 이벤트는 시간을 바꿀 수 없어 앱은 `UILongPress
 핀 컨텍스트의 주변 장소와 단계 선택 행은 글자·아이콘뿐 아니라 행의 빈 여백까지 전체가
 터치 영역입니다. 저장된 핀 상세의 대표 지정·삭제 행도 같은 규칙을 씁니다.
 단계 핀은 20pt, 장소 이름표는 16pt입니다.
+
+지도 오른쪽 핵심 편집 버튼은 글자 없는 50pt 원형 아이콘입니다. 장소 추가는 파랑, 손그림은
+보라, 공유는 청록이라 지도 타일 위에서도 구별되고 기능 이름은 접근성 레이블로 제공합니다.
+개인 보관함 장소는 현재 지도 문서와 별개인 `savedPlaces` 레이어에 폴더의 색·SF Symbol로
+항상 표시합니다. 단계 핀보다 아래에 있어 동선 번호를 가리지 않으며, 보관함을 닫거나 앱이
+다시 활성화될 때 App Group 파일을 새로 읽습니다.
 
 편집 중인 지도는 변경 즉시 Application Support의 JSON 초안에 원자적으로 저장되고,
 1.5초 동안 입력이 멈추면 서버에도 자동 저장됩니다. 지도 위 이름 칩에서 `기기에 저장됨`·
@@ -167,7 +173,8 @@ ios/
   코드를 넣으면 익스텐션 빌드가 깨집니다. 실제로 `RouteLookup`을 여기 뒀다가
   `Domain/`으로 옮겼습니다.
 - **그리기는 전부 `KakaoMapViewController`에 있습니다.** 레이어를 용도별로 나눠 두었고
-  (`strokes` / `stopPins` / `stopLegs` / `midpointPins` / `midpointLinks` / `memos`),
+  (`strokes` / `stopPins` / `stopLegs` / `midpointPins` / `midpointLinks` / `memos` /
+  `savedPlaces` / `currentLocation`),
   한쪽을 지울 때 다른 쪽이 같이 사라지지 않게 하려는 것입니다.
 - **웹과 같은 값을 내야 하는 규칙은 웹 파일을 명시해 뒀습니다.** `lib/map/types.ts`,
   `lib/map/legs.ts`, `lib/render/sceneGeometry.ts`가 짝입니다. 한쪽만 고치면 같은
@@ -195,6 +202,11 @@ push → .github/workflows/ios.yml
 찍습니다. 공유 익스텐션 화면은 일반 앱 UI 테스트 타깃에서 직접 실행하지 못하므로 응답
 그룹 디코딩과 빈 Kakao ID 대체 식별자는 `ShareIntakeTests`에서 검증하고, 최종 화면은
 실기기 공유 시트에서 확인해야 합니다.
+
+2026-08-07 `main` 커밋 `6b2d82c`의 수동 실행 `31128516420`에서 빌드·도메인 테스트·전체
+UI 테스트·새 지도 홈 스크린샷 추출이 모두 통과했습니다. 실행 당시 GitHub Actions가 공식
+major outage 상태라 push 자동 트리거가 누락되고 macOS 러너 배정도 지연됐지만, 배정 뒤
+프로젝트 단계에서는 실패가 없었습니다.
 
 ```bash
 gh run list --workflow=ios.yml --limit 1
