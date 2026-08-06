@@ -98,6 +98,27 @@ final class LegTests: XCTestCase {
         XCTAssertTrue(LegRules.isStale(broken))
     }
 
+    func test_대표를정하면그단계와맞닿은선택수단을다시찾는다() {
+        let a = Stop(candidates: [place("a")])
+        let b1 = place("b1")
+        let b2 = place("b2")
+        let c = Stop(candidates: [place("c")])
+        var stops = [a, Stop(candidates: [b1, b2]), c]
+        let legs = [StopLeg(mode: .walk), StopLeg(mode: .transit)]
+
+        XCTAssertTrue(
+            LegRules.needingRoute(touchingStopAt: 1, stops: stops, legs: legs).isEmpty,
+            "대표가 없을 때는 출발·도착점을 정할 수 없다"
+        )
+
+        stops[1].primaryId = b2.id
+        XCTAssertEqual(
+            LegRules.needingRoute(touchingStopAt: 1, stops: stops, legs: legs),
+            [0, 1],
+            "대표가 정해진 순간 앞뒤 구간을 모두 다시 찾아야 한다"
+        )
+    }
+
     // MARK: - 그릴 모양
 
     func test_경로가없으면단계의가운데를곧게잇는다() {

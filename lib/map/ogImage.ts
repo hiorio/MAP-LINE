@@ -9,6 +9,7 @@ import {
 import { renderOgOverlay } from '@/lib/render/ogOverlay';
 import { getServiceClient } from '@/lib/supabase/server';
 import { createStaticProjection } from './staticProjection';
+import { sceneViewport } from './sceneViewport';
 import type { StoredMapDocument } from './getMapDocument';
 
 /**
@@ -19,6 +20,7 @@ import type { StoredMapDocument } from './getMapDocument';
  * (2) 지도 내용이 바뀐 뒤에만 다시 만든다.
  */
 const BUCKET = 'og';
+const CACHE_VERSION = 'scene-v2';
 
 export async function getOrCreateOgImage(document: StoredMapDocument): Promise<Blob | null> {
   const supabase = getServiceClient();
@@ -29,9 +31,15 @@ export async function getOrCreateOgImage(document: StoredMapDocument): Promise<B
 
   let png: Buffer;
   try {
-    const level = clampLevel(document.zoomLevel);
-    const base = await fetchStaticMap({ center: document.center, level });
-    png = await composeOverlay(base, document, level);
+    const viewport = sceneViewport(document, {
+      width: OG_WIDTH,
+      height: OG_HEIGHT,
+      padding: 56,
+      maxLevel: 15,
+    });
+    const level = clampLevel(viewport.level);
+    const base = await fetchStaticMap({ center: viewport.center, level });
+    png = await composeOverlay(base, document, viewport.center, level);
   } catch (cause) {
     console.error('[ogImage] 정적 지도 생성 실패', cause);
     return null;
@@ -50,6 +58,7 @@ export async function getOrCreateOgImage(document: StoredMapDocument): Promise<B
 async function composeOverlay(
   base: ArrayBuffer,
   document: StoredMapDocument,
+  center: { lat: number; lng: number },
   level: number,
 ): Promise<Buffer> {
   const map = Buffer.from(base);
@@ -66,7 +75,7 @@ async function composeOverlay(
     height: OG_HEIGHT,
     scale: OG_SCALE,
     project: createStaticProjection({
-      center: document.center,
+      center,
       level,
       width: OG_WIDTH,
       height: OG_HEIGHT,
@@ -89,6 +98,10 @@ async function composeOverlay(
 async function readCache(document: StoredMapDocument): Promise<Blob | null> {
   const supabase = getServiceClient();
   if (!supabase || !document.ogImageUrl || !document.ogUpdatedAt) return null;
+
+  // 예전 썸네일은 저장 카메라 중심을 그대로 써 표시가 화면 밖으로 나갈 수 있었다.
+  // 경로 버전이 다른 캐시는 내용 수정 시각과 무관하게 한 번 새로 만든다.
+  if (!document.ogImageUrl.includes(`/${CACHE_VERSION}/`)) return null;
 
   // 내용이 바뀐 뒤라면 캐시를 버린다.
   if (new Date(document.ogUpdatedAt) < new Date(document.updatedAt)) return null;
@@ -133,5 +146,5 @@ async function writeCache(slug: string, blob: Blob): Promise<void> {
 }
 
 function objectPath(slug: string): string {
-  return `${slug}.png`;
+  return `${CACHE_VERSION}/${slug}.png`;
 }

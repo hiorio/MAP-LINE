@@ -145,4 +145,14 @@ enum LegRules {
             return isStale(route)
         }
     }
+
+    /// 대표가 바뀐 단계와 맞닿아 있고 실제 경로를 다시 받아야 하는 구간들.
+    static func needingRoute(
+        touchingStopAt stopIndex: Int,
+        stops: [Stop],
+        legs: [StopLeg]
+    ) -> [Int] {
+        let adjacent = Set([stopIndex - 1, stopIndex])
+        return needingRoute(stops: stops, legs: legs).filter { adjacent.contains($0) }
+    }
 }

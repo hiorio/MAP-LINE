@@ -522,6 +522,37 @@ struct ContentView: View {
         guard let index = stops.firstIndex(where: { $0.candidates.contains { $0.id == place.id } })
         else { return }
         stops[index].primaryId = place.id
+        legs = LegRules.synced(stops: stops, legs: legs)
+        refreshRoutes(touchingStopAt: index)
+    }
+
+    /// 지도 핀 상세에서 대표를 정한 경우에도 동선 화면과 똑같이 실제 경로를 갱신한다.
+    private func refreshRoutes(touchingStopAt stopIndex: Int) {
+        let targets = LegRules.needingRoute(
+            touchingStopAt: stopIndex,
+            stops: stops,
+            legs: legs
+        )
+
+        for index in targets {
+            guard let ends = LegRules.endpoints(stops: stops, index: index),
+                  legs.indices.contains(index)
+            else { continue }
+            let mode = legs[index].mode
+            let fromID = ends.from.id
+            let toID = ends.to.id
+
+            Task {
+                guard let route = try? await RouteLookup.find(mode: mode, from: ends.from, to: ends.to),
+                      legs.indices.contains(index),
+                      legs[index].mode == mode,
+                      let current = LegRules.endpoints(stops: stops, index: index),
+                      current.from.id == fromID,
+                      current.to.id == toID
+                else { return }
+                legs[index].route = route
+            }
+        }
     }
 
     private func remove(_ place: MapPlace) {

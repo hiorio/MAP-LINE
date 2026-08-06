@@ -196,6 +196,7 @@ struct CourseSheet: View {
         stops[index].primaryId = stops[index].primaryId == placeID ? nil : placeID
         legs = LegRules.synced(stops: stops, legs: legs)
         invalidatePendingRoutes()
+        refreshRoutes(touchingStopAt: index)
     }
 
     private func removeCandidate(stopID: String, placeID: String) {
@@ -326,6 +327,22 @@ struct CourseSheet: View {
         } catch {
             guard routeRevision == revision else { return }
             failures[index] = error.localizedDescription
+        }
+    }
+
+    /// 대표 후보가 정해지면 그 단계를 출발하거나 도착하는 실제 경로를 바로 다시 찾는다.
+    ///
+    /// 이동수단을 먼저 고른 뒤 대표를 정하는 순서도 자연스러운 입력 순서다. 예전에는
+    /// 대표 변경으로 옛 경로만 무효화하고 요청은 하지 않아, 다른 수단을 눌렀다가 원래
+    /// 수단을 다시 골라야 했다. 바뀐 단계와 맞닿은 구간만 고르면 불필요한 API 호출도 없다.
+    private func refreshRoutes(touchingStopAt stopIndex: Int) {
+        let targets = LegRules.needingRoute(
+            touchingStopAt: stopIndex,
+            stops: stops,
+            legs: legs
+        )
+        for index in targets {
+            Task { await fetchRoute(index) }
         }
     }
 
