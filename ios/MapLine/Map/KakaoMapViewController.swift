@@ -677,7 +677,7 @@ private extension KakaoMapViewController {
 
     /// 색·크기 조합마다 스타일 하나.
     func memoStyleID(color: String, fontSize: Double, on map: KakaoMap) -> String {
-        let styleID = "memo-\(color)-\(Int(fontSize))"
+        let styleID = "memo-v2-\(color)-\(Int(fontSize))"
         guard !registeredPinStyles.contains(styleID) else { return styleID }
 
         let style = PoiTextStyle(textLineStyles: [
@@ -687,7 +687,8 @@ private extension KakaoMapViewController {
                     // 읽기 어려울 만큼 작다.
                     fontSize: UInt(max(14, fontSize * 1.6)),
                     fontColor: UIColor(hex: color) ?? .darkGray,
-                    strokeThickness: 4,
+                    // 지도 글자·도로 위에서도 메모가 묻히지 않도록 흰 테두리를 두껍게 둔다.
+                    strokeThickness: 6,
                     strokeColor: .white
                 )
             ),
@@ -745,9 +746,9 @@ private extension KakaoMapViewController {
         let textStyle = PoiTextStyle(textLineStyles: [
             PoiTextLineStyle(
                 textStyle: TextStyle(
-                    fontSize: 17,
+                    fontSize: 20,
                     fontColor: LegStyle.of(mode).color,
-                    strokeThickness: 6,
+                    strokeThickness: 7,
                     strokeColor: .white
                 )
             ),

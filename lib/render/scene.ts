@@ -279,16 +279,16 @@ export function hitsSavedMarker(point: Point, at: Point): boolean {
 
 export function drawLabel(ctx: CanvasRenderingContext2D, label: MapLabel, at: Point) {
   ctx.save();
-  ctx.font = `${label.fontSize}px ${LABEL_FONT}`;
+  ctx.font = `600 ${label.fontSize}px ${LABEL_FONT}`;
   const width = ctx.measureText(label.text).width + LABEL_PADDING_X * 2;
   const height = label.fontSize + LABEL_PADDING_Y * 2;
   const x = at.x - width / 2;
   const y = at.y - height / 2;
 
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.88)';
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.94)';
   ctx.fillRect(x, y, width, height);
-  ctx.strokeStyle = 'rgba(44, 44, 42, 0.18)';
-  ctx.lineWidth = 1;
+  ctx.strokeStyle = 'rgba(44, 44, 42, 0.32)';
+  ctx.lineWidth = 1.5;
   ctx.strokeRect(x, y, width, height);
 
   ctx.fillStyle = label.color;

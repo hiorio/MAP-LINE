@@ -31,8 +31,30 @@ final class StrokeAnchorUITests: XCTestCase {
         // 1. 그리기를 켜고 화면 가운데를 가로지르는 선을 긋는다.
         toggle.tap()
 
+        let undo = app.descendants(matching: .any).matching(identifier: "map.draw.undo").firstMatch
+        let clear = app.descendants(matching: .any).matching(identifier: "map.draw.clear").firstMatch
+        let count = app.descendants(matching: .any).matching(identifier: "map.draw.count").firstMatch
+        XCTAssertTrue(undo.waitForExistence(timeout: 5), "그리기 모드에 한 획 되돌리기가 없다")
+        XCTAssertTrue(clear.exists, "그리기 모드에 전체 지우기가 없다")
+        XCTAssertTrue(waitForValue("0", of: count))
+
         drag(app, from: CGVector(dx: 0.25, dy: 0.40), to: CGVector(dx: 0.75, dy: 0.40))
+        XCTAssertTrue(waitForValue("1", of: count))
         attach(app, name: "1-그린직후")
+
+        // 두 번째 획만 되돌린 뒤, 전체 지우기와 실행 취소도 같은 화면에서 확인한다.
+        drag(app, from: CGVector(dx: 0.35, dy: 0.32), to: CGVector(dx: 0.35, dy: 0.58))
+        XCTAssertTrue(waitForValue("2", of: count))
+        undo.tap()
+        XCTAssertTrue(waitForValue("1", of: count), "마지막 획 하나만 되돌리지 못했다")
+        clear.tap()
+        XCTAssertTrue(waitForValue("0", of: count), "전체 지우기가 획을 남겼다")
+
+        let undoBanner = app.descendants(matching: .any).matching(identifier: "undo.banner").firstMatch
+        XCTAssertTrue(undoBanner.waitForExistence(timeout: 5), "전체 지우기 뒤 실행 취소가 없다")
+        app.buttons["실행 취소"].tap()
+        XCTAssertTrue(waitForValue("1", of: count), "전체 지우기를 실행 취소해도 획이 돌아오지 않았다")
+        attach(app, name: "1a-손그림편집도구")
 
         // 2. 그리기를 끄고 지도를 위로 끌어올린다. 획이 지도에 붙어 있다면 같이 올라간다.
         toggle.tap()
@@ -79,6 +101,15 @@ final class StrokeAnchorUITests: XCTestCase {
         let end = app.coordinate(withNormalizedOffset: to)
         // 누르고 있는 시간을 줘야 팬과 그리기 모두 제스처로 인식된다.
         start.press(forDuration: 0.3, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.2)
+    }
+
+    private func waitForValue(_ expected: String, of element: XCUIElement) -> Bool {
+        let deadline = Date().addingTimeInterval(3)
+        while Date() < deadline {
+            if element.value as? String == expected { return true }
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        return element.value as? String == expected
     }
 
     private func attach(_ app: XCUIApplication, name: String) {

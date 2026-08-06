@@ -85,9 +85,10 @@ struct ContentView: View {
     private struct UndoState: Identifiable {
         let id = UUID()
         let message: String
-        let stops: [Stop]
-        let legs: [StopLeg]
-        let labels: [MapLabel]
+        let stops: [Stop]?
+        let legs: [StopLeg]?
+        let strokes: [GeoStroke]?
+        let labels: [MapLabel]?
     }
 
     private struct EditFingerprint: Equatable {
@@ -560,7 +561,8 @@ struct ContentView: View {
             message: "\(place.name)을(를) 동선에서 뺐습니다.",
             stops: stops,
             legs: legs,
-            labels: labels
+            strokes: nil,
+            labels: nil
         )
         for index in stops.indices {
             stops[index].candidates.removeAll { $0.id == place.id }
@@ -576,8 +578,9 @@ struct ContentView: View {
     private func removeMemo(_ memo: MapLabel) {
         let snapshot = UndoState(
             message: "메모를 삭제했습니다.",
-            stops: stops,
-            legs: legs,
+            stops: nil,
+            legs: nil,
+            strokes: nil,
             labels: labels
         )
         labels.removeAll { $0.id == memo.id }
@@ -597,9 +600,10 @@ struct ContentView: View {
     private func restoreUndo() {
         guard let snapshot = undoState else { return }
         undoTask?.cancel()
-        stops = snapshot.stops
-        legs = snapshot.legs
-        labels = snapshot.labels
+        if let restoredStops = snapshot.stops { stops = restoredStops }
+        if let restoredLegs = snapshot.legs { legs = restoredLegs }
+        if let restoredStrokes = snapshot.strokes { strokes = restoredStrokes }
+        if let restoredLabels = snapshot.labels { labels = restoredLabels }
         withAnimation { undoState = nil }
     }
 
@@ -733,7 +737,10 @@ struct ContentView: View {
                         .accessibilityIdentifier("memo.move.cancel")
                 }
             } else if isDrawing {
-                hint("지도가 잠깁니다. 손가락으로 선을 그리세요.")
+                VStack(spacing: 8) {
+                    hint("지도가 잠깁니다. 손가락으로 선을 그리세요.")
+                    drawingToolbar
+                }
             } else if stops.isEmpty {
                 // 꾹 누르기는 화면에 아무 표시가 없다. 알려 주지 않으면 아무도 안 한다.
                 // 한 곳이라도 담고 나면 사라진다 — 이미 아는 사람에게는 잔소리다.
@@ -802,6 +809,64 @@ struct ContentView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
+    }
+
+    /// 그리는 동안에만 보이는 간단한 편집 도구.
+    ///
+    /// 지도 오른쪽 조작부에 계속 두면 평소 화면이 복잡해진다. 그리기 모드 아래에서
+    /// 획 수와 함께 보여 주면 지금 무엇을 지우는지도 알 수 있고, 반복해서 되돌리기도 쉽다.
+    private var drawingToolbar: some View {
+        HStack(spacing: 8) {
+            Text("\(strokes.count)획")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.secondary)
+                .accessibilityLabel("손그림 획 수")
+                .accessibilityValue("\(strokes.count)")
+                .accessibilityIdentifier("map.draw.count")
+
+            Divider()
+                .frame(height: 22)
+
+            Button { undoLastStroke() } label: {
+                Label("한 획 되돌리기", systemImage: "arrow.uturn.backward")
+                    .frame(minHeight: 44)
+            }
+            .disabled(strokes.isEmpty)
+            .accessibilityIdentifier("map.draw.undo")
+
+            Divider()
+                .frame(height: 22)
+
+            Button(role: .destructive) { clearStrokes() } label: {
+                Label("전체 지우기", systemImage: "trash")
+                    .frame(minHeight: 44)
+            }
+            .disabled(strokes.isEmpty)
+            .accessibilityIdentifier("map.draw.clear")
+        }
+        .font(.caption.weight(.semibold))
+        .padding(.horizontal, 12)
+        .background(.regularMaterial, in: Capsule())
+        .buttonStyle(.plain)
+        .shadow(color: .black.opacity(0.12), radius: 5, y: 2)
+    }
+
+    private func undoLastStroke() {
+        guard !strokes.isEmpty else { return }
+        strokes.removeLast()
+    }
+
+    private func clearStrokes() {
+        guard !strokes.isEmpty else { return }
+        let snapshot = UndoState(
+            message: "손그림을 모두 지웠습니다.",
+            stops: nil,
+            legs: nil,
+            strokes: strokes,
+            labels: nil
+        )
+        strokes.removeAll()
+        showUndo(snapshot)
     }
 
     private func startDrawing() {

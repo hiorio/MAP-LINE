@@ -173,8 +173,8 @@ function labelMarkup(labels: readonly MapLabel[], project: Projector): string {
     out +=
       `<rect x="${n(at.x - width / 2)}" y="${n(at.y - height / 2)}" ` +
       `width="${n(width)}" height="${n(height)}" ` +
-      `fill="rgba(255,255,255,0.88)" stroke="rgba(44,44,42,0.18)" stroke-width="1"/>` +
-      text(label.text, at.x, at.y, { size: label.fontSize, weight: 400, fill: label.color });
+      `fill="rgba(255,255,255,0.94)" stroke="rgba(44,44,42,0.32)" stroke-width="1.5"/>` +
+      text(label.text, at.x, at.y, { size: label.fontSize, weight: 600, fill: label.color });
   }
   return out;
 }
