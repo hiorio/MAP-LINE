@@ -116,7 +116,7 @@ final class SavedPlaceStoreTests: XCTestCase {
 
     func test_폴더를지우기전에장소를받은장소로모두옮긴다() {
         store.add(place("A", groupID: "trip"))
-        store.add(place("B", groupID: "trip", lat: 37.6))
+        store.add(place("B", lat: 37.6, groupID: "trip"))
 
         store.moveAll(from: "trip", to: SavedPlaceGroup.inboxID)
 
