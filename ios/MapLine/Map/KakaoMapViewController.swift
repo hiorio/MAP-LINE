@@ -16,6 +16,8 @@ final class KakaoMapViewController: UIViewController {
     private var mapController: KMController?
     private var drawingView: DrawingOverlayView?
     private var longPressRecognizer: UILongPressGestureRecognizer?
+    /// 롱프레스가 끝날 때 같은 손가락을 POI 탭으로 한 번 더 해석하는 것을 막는다.
+    private var lastLongPressAt: TimeInterval = 0
 
     /// 지도가 준비되기 전에는 그릴 수 없다. 준비 여부를 한 곳에서 본다.
     private var kakaoMap: KakaoMap? {
@@ -68,6 +70,8 @@ final class KakaoMapViewController: UIViewController {
     var onLongPress: ((GeoPoint) -> Void)?
     /// 찍어 둔 핀을 눌렀을 때. 그 후보의 id를 준다.
     var onTapStopPin: ((String) -> Void)?
+    /// 카카오 기본 지도에 그려진 장소 마커를 눌렀을 때. 마커 좌표와 카카오 POI id를 준다.
+    var onTapMapPoi: ((GeoPoint, String) -> Void)?
     /// 지도 위 메모를 눌렀을 때. 메모의 id를 준다.
     var onTapMemo: ((String) -> Void)?
 
@@ -171,6 +175,7 @@ final class KakaoMapViewController: UIViewController {
 
         let point = recognizer.location(in: container)
         let coord = map.getPosition(point).wgsCoord
+        lastLongPressAt = ProcessInfo.processInfo.systemUptime
         onLongPress?(GeoPoint(lat: coord.latitude, lng: coord.longitude))
     }
 
@@ -239,6 +244,9 @@ extension KakaoMapViewController: MapControllerDelegate {
     func addViewSucceeded(_ viewName: String, viewInfoName: String) {
         guard let map = kakaoMap else { return }
         map.viewRect = view.bounds
+        // 기본값은 false라 스타벅스처럼 지도 타일에 원래 그려진 POI를 눌러도 이벤트가
+        // 오지 않는다. 우리가 추가한 단계 핀의 clickable 설정과는 별개의 옵션이다.
+        map.poiClickable = true
         // 획을 담을 레이어와 스타일을 미리 만들어 둔다. zOrder는 기본 지물보다 위다.
         _ = map.getShapeManager().addShapeLayer(layerID: Self.shapeLayerID, zOrder: 10_001)
 
@@ -417,14 +425,28 @@ private extension KakaoMapViewController {
         eventHandlers.append(
             map.addPoisTappedEventHandler(target: self) { controller in
                 { event in
+                    // 롱프레스를 놓는 순간 SDK가 같은 입력을 탭으로도 보내는 경우가 있다.
+                    // 이미 핀 메뉴를 열었으므로 두 번째 시트는 만들지 않는다.
+                    guard ProcessInfo.processInfo.systemUptime - controller.lastLongPressAt > 0.7 else {
+                        return
+                    }
+
                     switch event.layerID {
                     case Self.stopLabelLayerID:
                         // poiID를 후보 id로 쓴다. 눌린 것이 무엇인지 그대로 알 수 있다.
                         controller.onTapStopPin?(event.poiID)
                     case Self.memoLayerID:
                         controller.onTapMemo?(event.poiID)
-                    default:
+                    case Self.midpointLabelLayerID:
                         return
+                    default:
+                        // 우리가 만든 레이어가 아니면 카카오 기본 지도 POI다. SDK가
+                        // 제공하는 객체 좌표를 그대로 써야 손가락 좌표의 오차가 없다.
+                        let coord = event.position.wgsCoord
+                        controller.onTapMapPoi?(
+                            GeoPoint(lat: coord.latitude, lng: coord.longitude),
+                            event.poiID
+                        )
                     }
                 }
             }

@@ -7,6 +7,8 @@ import SwiftUI
 /// 1단계로 담는다.
 struct DropPinSheet: View {
     let coordinate: GeoPoint
+    /// 기본 지도 POI를 탭해 연 경우의 id. 일치하는 검색 결과를 먼저 보여 준다.
+    let preferredKakaoPlaceId: String?
     let stops: [Stop]
     /// `stopID`가 nil이면 새 단계, 값이 있으면 그 단계의 후보로 담는다.
     let onPick: (_ stopID: String?, _ place: MapPlace) -> Void
@@ -77,6 +79,14 @@ struct DropPinSheet: View {
                 }
             }
 
+            if preferredKakaoPlaceId != nil, phase == .ready, let first = places.first {
+                Section("지도에서 누른 장소") {
+                    Button { pick(first) } label: { row(first) }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("droppin.tappedPlace")
+                }
+            }
+
             Section {
                 switch phase {
                 case .loading:
@@ -87,7 +97,7 @@ struct DropPinSheet: View {
                 case .ready where places.isEmpty:
                     Text("주변에 등록된 장소가 없습니다.").foregroundStyle(.secondary)
                 case .ready:
-                    ForEach(places) { place in
+                    ForEach(nearbyPlaces) { place in
                         Button { pick(place) } label: { row(place) }
                             .buttonStyle(.plain)
                     }
@@ -96,7 +106,7 @@ struct DropPinSheet: View {
                     Text(message).font(.footnote).foregroundStyle(.orange)
                 }
             } header: {
-                Text("이 근처")
+                Text(preferredKakaoPlaceId == nil ? "이 근처" : "그 밖의 가까운 장소")
             }
         }
         // 목록이 길어도 검색·직접 찍기·메모는 항상 손이 닿는 곳에 둔다.
@@ -250,12 +260,39 @@ struct DropPinSheet: View {
         do {
             let found = try await NearbyLookup.find(lat: coordinate.lat, lng: coordinate.lng)
             address = found.address
-            places = found.places
+            places = prioritizeNearbyPlaces(
+                found.places,
+                preferredKakaoPlaceId: preferredKakaoPlaceId
+            )
             phase = .ready
         } catch {
             phase = .failed(error.localizedDescription)
         }
     }
+
+    private var nearbyPlaces: [PlaceCandidate] {
+        preferredKakaoPlaceId == nil ? places : Array(places.dropFirst())
+    }
+}
+
+/// 기본 지도 POI를 탭해 메뉴를 연 경우 그 장소를 먼저 보여 준다. SDK의 기본 POI id가
+/// Local API의 장소 id와 다른 지도 데이터에서는 좌표상 가장 가까운 결과를 대신 올린다.
+func prioritizeNearbyPlaces(
+    _ places: [PlaceCandidate],
+    preferredKakaoPlaceId: String?
+) -> [PlaceCandidate] {
+    guard let preferredKakaoPlaceId, !preferredKakaoPlaceId.isEmpty else { return places }
+
+    return places.enumerated().sorted { lhs, rhs in
+        let lhsMatches = lhs.element.kakaoPlaceId == preferredKakaoPlaceId
+        let rhsMatches = rhs.element.kakaoPlaceId == preferredKakaoPlaceId
+        if lhsMatches != rhsMatches { return lhsMatches }
+
+        let lhsDistance = lhs.element.distanceM ?? .infinity
+        let rhsDistance = rhs.element.distanceM ?? .infinity
+        if lhsDistance != rhsDistance { return lhsDistance < rhsDistance }
+        return lhs.offset < rhs.offset
+    }.map(\.element)
 }
 
 /// 거리 표기. 웹 `formatDistance`와 같은 규칙이다.

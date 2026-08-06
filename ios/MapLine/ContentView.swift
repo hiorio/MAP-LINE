@@ -51,6 +51,8 @@ struct ContentView: View {
     private struct PendingPin: Identifiable {
         let id = UUID()
         let coordinate: GeoPoint
+        /// 카카오 기본 지도 POI를 탭해 연 경우 그 POI를 주변 목록 맨 위로 올린다.
+        let preferredKakaoPlaceId: String?
     }
 
     /// 열 때 필요한 것을 그 자리에서 다 담아 둔다.
@@ -85,10 +87,20 @@ struct ContentView: View {
                             labels.updateLabel(id: id, location: coordinate)
                             movingMemoID = nil
                         } else {
-                            pendingPin = PendingPin(coordinate: coordinate)
+                            pendingPin = PendingPin(
+                                coordinate: coordinate,
+                                preferredKakaoPlaceId: nil
+                            )
                         }
                     },
                     onTapStopPin: { id in openedPin = resolvePin(id) },
+                    onTapMapPoi: { coordinate, poiID in
+                        guard movingMemoID == nil else { return }
+                        pendingPin = PendingPin(
+                            coordinate: coordinate,
+                            preferredKakaoPlaceId: poiID
+                        )
+                    },
                     onTapMemo: { id in
                         guard movingMemoID == nil else { return }
                         openedMemo = labels.first { $0.id == id }
@@ -124,6 +136,7 @@ struct ContentView: View {
             .sheet(item: $pendingPin) { pin in
                 DropPinSheet(
                     coordinate: pin.coordinate,
+                    preferredKakaoPlaceId: pin.preferredKakaoPlaceId,
                     stops: stops,
                     onPick: { stopID, place in
                         addCoursePlaces([place], toStopID: stopID)

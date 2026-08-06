@@ -115,6 +115,40 @@ final class StopTests: XCTestCase {
         XCTAssertEqual(converted.location, GeoPoint(lat: 37.4979, lng: 127.0276))
     }
 
+    func test_지도에서누른POI를주변장소맨앞에둔다() {
+        let near = placeCandidate(id: "near", name: "가까운 식당", distance: 2)
+        let tapped = placeCandidate(id: "tapped", name: "누른 스타벅스", distance: 12)
+
+        let ordered = prioritizeNearbyPlaces(
+            [near, tapped],
+            preferredKakaoPlaceId: "tapped"
+        )
+
+        XCTAssertEqual(ordered.map(\.name), ["누른 스타벅스", "가까운 식당"])
+    }
+
+    func test_기본POI_ID가검색ID와다르면가장가까운장소를먼저둔다() {
+        let far = placeCandidate(id: "far", name: "먼 장소", distance: 35)
+        let nearest = placeCandidate(id: "near", name: "마커 좌표의 장소", distance: 1)
+
+        let ordered = prioritizeNearbyPlaces(
+            [far, nearest],
+            preferredKakaoPlaceId: "지도-내부-id"
+        )
+
+        XCTAssertEqual(ordered.map(\.name), ["마커 좌표의 장소", "먼 장소"])
+    }
+
+    func test_꾹누른좌표는서버가준주변순서를유지한다() {
+        let first = placeCandidate(id: "first", name: "첫째", distance: 20)
+        let second = placeCandidate(id: "second", name: "둘째", distance: 1)
+
+        XCTAssertEqual(
+            prioritizeNearbyPlaces([first, second], preferredKakaoPlaceId: nil).map(\.name),
+            ["첫째", "둘째"]
+        )
+    }
+
     func test_서버와같은키로오간다() throws {
         // 웹이 저장한 지도를 앱이 열어야 한다. 키 이름이 하나만 달라도 못 연다.
         let encoded = try JSONEncoder().encode(
@@ -144,5 +178,21 @@ final class StopTests: XCTestCase {
         // 읽을 수 없으면 nil이다. 검정으로 대신하면 색이 조용히 사라진다.
         XCTAssertNil(UIColor(hex: "#GGG"))
         XCTAssertNil(UIColor(hex: ""))
+    }
+
+    private func placeCandidate(
+        id: String,
+        name: String,
+        distance: Double
+    ) -> PlaceCandidate {
+        PlaceCandidate(
+            kakaoPlaceId: id,
+            name: name,
+            address: nil,
+            roadAddress: nil,
+            category: nil,
+            location: .init(lat: 37.4979, lng: 127.0276),
+            distanceM: distance
+        )
     }
 }

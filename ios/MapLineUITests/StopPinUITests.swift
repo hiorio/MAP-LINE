@@ -74,6 +74,39 @@ final class StopPinUITests: XCTestCase {
         addLongPressedPlaceToFirstStop(app, counter: counter)
     }
 
+    func test_지도기본POI를한번눌러_핀메뉴를연다() throws {
+        let app = XCUIApplication()
+        app.launch()
+        try waitForMap(app)
+
+        // 초기 강남역 화면에서 기본 POI가 그려질 때까지 기다린다. 기기 화면비에 따라
+        // 마커의 세로 위치가 조금 달라져, 실제로 메뉴가 열린 순간까지만 후보를 순회한다.
+        Thread.sleep(forTimeInterval: 3)
+        let likelyPoiPositions = [
+            CGVector(dx: 0.47, dy: 0.61), // 스타벅스 강남역7번출구점
+            CGVector(dx: 0.72, dy: 0.68), // 음식점 POI
+            CGVector(dx: 0.32, dy: 0.66), // 의원 POI
+        ]
+        let title = app.navigationBars["여기에 무엇을 담을까요"]
+
+        for position in likelyPoiPositions where !title.exists {
+            app.coordinate(withNormalizedOffset: position).tap()
+            _ = title.waitForExistence(timeout: 2)
+        }
+
+        guard title.exists else {
+            attach(app, name: "2-기본POI탭메뉴안뜸")
+            XCTFail("지도에 표시된 기본 장소 마커를 한 번 눌렀는데 핀 메뉴가 뜨지 않았다")
+            return
+        }
+
+        let tappedPlace = app.descendants(matching: .any)
+            .matching(identifier: "droppin.tappedPlace").firstMatch
+        let prioritized = tappedPlace.waitForExistence(timeout: 15)
+        attach(app, name: prioritized ? "2-기본POI탭-선택장소상단" : "2-선택장소상단없음")
+        XCTAssertTrue(prioritized, "누른 기본 마커의 장소가 컨텍스트 상단에 표시되지 않았다")
+    }
+
     func test_메모를_다른위치로_옮긴다() throws {
         let app = XCUIApplication()
         app.launch()
