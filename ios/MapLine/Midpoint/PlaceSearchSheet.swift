@@ -11,6 +11,26 @@ struct PlaceSearchSheet: View {
     let onPick: (PlaceCandidate) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        NavigationStack {
+            PlaceSearchPage(title: title, near: near, onCancel: { dismiss() }) { place in
+                onPick(place)
+                dismiss()
+            }
+        }
+    }
+
+    // 검색 화면을 다른 시트 안에서도 안정적으로 재사용할 수 있도록 상태와 UI를
+    // 별도 페이지로 둔다. iOS 26에서는 시트 위에 시트를 연속으로 띄우는 탭이
+    // 간헐적으로 무시되므로, 그 경우에는 같은 NavigationStack 안에서 push한다.
+}
+
+struct PlaceSearchPage: View {
+    let title: String
+    var near: PlaceCandidate.Coordinate?
+    let onCancel: () -> Void
+    let onPick: (PlaceCandidate) -> Void
+
     @State private var query = ""
     @State private var results: [PlaceCandidate] = []
     @State private var phase: Phase = .idle
@@ -22,43 +42,38 @@ struct PlaceSearchSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
-            List {
-                switch phase {
-                case .searching:
-                    HStack { ProgressView(); Text("찾는 중…").foregroundStyle(.secondary) }
-                case .failed(let message):
-                    Text(message).foregroundStyle(.secondary)
-                case .done where results.isEmpty:
-                    Text("결과가 없습니다.").foregroundStyle(.secondary)
-                default:
-                    EmptyView()
-                }
+        List {
+            switch phase {
+            case .searching:
+                HStack { ProgressView(); Text("찾는 중…").foregroundStyle(.secondary) }
+            case .failed(let message):
+                Text(message).foregroundStyle(.secondary)
+            case .done where results.isEmpty:
+                Text("결과가 없습니다.").foregroundStyle(.secondary)
+            default:
+                EmptyView()
+            }
 
-                ForEach(results) { place in
-                    Button {
-                        onPick(place)
-                        dismiss()
-                    } label: {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(place.name).foregroundStyle(.primary)
-                            if let address = place.displayAddress {
-                                Text(address).font(.caption).foregroundStyle(.secondary)
-                            }
+            ForEach(results) { place in
+                Button { onPick(place) } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(place.name).foregroundStyle(.primary)
+                        if let address = place.displayAddress {
+                            Text(address).font(.caption).foregroundStyle(.secondary)
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
                 }
             }
-            .searchable(text: $query, prompt: "장소나 주소")
-            .onChange(of: query) { _ in schedule() }
-            .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("취소") { dismiss() }
-                }
+        }
+        .searchable(text: $query, prompt: "장소나 주소")
+        .onChange(of: query) { _ in schedule() }
+        .navigationTitle(title)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("취소", action: onCancel)
             }
         }
     }

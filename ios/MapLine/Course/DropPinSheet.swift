@@ -59,12 +59,14 @@ struct DropPinSheet: View {
                     dismiss()
                 }
             }
-            .sheet(isPresented: $searchingPlace) {
-                PlaceSearchSheet(
+            .navigationDestination(isPresented: $searchingPlace) {
+                PlaceSearchPage(
                     title: "이 근처 장소 검색",
-                    near: PlaceCandidate.Coordinate(lat: coordinate.lat, lng: coordinate.lng)
+                    near: PlaceCandidate.Coordinate(lat: coordinate.lat, lng: coordinate.lng),
+                    onCancel: { searchingPlace = false }
                 ) { candidate in
                     pick(candidate)
+                    searchingPlace = false
                 }
             }
         }
