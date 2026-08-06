@@ -15,7 +15,7 @@ final class AppStoreScreenshotUITests: XCTestCase {
         let ready = app.descendants(matching: .any).matching(identifier: "mapReady").firstMatch
         XCTAssertTrue(ready.waitForExistence(timeout: 60), "성수 데이트 코스 지도가 준비되지 않았다")
         let stopCount = app.descendants(matching: .any).matching(identifier: "map.stopCount").firstMatch
-        XCTAssertTrue(stopCount.waitForExistence(timeout: 10), "데이트 코스 다섯 단계가 지도에 표시되지 않았다")
+        XCTAssertTrue(stopCount.waitForExistence(timeout: 10), "데이트 코스 단계가 지도에 표시되지 않았다")
 
         // 카메라가 전체 동선에 맞춰지고 지도 타일·경로·메모가 그려질 시간을 준다.
         Thread.sleep(forTimeInterval: 5)

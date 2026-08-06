@@ -6,24 +6,22 @@ import Foundation
 enum AppStorePreview {
     static let seongsuDate: MapDocument = {
         let places = [
-            MapPlace(id: "30000000-0000-4000-8000-000000000001", name: "건대입구역", location: point(37.5404, 127.0692)),
-            MapPlace(id: "30000000-0000-4000-8000-000000000002", name: "성수동 카페거리", location: point(37.5446, 127.0558)),
-            MapPlace(id: "30000000-0000-4000-8000-000000000003", name: "서울숲", location: point(37.5444, 127.0374)),
-            MapPlace(id: "30000000-0000-4000-8000-000000000004", name: "디뮤지엄", location: point(37.5441, 127.0435)),
-            MapPlace(id: "30000000-0000-4000-8000-000000000005", name: "뚝섬한강공원", location: point(37.5293, 127.0730)),
+            MapPlace(id: "30000000-0000-4000-8000-000000000001", name: "왕십리역", location: point(37.5611, 127.0375)),
+            MapPlace(id: "30000000-0000-4000-8000-000000000002", name: "서울숲", location: point(37.5444, 127.0374)),
+            MapPlace(id: "30000000-0000-4000-8000-000000000003", name: "성수동 카페거리", location: point(37.5446, 127.0558)),
+            MapPlace(id: "30000000-0000-4000-8000-000000000004", name: "뚝섬한강공원", location: point(37.5293, 127.0730)),
         ]
         let stops = places.enumerated().map { index, place in
             Stop(id: "31000000-0000-4000-8000-00000000000\(index + 1)", candidates: [place])
         }
         let routePoints: [[GeoPoint]] = [
-            [places[0].location, point(37.5418, 127.0645), point(37.5430, 127.0599), places[1].location],
-            [places[1].location, point(37.5448, 127.0500), point(37.5448, 127.0439), places[2].location],
-            [places[2].location, point(37.5454, 127.0398), point(37.5450, 127.0420), places[3].location],
-            [places[3].location, point(37.5395, 127.0510), point(37.5345, 127.0615), places[4].location],
+            [places[0].location, point(37.5555, 127.0380), point(37.5498, 127.0378), places[1].location],
+            [places[1].location, point(37.5447, 127.0435), point(37.5448, 127.0498), places[2].location],
+            [places[2].location, point(37.5395, 127.0610), point(37.5345, 127.0670), places[3].location],
         ]
-        let distances = [1_400, 1_600, 850, 3_300]
-        let durations = [20, 23, 12, 18].map { $0 * 60 }
-        let modes: [TravelMode] = [.walk, .walk, .walk, .transit]
+        let distances = [2_200, 1_600, 3_300]
+        let durations = [31, 23, 18].map { $0 * 60 }
+        let modes: [TravelMode] = [.walk, .walk, .transit]
         let fetchedAt = "2026-08-06T00:00:00Z"
         let legs = routePoints.indices.map { index in
             StopLeg(
@@ -42,15 +40,15 @@ enum AppStorePreview {
 
         return MapDocument(
             title: "성수 데이트 코스",
-            center: point(37.5405, 127.0540),
+            center: point(37.5450, 127.0530),
             zoomLevel: 6,
             stops: stops,
             legs: legs,
             labels: [
-                MapLabel(id: "32000000-0000-4000-8000-000000000001", location: point(37.5387, 127.0657), text: "오후 1시 · 2번 출구에서 만나기"),
-                MapLabel(id: "32000000-0000-4000-8000-000000000002", location: point(37.5470, 127.0513), text: "커피 마시며 여행 계획"),
-                MapLabel(id: "32000000-0000-4000-8000-000000000003", location: point(37.5477, 127.0397), text: "산책하며 사진 찍기"),
-                MapLabel(id: "32000000-0000-4000-8000-000000000004", location: point(37.5350, 127.0562), text: "전시 보고 한강 노을 보러 가기"),
+                MapLabel(id: "32000000-0000-4000-8000-000000000001", location: point(37.5635, 127.0500), text: "오후 1시 · 왕십리역에서 만나기"),
+                MapLabel(id: "32000000-0000-4000-8000-000000000002", location: point(37.5485, 127.0280), text: "서울숲 산책하며 사진 찍기"),
+                MapLabel(id: "32000000-0000-4000-8000-000000000003", location: point(37.5500, 127.0660), text: "카페에서 다음 여행 계획"),
+                MapLabel(id: "32000000-0000-4000-8000-000000000004", location: point(37.5260, 127.0590), text: "저녁 먹고 한강 노을 보기"),
             ]
         )
     }()
