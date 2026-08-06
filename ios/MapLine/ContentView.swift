@@ -27,6 +27,9 @@ struct ContentView: View {
     @State private var showMyMaps = false
     @State private var showTitleEditor = false
     @State private var confirmingNewMap = false
+    /// 이름 편집 시트가 내려간 뒤 새 지도 확인창을 띄운다. 시트 위에 alert를 바로
+    /// 겹치면 iOS가 둘 중 하나를 삼킬 수 있어서 다음 표시 주기로 넘긴다.
+    @State private var requestNewMapAfterTitleEditor = false
 
     /// 사용자가 알아볼 수 있는 지도 이름. 비어 있는 제목을 자동 장소명으로 덮지 않는다.
     @State private var title = "새 지도"
@@ -47,6 +50,10 @@ struct ContentView: View {
     @State private var mapController: KakaoMapViewController?
     @State private var pendingCameraCenter: GeoPoint?
     @StateObject private var currentLocation = CurrentLocationProvider()
+    /// 개인 보관함은 현재 문서와 별개지만 지도 위에서는 항상 보이는 참고 마커다.
+    @State private var savedPins: [SavedPlacePin] = []
+    /// 한 번 찾은 현재 위치를 파란 점으로 남겨 이동이 실제로 됐는지 눈으로 확인한다.
+    @State private var currentLocationPoint: GeoPoint?
 
     private struct ShareLink: Identifiable {
         let url: URL
@@ -135,6 +142,8 @@ struct ContentView: View {
                     legs: legs,
                     strokes: strokes,
                     labels: labels,
+                    savedPins: savedPins,
+                    currentLocation: currentLocationPoint,
                     onLongPress: { coordinate in
                         if let id = movingMemoID {
                             labels.updateLabel(id: id, location: coordinate)
@@ -229,7 +238,10 @@ struct ContentView: View {
             .sheet(item: $shareLink) { link in
                 ActivitySheet(items: [link.url])
             }
-            .sheet(isPresented: $showSaved) {
+            .sheet(isPresented: $showSaved, onDismiss: {
+                // 보관함 안에서 폴더를 바꾸거나 장소를 지운 결과를 지도에도 즉시 반영한다.
+                reloadSavedPins()
+            }) {
                 SavedPlacesView(stops: stops) { stopID, places in
                     addCoursePlaces(places, toStopID: stopID)
                 }
@@ -237,8 +249,16 @@ struct ContentView: View {
             .sheet(isPresented: $showMyMaps) {
                 MyMapsView { picked in Task { await open(slug: picked) } }
             }
-            .sheet(isPresented: $showTitleEditor) {
-                MapTitleSheet(currentTitle: title) { title = $0 }
+            .sheet(isPresented: $showTitleEditor, onDismiss: {
+                guard requestNewMapAfterTitleEditor else { return }
+                requestNewMapAfterTitleEditor = false
+                confirmingNewMap = true
+            }) {
+                MapTitleSheet(
+                    currentTitle: title,
+                    onSave: { title = $0 },
+                    onCreateNew: { requestNewMapAfterTitleEditor = true }
+                )
                     .presentationDetents([.medium])
             }
             .alert(
@@ -275,14 +295,23 @@ struct ContentView: View {
             } message: {
                 Text("현재 지도는 먼저 저장한 뒤 새 지도를 엽니다.")
             }
-            .task { restoreDraftIfNeeded() }
+            .task {
+                restoreDraftIfNeeded()
+                reloadSavedPins()
+            }
             .onChange(of: title) { _ in documentDidChange() }
             .onChange(of: stops) { _ in documentDidChange() }
             .onChange(of: legs) { _ in documentDidChange() }
             .onChange(of: strokes) { _ in documentDidChange() }
             .onChange(of: labels) { _ in documentDidChange() }
             .onChange(of: scenePhase) { phase in
-                if phase != .active { persistDraft() }
+                if phase == .active {
+                    // 공유 익스텐션은 별도 프로세스다. 앱으로 돌아오는 순간 파일을 다시
+                    // 읽어야 방금 다른 앱에서 담은 장소가 지도에 나타난다.
+                    reloadSavedPins()
+                } else {
+                    persistDraft()
+                }
             }
             .onDisappear {
                 autoSaveTask?.cancel()
@@ -718,18 +747,21 @@ struct ContentView: View {
                 ) { moveToCurrentLocation() }
                     .disabled(currentLocation.isRequesting)
                     .accessibilityIdentifier("map.currentLocation")
+                    .accessibilityValue(currentLocationPoint == nil ? "" : "현재 위치 표시됨")
 
                 Spacer()
                 VStack(spacing: 10) {
-                    mapActionButton(
-                        "magnifyingglass",
-                        label: "장소 추가"
+                    mapPrimaryIconButton(
+                        "mappin.and.ellipse",
+                        label: "장소 추가",
+                        background: .blue
                     ) { showPlacePicker = true }
                         .accessibilityIdentifier("map.addPlace")
 
-                    mapActionButton(
+                    mapPrimaryIconButton(
                         "scribble.variable",
                         label: "손그림",
+                        background: .indigo,
                         active: isDrawing
                     ) { startDrawing() }
                         .accessibilityIdentifier("map.draw")
@@ -757,9 +789,11 @@ struct ContentView: View {
 
                     // 담은 것이 없으면 나눠 볼 것도 없다.
                     if !stops.isEmpty || !strokes.isEmpty || !labels.isEmpty {
-                        mapIconButton(
+                        mapPrimaryIconButton(
                             saving ? "arrow.triangle.2.circlepath" : "square.and.arrow.up",
-                            label: "공유하기"
+                            label: "공유하기",
+                            background: .teal,
+                            active: saving
                         ) { Task { await share() } }
                             .accessibilityIdentifier("map.share")
                             .disabled(saving)
@@ -832,21 +866,25 @@ struct ContentView: View {
         .accessibilityLabel(label)
     }
 
-    private func mapActionButton(
+    /// 지도 편집의 핵심 세 동작. 화면에는 큰 아이콘만 두고 기능 이름은 VoiceOver로
+    /// 제공한다. 서로 다른 단색 배경을 써 지도 타일 색과 무관하게 바로 구별된다.
+    private func mapPrimaryIconButton(
         _ symbol: String,
         label: String,
+        background: Color,
         active: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            Label(label, systemImage: symbol)
-                .font(.caption.weight(.semibold))
-                .padding(.horizontal, 13)
-                .frame(height: 44)
-                .background(active ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.regularMaterial))
-                .foregroundStyle(active ? Color.white : Color.primary)
-                .clipShape(Capsule())
-                .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
+            Image(systemName: symbol)
+                .font(.system(size: 20, weight: .semibold))
+                .frame(width: 50, height: 50)
+                .background(background.opacity(active ? 1 : 0.92), in: Circle())
+                .foregroundStyle(Color.white)
+                .overlay {
+                    Circle().stroke(Color.white.opacity(active ? 0.9 : 0.35), lineWidth: active ? 3 : 1)
+                }
+                .shadow(color: .black.opacity(0.2), radius: 7, y: 3)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
@@ -898,11 +936,35 @@ struct ContentView: View {
         currentLocation.request { result in
             switch result {
             case .success(let point):
-                mapController?.move(to: point.lat, lng: point.lng, level: 3)
+                currentLocationPoint = point
+                if let mapController {
+                    // 사용자가 보고 있던 배율은 보존한다. 예전의 고정 level 3은 너무
+                    // 가까워져 지도 변화가 오히려 알아보기 어려웠다.
+                    mapController.move(to: point.lat, lng: point.lng)
+                } else {
+                    pendingCameraCenter = point
+                }
             case .failure(let error):
                 saveError = error.localizedDescription
             }
         }
+    }
+
+    private func reloadSavedPins() {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-uiTestingSeedSavedPins") {
+            savedPins = makeSavedPlacePins(
+                places: AppStorePreview.savedPlaces,
+                groups: AppStorePreview.savedPlaceGroups
+            )
+            return
+        }
+        #endif
+
+        savedPins = makeSavedPlacePins(
+            places: SavedPlaceStore(storage: AppGroupPlaceStorage()).all(),
+            groups: SavedPlaceGroupStore(storage: AppGroupSavedPlaceGroupStorage()).all()
+        )
     }
 }
 

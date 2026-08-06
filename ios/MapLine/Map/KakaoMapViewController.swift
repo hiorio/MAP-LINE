@@ -49,6 +49,9 @@ final class KakaoMapViewController: UIViewController {
     private static let legLayerID = "stopLegs"
     private static let legLabelLayerID = "legLabels"
     private static let memoLayerID = "memos"
+    private static let savedPlaceLabelLayerID = "savedPlaces"
+    private static let currentLocationLabelLayerID = "currentLocation"
+    private static let currentLocationStyleID = "currentLocation-v1"
     /// UIKit 기본값(0.5초)보다 아주 조금만 빠르게 메뉴를 연다.
     private static let longPressMinimumDuration: TimeInterval = 0.45
 
@@ -238,6 +241,23 @@ final class KakaoMapViewController: UIViewController {
 
         default:
             break
+        }
+    }
+
+    /// 개인 보관함의 장소. 코스 단계보다 아래에 작은 폴더 마크로 보인다.
+    var savedPins: [SavedPlacePin] = [] {
+        didSet {
+            guard savedPins != oldValue, let map = kakaoMap else { return }
+            renderSavedPins(on: map)
+        }
+    }
+
+    /// 마지막으로 확인한 현재 위치. 위치 버튼의 결과를 카메라 이동뿐 아니라 점으로도
+    /// 보여 주어 사용자가 기능이 동작했는지 즉시 알 수 있게 한다.
+    var currentLocation: GeoPoint? {
+        didSet {
+            guard currentLocation != oldValue, let map = kakaoMap else { return }
+            renderCurrentLocation(on: map)
         }
     }
 
@@ -448,6 +468,17 @@ extension KakaoMapViewController: MapControllerDelegate {
                 zOrder: 10_001
             )
         )
+        // 보관함 장소는 코스나 중간지점의 결과가 아니라 배경 참고 정보다. 같은 자리에
+        // 단계 핀이 있으면 단계 번호가 위에서 읽히도록 더 낮은 레이어에 둔다.
+        _ = map.getLabelManager().addLabelLayer(
+            option: LabelLayerOptions(
+                layerID: Self.savedPlaceLabelLayerID,
+                competitionType: CompetitionType.none,
+                competitionUnit: CompetitionUnit.symbolFirst,
+                orderType: OrderingType.rank,
+                zOrder: 10_001
+            )
+        )
         // 메모는 핀보다 위. 사람이 직접 쓴 글자가 가려지면 안 된다.
         _ = map.getLabelManager().addLabelLayer(
             option: LabelLayerOptions(
@@ -458,8 +489,19 @@ extension KakaoMapViewController: MapControllerDelegate {
                 zOrder: 10_004
             )
         )
+        // 현재 위치는 사용자가 방금 요청한 피드백이라 모든 사용자 마킹보다 위에 둔다.
+        _ = map.getLabelManager().addLabelLayer(
+            option: LabelLayerOptions(
+                layerID: Self.currentLocationLabelLayerID,
+                competitionType: CompetitionType.none,
+                competitionUnit: CompetitionUnit.symbolFirst,
+                orderType: OrderingType.rank,
+                zOrder: 10_005
+            )
+        )
         registerMidpointStyles(on: map)
         registerLegStyles(on: map)
+        registerCurrentLocationStyle(on: map)
         subscribeToMapEvents(on: map)
 
         // 엔진이 뜨기 전에 받아 둔 것들이 있으면 지금 그린다.
@@ -468,6 +510,8 @@ extension KakaoMapViewController: MapControllerDelegate {
         renderLegs(on: map)
         renderStrokes(on: map)
         renderLabels(on: map)
+        renderSavedPins(on: map)
+        renderCurrentLocation(on: map)
         if !pendingFitPoints.isEmpty { fit(points: pendingFitPoints) }
 
         // UI 테스트가 지도 준비를 기다릴 수 있게 상태를 접근성 식별자로 내건다.
@@ -609,7 +653,9 @@ private extension KakaoMapViewController {
                         controller.onTapStopPin?(event.poiID)
                     case Self.memoLayerID:
                         controller.onTapMemo?(event.poiID)
-                    case Self.midpointLabelLayerID:
+                    case Self.midpointLabelLayerID,
+                         Self.savedPlaceLabelLayerID,
+                         Self.currentLocationLabelLayerID:
                         return
                     default:
                         // 우리가 만든 레이어가 아니면 카카오 기본 지도 POI다. SDK가
@@ -669,6 +715,37 @@ private extension KakaoMapViewController {
                 at: MapPoint(longitude: place.location.lng, latitude: place.location.lat)
             )?.show()
         }
+    }
+
+    /// 보관함 폴더의 마크와 색을 작은 아이콘으로 지도에 표시한다. 코스 핀처럼 누르는
+    /// 대상은 아니므로 카카오 기본 POI의 터치를 가로채지 않는다.
+    func renderSavedPins(on map: KakaoMap) {
+        guard let layer = map.getLabelManager()
+            .getLabelLayer(layerID: Self.savedPlaceLabelLayerID) else { return }
+        layer.clearAllItems()
+        layer.setClickable(false)
+
+        for (index, pin) in savedPins.enumerated() {
+            let options = PoiOptions(
+                styleID: savedPlaceStyleID(marker: pin.marker, colorHex: pin.colorHex, on: map),
+                poiID: "saved-\(pin.id)"
+            )
+            options.rank = index
+            options.clickable = false
+            layer.addPoi(option: options, at: pin.location.mapPoint)?.show()
+        }
+    }
+
+    func renderCurrentLocation(on map: KakaoMap) {
+        guard let layer = map.getLabelManager()
+            .getLabelLayer(layerID: Self.currentLocationLabelLayerID) else { return }
+        layer.clearAllItems()
+        layer.setClickable(false)
+        guard let currentLocation else { return }
+
+        let options = PoiOptions(styleID: Self.currentLocationStyleID, poiID: "device-location")
+        options.clickable = false
+        layer.addPoi(option: options, at: currentLocation.mapPoint)?.show()
     }
 }
 
@@ -1104,6 +1181,54 @@ private extension KakaoMapViewController {
         )
     }
 
+    func registerCurrentLocationStyle(on map: KakaoMap) {
+        guard !registeredPinStyles.contains(Self.currentLocationStyleID) else { return }
+        map.getLabelManager().addPoiStyle(
+            PoiStyle(
+                styleID: Self.currentLocationStyleID,
+                styles: [
+                    PerLevelPoiStyle(
+                        iconStyle: PoiIconStyle(
+                            symbol: currentLocationIcon(diameter: 28),
+                            anchorPoint: CGPoint(x: 0.5, y: 0.5)
+                        ),
+                        level: 0
+                    ),
+                ]
+            )
+        )
+        registeredPinStyles.insert(Self.currentLocationStyleID)
+    }
+
+    func savedPlaceStyleID(marker: SavedPlaceMarker, colorHex: String, on map: KakaoMap) -> String {
+        let colorToken = colorHex
+            .replacingOccurrences(of: "#", with: "")
+            .lowercased()
+        let styleID = "saved-v1-\(marker.rawValue)-\(colorToken)"
+        guard !registeredPinStyles.contains(styleID) else { return styleID }
+
+        map.getLabelManager().addPoiStyle(
+            PoiStyle(
+                styleID: styleID,
+                styles: [
+                    PerLevelPoiStyle(
+                        iconStyle: PoiIconStyle(
+                            symbol: savedPlaceIcon(
+                                diameter: 24,
+                                fill: UIColor(hex: colorHex) ?? .systemBlue,
+                                systemName: marker.symbolName
+                            ),
+                            anchorPoint: CGPoint(x: 0.5, y: 0.5)
+                        ),
+                        level: 0
+                    ),
+                ]
+            )
+        )
+        registeredPinStyles.insert(styleID)
+        return styleID
+    }
+
     /// 순위가 박힌 도착지 스타일.
     func meetingStyleID(rank: Int) -> String {
         numberedPinStyleID(
@@ -1201,6 +1326,51 @@ private extension KakaoMapViewController {
                 at: CGPoint(x: (diameter - bounds.width) / 2, y: (diameter - bounds.height) / 2),
                 withAttributes: attributes
             )
+        }
+    }
+
+    func savedPlaceIcon(diameter: CGFloat, fill: UIColor, systemName: String) -> UIImage {
+        let size = CGSize(width: diameter, height: diameter)
+        return UIGraphicsImageRenderer(size: size).image { _ in
+            let ring: CGFloat = 2
+            let circle = UIBezierPath(
+                ovalIn: CGRect(origin: .zero, size: size).insetBy(dx: ring / 2, dy: ring / 2)
+            )
+            fill.setFill()
+            circle.fill()
+            UIColor.white.setStroke()
+            circle.lineWidth = ring
+            circle.stroke()
+
+            let configuration = UIImage.SymbolConfiguration(
+                pointSize: diameter * 0.45,
+                weight: .bold
+            )
+            guard let symbol = UIImage(systemName: systemName, withConfiguration: configuration)?
+                .withTintColor(.white, renderingMode: .alwaysOriginal) else { return }
+            let symbolSize = symbol.size
+            symbol.draw(
+                at: CGPoint(
+                    x: (diameter - symbolSize.width) / 2,
+                    y: (diameter - symbolSize.height) / 2
+                )
+            )
+        }
+    }
+
+    func currentLocationIcon(diameter: CGFloat) -> UIImage {
+        let size = CGSize(width: diameter, height: diameter)
+        return UIGraphicsImageRenderer(size: size).image { _ in
+            UIColor.systemBlue.withAlphaComponent(0.2).setFill()
+            UIBezierPath(ovalIn: CGRect(origin: .zero, size: size)).fill()
+
+            let dotRect = CGRect(origin: .zero, size: size).insetBy(dx: 6, dy: 6)
+            let dot = UIBezierPath(ovalIn: dotRect)
+            UIColor.systemBlue.setFill()
+            dot.fill()
+            UIColor.white.setStroke()
+            dot.lineWidth = 2
+            dot.stroke()
         }
     }
 }

@@ -18,6 +18,10 @@ struct KakaoMapView: UIViewControllerRepresentable {
     var strokes: [GeoStroke]
     /// 지도 위에 남긴 메모들.
     var labels: [MapLabel]
+    /// 개인 보관함의 장소들. 현재 문서에 넣지 않아도 지도에서는 항상 참고할 수 있다.
+    var savedPins: [SavedPlacePin]
+    /// 마지막으로 확인한 기기 위치. nil이면 현재 위치 표식을 지운다.
+    var currentLocation: GeoPoint?
     var onLongPress: (GeoPoint) -> Void
     var onTapStopPin: (String) -> Void
     var onTapMapPoi: (GeoPoint, String) -> Void
@@ -73,6 +77,8 @@ struct KakaoMapView: UIViewControllerRepresentable {
         controller.legs = legs
         controller.strokes = strokes
         controller.labels = labels
+        controller.savedPins = savedPins
+        controller.currentLocation = currentLocation
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }

@@ -109,6 +109,58 @@ enum AppStorePreview {
         )
     }()
 
+    /// 개인 보관함 마커의 색·심볼이 지도에서 서로 구별되는지 보는 고정 자료.
+    static let savedPlaceGroups: [SavedPlaceGroup] = [
+        SavedPlaceGroup(
+            id: "preview-cafes",
+            name: "가고 싶은 카페",
+            marker: .coffee,
+            colorHex: "#9B5DE5",
+            createdAt: "2026-08-06T00:00:00Z"
+        ),
+        SavedPlaceGroup(
+            id: "preview-food",
+            name: "데이트 맛집",
+            marker: .food,
+            colorHex: "#F08A24",
+            createdAt: "2026-08-06T00:00:00Z"
+        ),
+        SavedPlaceGroup(
+            id: "preview-favorites",
+            name: "다시 갈 곳",
+            marker: .heart,
+            colorHex: "#E84A5F",
+            createdAt: "2026-08-06T00:00:00Z"
+        ),
+    ]
+
+    static let savedPlaces: [SavedPlace] = [
+        SavedPlace(
+            id: "preview-place-cafe",
+            name: "서울숲 카페",
+            lat: 37.5488,
+            lng: 127.0432,
+            savedAt: "2026-08-06T00:00:03Z",
+            groupID: "preview-cafes"
+        ),
+        SavedPlace(
+            id: "preview-place-food",
+            name: "성수 저녁식사",
+            lat: 37.5403,
+            lng: 127.0572,
+            savedAt: "2026-08-06T00:00:02Z",
+            groupID: "preview-food"
+        ),
+        SavedPlace(
+            id: "preview-place-favorite",
+            name: "한강 노을 자리",
+            lat: 37.5325,
+            lng: 127.0670,
+            savedAt: "2026-08-06T00:00:01Z",
+            groupID: "preview-favorites"
+        ),
+    ]
+
     private static func point(_ lat: Double, _ lng: Double) -> GeoPoint {
         GeoPoint(lat: lat, lng: lng)
     }

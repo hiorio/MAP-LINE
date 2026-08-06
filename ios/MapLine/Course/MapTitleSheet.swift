@@ -4,13 +4,19 @@ import SwiftUI
 struct MapTitleSheet: View {
     let currentTitle: String
     let onSave: (String) -> Void
+    let onCreateNew: () -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var title: String
 
-    init(currentTitle: String, onSave: @escaping (String) -> Void) {
+    init(
+        currentTitle: String,
+        onSave: @escaping (String) -> Void,
+        onCreateNew: @escaping () -> Void
+    ) {
         self.currentTitle = currentTitle
         self.onSave = onSave
+        self.onCreateNew = onCreateNew
         _title = State(initialValue: currentTitle)
     }
 
@@ -21,6 +27,18 @@ struct MapTitleSheet: View {
                     TextField("예: 강남 데이트 코스", text: $title)
                         .textInputAutocapitalization(.never)
                         .accessibilityIdentifier("mapTitle.text")
+                }
+
+                Section {
+                    Button {
+                        onCreateNew()
+                        dismiss()
+                    } label: {
+                        Label("새 지도 만들기", systemImage: "doc.badge.plus")
+                    }
+                    .accessibilityIdentifier("mapTitle.newMap")
+                } footer: {
+                    Text("현재 지도는 저장한 뒤 새 지도를 시작합니다.")
                 }
             }
             .navigationTitle("지도 이름 변경")
