@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Inspect App Store screenshot processing and optionally submit a version.
+"""Inspect, replace, and submit App Store screenshots for a version.
 
 Usage:
-    python3 scripts/app_store_review.py <key_id> <issuer_id> <p8_path> [inspect|submit]
+    python3 scripts/app_store_review.py <key_id> <issuer_id> <p8_path> [action]
 
 The script intentionally prints only App Store resource IDs and processing
 states. It never prints the private key or the generated JWT.
@@ -10,21 +10,44 @@ states. It never prints the private key or the generated JWT.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+from pathlib import Path
 import sys
+import tempfile
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Any
 
 from apple_team_id import make_jwt
+from PIL import Image
 
 
 BASE = "https://api.appstoreconnect.apple.com/v1"
 APP_ID = os.environ.get("APP_ID", "6797682561")
 VERSION_STRING = os.environ.get("VERSION_STRING", "1.0")
 PLATFORM = os.environ.get("PLATFORM", "IOS")
+LOCALE = os.environ.get("LOCALE", "ko")
+SCREENSHOT_SOURCE_DIR = Path(
+    os.environ.get(
+        "SCREENSHOT_SOURCE_DIR",
+        "appstore/screenshots/ko-KR/submission-2026-08-07",
+    )
+)
+SCREENSHOT_NAMES = (
+    "01-date-course.png",
+    "02-midpoint-map.png",
+    "03-midpoint-process.png",
+    "04-gangwon-trip.png",
+    "05-library-folder.png",
+)
+SCREENSHOT_TARGETS = {
+    "APP_IPHONE_61": (1206, 2622),
+    "APP_IPHONE_67": (1320, 2868),
+}
 
 
 class APIError(RuntimeError):
@@ -75,6 +98,38 @@ def get_all(token: str, path: str) -> list[dict[str, Any]]:
     return items
 
 
+def upload_operation(path: Path, operation: dict[str, Any]) -> None:
+    offset = int(operation.get("offset", 0))
+    length = int(operation.get("length", path.stat().st_size))
+    with path.open("rb") as handle:
+        handle.seek(offset)
+        body = handle.read(length)
+    if len(body) != length:
+        raise RuntimeError(
+            f"Upload slice length mismatch for {path.name}: expected {length}, got {len(body)}"
+        )
+
+    headers = {
+        item["name"]: item["value"]
+        for item in operation.get("requestHeaders", [])
+        if item.get("name") and item.get("value") is not None
+    }
+    req = urllib.request.Request(
+        operation["url"],
+        data=body,
+        headers=headers,
+        method=operation.get("method", "PUT"),
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=180) as response:
+            response.read()
+    except urllib.error.HTTPError as error:
+        error.read()
+        raise RuntimeError(
+            f"Binary upload failed for {path.name} with HTTP {error.code}"
+        ) from error
+
+
 def error_summary(error: APIError) -> dict[str, Any]:
     errors = error.body.get("errors", []) if isinstance(error.body, dict) else []
     return {
@@ -110,6 +165,211 @@ def find_version(token: str) -> dict[str, Any]:
         (version for version in versions if version.get("attributes", {}).get("appStoreState") in preferred_states),
         versions[0],
     )
+
+
+def find_localization(token: str, version_id: str) -> dict[str, Any]:
+    localizations = get_all(
+        token,
+        f"appStoreVersions/{version_id}/appStoreVersionLocalizations?limit=200",
+    )
+    exact = next(
+        (item for item in localizations if item.get("attributes", {}).get("locale") == LOCALE),
+        None,
+    )
+    if exact is not None:
+        return exact
+    language = LOCALE.split("-")[0]
+    fallback = next(
+        (
+            item
+            for item in localizations
+            if item.get("attributes", {}).get("locale", "").split("-")[0] == language
+        ),
+        None,
+    )
+    if fallback is None:
+        available = [item.get("attributes", {}).get("locale") for item in localizations]
+        raise RuntimeError(f"No localization for {LOCALE}; available locales: {available}")
+    return fallback
+
+
+def prepare_screenshots() -> dict[str, list[Path]]:
+    source_files = [SCREENSHOT_SOURCE_DIR / name for name in SCREENSHOT_NAMES]
+    missing = [str(path) for path in source_files if not path.is_file()]
+    if missing:
+        raise RuntimeError(f"Missing screenshot files: {missing}")
+
+    for path in source_files:
+        with Image.open(path) as image:
+            if image.size != SCREENSHOT_TARGETS["APP_IPHONE_61"]:
+                raise RuntimeError(
+                    f"Unexpected size for {path.name}: {image.size}; expected "
+                    f"{SCREENSHOT_TARGETS['APP_IPHONE_61']}"
+                )
+            if image.mode != "RGB":
+                raise RuntimeError(f"{path.name} must be RGB without alpha; got {image.mode}")
+
+    generated_dir = Path(tempfile.mkdtemp(prefix="appstore-6.9-"))
+    generated_files: list[Path] = []
+    for source in source_files:
+        destination = generated_dir / source.name
+        with Image.open(source) as image:
+            image.convert("RGB").resize(
+                SCREENSHOT_TARGETS["APP_IPHONE_67"],
+                Image.Resampling.LANCZOS,
+            ).save(destination, format="PNG", optimize=True)
+        with Image.open(destination) as image:
+            if image.size != SCREENSHOT_TARGETS["APP_IPHONE_67"] or image.mode != "RGB":
+                raise RuntimeError(f"Generated screenshot validation failed for {source.name}")
+        generated_files.append(destination)
+
+    return {
+        "APP_IPHONE_61": source_files,
+        "APP_IPHONE_67": generated_files,
+    }
+
+
+def screenshot_sets_for_localization(
+    token: str,
+    localization_id: str,
+) -> list[dict[str, Any]]:
+    return get_all(
+        token,
+        f"appStoreVersionLocalizations/{localization_id}/appScreenshotSets?limit=200",
+    )
+
+
+def wait_for_screenshot(token: str, screenshot_id: str, file_name: str) -> dict[str, Any]:
+    deadline = time.monotonic() + 300
+    while time.monotonic() < deadline:
+        screenshot = request(token, "GET", f"appScreenshots/{screenshot_id}").get("data", {})
+        delivery = screenshot.get("attributes", {}).get("assetDeliveryState") or {}
+        state = delivery.get("state")
+        if state == "COMPLETE":
+            image = screenshot.get("attributes", {}).get("imageAsset") or {}
+            return {
+                "id": screenshot_id,
+                "fileName": file_name,
+                "state": state,
+                "width": image.get("width"),
+                "height": image.get("height"),
+            }
+        if state == "FAILED":
+            raise RuntimeError(
+                f"App Store processing failed for {file_name}: {delivery.get('errors') or []}"
+            )
+        time.sleep(3)
+    raise RuntimeError(f"Timed out waiting for App Store processing of {file_name}")
+
+
+def upload_screenshot(
+    token: str,
+    screenshot_set_id: str,
+    path: Path,
+) -> tuple[str, dict[str, Any]]:
+    size = path.stat().st_size
+    response = request(
+        token,
+        "POST",
+        "appScreenshots",
+        {
+            "data": {
+                "type": "appScreenshots",
+                "attributes": {"fileName": path.name, "fileSize": size},
+                "relationships": {
+                    "appScreenshotSet": {
+                        "data": {"type": "appScreenshotSets", "id": screenshot_set_id}
+                    }
+                },
+            }
+        },
+    )["data"]
+    screenshot_id = response["id"]
+    operations = response.get("attributes", {}).get("uploadOperations") or []
+    if not operations:
+        raise RuntimeError(f"App Store returned no upload operations for {path.name}")
+    for operation in operations:
+        upload_operation(path, operation)
+
+    checksum = hashlib.md5(path.read_bytes(), usedforsecurity=False).hexdigest()
+    request(
+        token,
+        "PATCH",
+        f"appScreenshots/{screenshot_id}",
+        {
+            "data": {
+                "type": "appScreenshots",
+                "id": screenshot_id,
+                "attributes": {
+                    "uploaded": True,
+                    "sourceFileChecksum": checksum,
+                },
+            }
+        },
+    )
+    return screenshot_id, wait_for_screenshot(token, screenshot_id, path.name)
+
+
+def replace_screenshots(token: str, version_id: str) -> list[dict[str, Any]]:
+    files_by_type = prepare_screenshots()
+    localization = find_localization(token, version_id)
+    localization_id = localization["id"]
+    existing_sets = screenshot_sets_for_localization(token, localization_id)
+    replaced_types = set(SCREENSHOT_TARGETS)
+    for screenshot_set in existing_sets:
+        display_type = screenshot_set.get("attributes", {}).get("screenshotDisplayType")
+        if display_type in replaced_types:
+            request(token, "DELETE", f"appScreenshotSets/{screenshot_set['id']}")
+
+    report: list[dict[str, Any]] = []
+    for display_type, paths in files_by_type.items():
+        created = request(
+            token,
+            "POST",
+            "appScreenshotSets",
+            {
+                "data": {
+                    "type": "appScreenshotSets",
+                    "attributes": {"screenshotDisplayType": display_type},
+                    "relationships": {
+                        "appStoreVersionLocalization": {
+                            "data": {
+                                "type": "appStoreVersionLocalizations",
+                                "id": localization_id,
+                            }
+                        }
+                    },
+                }
+            },
+        )["data"]
+        screenshot_set_id = created["id"]
+        screenshot_ids: list[str] = []
+        uploaded: list[dict[str, Any]] = []
+        for path in paths:
+            screenshot_id, result = upload_screenshot(token, screenshot_set_id, path)
+            screenshot_ids.append(screenshot_id)
+            uploaded.append(result)
+
+        request(
+            token,
+            "PATCH",
+            f"appScreenshotSets/{screenshot_set_id}/relationships/appScreenshots",
+            {
+                "data": [
+                    {"type": "appScreenshots", "id": screenshot_id}
+                    for screenshot_id in screenshot_ids
+                ]
+            },
+        )
+        report.append(
+            {
+                "locale": localization.get("attributes", {}).get("locale"),
+                "setId": screenshot_set_id,
+                "displayType": display_type,
+                "screenshots": uploaded,
+            }
+        )
+    return report
 
 
 def inspect_screenshots(token: str, version_id: str) -> list[dict[str, Any]]:
@@ -283,8 +543,9 @@ def main() -> int:
 
     key_id, issuer_id, key_path = sys.argv[1:4]
     action = sys.argv[4] if len(sys.argv) == 5 else "inspect"
-    if action not in {"inspect", "submit"}:
-        print("action must be inspect or submit", file=sys.stderr)
+    allowed_actions = {"inspect", "replace", "submit", "replace-and-submit"}
+    if action not in allowed_actions:
+        print(f"action must be one of: {', '.join(sorted(allowed_actions))}", file=sys.stderr)
         return 2
 
     with open(key_path, encoding="utf-8") as handle:
@@ -311,7 +572,10 @@ def main() -> int:
                 indent=2,
             )
         )
-        if action == "submit":
+        if action in {"replace", "replace-and-submit"}:
+            replacement = replace_screenshots(token, version["id"])
+            print(json.dumps({"replacementResult": replacement}, ensure_ascii=False, indent=2))
+        if action in {"submit", "replace-and-submit"}:
             result = submit_for_review(token, version)
             print(json.dumps({"submitResult": result}, ensure_ascii=False, indent=2))
         return 0

@@ -4,13 +4,15 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: Inspect processing state or submit version 1.0 for review
+        description: Inspect, replace screenshots, or submit version 1.0 for review
         required: true
         default: inspect
         type: choice
         options:
           - inspect
+          - replace
           - submit
+          - replace-and-submit
 
 permissions:
   contents: read
@@ -18,7 +20,7 @@ permissions:
 jobs:
   review:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 18
 
     steps:
       - uses: actions/checkout@v4
@@ -37,7 +39,7 @@ jobs:
           test -n "$KEY_ID"
           test -n "$ISSUER_ID"
           test -n "$PRIVATE_KEY"
-          python3 -m pip install --quiet cryptography
+          python3 -m pip install --quiet cryptography pillow
           printf '%s' "$PRIVATE_KEY" > "$RUNNER_TEMP/AuthKey_${KEY_ID}.p8"
           chmod 600 "$RUNNER_TEMP/AuthKey_${KEY_ID}.p8"
           openssl pkey -in "$RUNNER_TEMP/AuthKey_${KEY_ID}.p8" -noout
@@ -49,6 +51,8 @@ jobs:
           APP_ID: '6797682561'
           VERSION_STRING: '1.0'
           PLATFORM: IOS
+          LOCALE: ko
+          SCREENSHOT_SOURCE_DIR: appstore/screenshots/ko-KR/submission-2026-08-07
           ACTION: ${{ inputs.action }}
         run: |
           set -euo pipefail
