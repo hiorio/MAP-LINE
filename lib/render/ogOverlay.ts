@@ -11,6 +11,7 @@ import {
   candidateLinks,
   labelBoxSize,
   legShapes,
+  routeAnnotations,
   ACCESS_STYLE,
   ARROW_COLOR,
   HUB_RADIUS,
@@ -60,6 +61,9 @@ export function renderOgOverlay(input: OgOverlayInput): string {
   if (input.showStopArrows) parts.push(stopArrowMarkup(input.stops, input.legs, project));
 
   parts.push(strokeMarkup(input.strokes, input.level, project));
+  if (input.showStopArrows) {
+    parts.push(routeAnnotationMarkup(input.stops, input.legs, project));
+  }
   parts.push(pinMarkup(input.stops, project));
   parts.push(labelMarkup(input.labels, project));
 
@@ -129,6 +133,24 @@ function stopArrowMarkup(
   return out;
 }
 
+/** 공유 링크 미리보기에도 본문 지도와 같은 경로 요약을 남긴다. */
+function routeAnnotationMarkup(
+  stops: readonly Stop[],
+  legs: readonly StopLeg[],
+  project: Projector,
+): string {
+  return routeAnnotations(stops, legs, project)
+    .map((annotation) =>
+      outlinedText(annotation.text, annotation.at.x, annotation.at.y, {
+        size: 16,
+        weight: 700,
+        fill: MODE_STYLE[annotation.mode].color,
+        haloWidth: 6,
+      }),
+    )
+    .join('');
+}
+
 function strokeMarkup(strokes: readonly Stroke[], level: number, project: Projector): string {
   let out = '';
   for (const stroke of strokes) {
@@ -183,6 +205,7 @@ interface TextStyle {
   size: number;
   weight: number;
   fill: string;
+  haloWidth?: number;
 }
 
 function text(value: string, x: number, y: number, style: TextStyle): string {
@@ -202,7 +225,8 @@ function text(value: string, x: number, y: number, style: TextStyle): string {
 function outlinedText(value: string, x: number, y: number, style: TextStyle): string {
   const halo =
     `<text x="${n(x)}" y="${n(y)}" font-family='${FONT}' font-size="${style.size}" ` +
-    `font-weight="${style.weight}" fill="none" stroke="rgba(255,255,255,0.9)" stroke-width="3" ` +
+    `font-weight="${style.weight}" fill="none" stroke="rgba(255,255,255,0.9)" ` +
+    `stroke-width="${style.haloWidth ?? 3}" ` +
     `stroke-linejoin="round" text-anchor="middle" dominant-baseline="central">${esc(value)}</text>`;
   return halo + text(value, x, y, style);
 }

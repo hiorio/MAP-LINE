@@ -17,6 +17,8 @@ struct DropPinSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var places: [PlaceCandidate] = []
+    /// 서버가 POI id의 정확한 일치를 확인한 경우에만 채운다.
+    @State private var tappedPlace: PlaceCandidate?
     @State private var address: String?
     @State private var phase: Phase = .loading
     @State private var askingMemo = false
@@ -81,9 +83,9 @@ struct DropPinSheet: View {
                 }
             }
 
-            if preferredKakaoPlaceId != nil, phase == .ready, let first = places.first {
+            if phase == .ready, let tappedPlace {
                 Section("지도에서 누른 장소") {
-                    Button { pick(first) } label: { row(first) }
+                    Button { pick(tappedPlace) } label: { row(tappedPlace) }
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("droppin.tappedPlace")
                 }
@@ -97,7 +99,12 @@ struct DropPinSheet: View {
                         Text("주변을 찾는 중…").foregroundStyle(.secondary)
                     }
                 case .ready where places.isEmpty:
-                    Text("주변에 등록된 장소가 없습니다.").foregroundStyle(.secondary)
+                    Text(
+                        tappedPlace == nil
+                            ? "주변에 등록된 장소가 없습니다."
+                            : "다른 가까운 장소가 없습니다."
+                    )
+                    .foregroundStyle(.secondary)
                 case .ready:
                     ForEach(nearbyPlaces) { place in
                         Button { pick(place) } label: { row(place) }
@@ -108,7 +115,7 @@ struct DropPinSheet: View {
                     Text(message).font(.footnote).foregroundStyle(.orange)
                 }
             } header: {
-                Text(preferredKakaoPlaceId == nil ? "이 근처" : "그 밖의 가까운 장소")
+                Text(nearbySectionTitle)
             }
         }
         // 목록이 길어도 검색·직접 찍기·메모는 항상 손이 닿는 곳에 둔다.
@@ -265,12 +272,19 @@ struct DropPinSheet: View {
 
     private func load() async {
         do {
-            let found = try await NearbyLookup.find(lat: coordinate.lat, lng: coordinate.lng)
-            address = found.address
-            places = prioritizeNearbyPlaces(
-                found.places,
+            let found = try await NearbyLookup.find(
+                lat: coordinate.lat,
+                lng: coordinate.lng,
                 preferredKakaoPlaceId: preferredKakaoPlaceId
             )
+            address = found.address
+            tappedPlace = found.tappedPlace
+            // 새 서버는 구버전 호환을 위해 정확한 장소를 places 첫 항목에도 넣는다.
+            // 새 앱에서는 별도 섹션에 한 번만 보여 준다.
+            places = found.places.filter { candidate in
+                guard let tappedPlace = found.tappedPlace else { return true }
+                return candidate.id != tappedPlace.id
+            }
             phase = .ready
         } catch {
             phase = .failed(error.localizedDescription)
@@ -278,28 +292,14 @@ struct DropPinSheet: View {
     }
 
     private var nearbyPlaces: [PlaceCandidate] {
-        preferredKakaoPlaceId == nil ? places : Array(places.dropFirst())
+        places
     }
-}
 
-/// 기본 지도 POI를 탭해 메뉴를 연 경우 그 장소를 먼저 보여 준다. SDK의 기본 POI id가
-/// Local API의 장소 id와 다른 지도 데이터에서는 좌표상 가장 가까운 결과를 대신 올린다.
-func prioritizeNearbyPlaces(
-    _ places: [PlaceCandidate],
-    preferredKakaoPlaceId: String?
-) -> [PlaceCandidate] {
-    guard let preferredKakaoPlaceId, !preferredKakaoPlaceId.isEmpty else { return places }
-
-    return places.enumerated().sorted { lhs, rhs in
-        let lhsMatches = lhs.element.kakaoPlaceId == preferredKakaoPlaceId
-        let rhsMatches = rhs.element.kakaoPlaceId == preferredKakaoPlaceId
-        if lhsMatches != rhsMatches { return lhsMatches }
-
-        let lhsDistance = lhs.element.distanceM ?? .infinity
-        let rhsDistance = rhs.element.distanceM ?? .infinity
-        if lhsDistance != rhsDistance { return lhsDistance < rhsDistance }
-        return lhs.offset < rhs.offset
-    }.map(\.element)
+    private var nearbySectionTitle: String {
+        if preferredKakaoPlaceId == nil { return "이 근처" }
+        if tappedPlace != nil { return "그 밖의 가까운 장소" }
+        return "이 위치의 가까운 후보"
+    }
 }
 
 /// 거리 표기. 웹 `formatDistance`와 같은 규칙이다.

@@ -51,6 +51,17 @@ export type TravelMode = 'straight' | 'walk' | 'transit' | 'bicycle';
 
 export const TRAVEL_MODES: readonly TravelMode[] = ['straight', 'walk', 'transit', 'bicycle'];
 
+const TRAVEL_MODE_LABEL: Record<TravelMode, string> = {
+  straight: '직선',
+  walk: '도보',
+  transit: '대중교통',
+  bicycle: '자전거',
+};
+
+export function travelModeLabel(mode: TravelMode): string {
+  return TRAVEL_MODE_LABEL[mode];
+}
+
 export function isTravelMode(value: unknown): value is TravelMode {
   return typeof value === 'string' && (TRAVEL_MODES as readonly string[]).includes(value);
 }
@@ -130,6 +141,13 @@ export function formatDistance(meters: number): string {
   if (!Number.isFinite(meters) || meters < 0) return '';
   if (meters < 1000) return `${Math.round(meters)}m`;
   return `${(meters / 1000).toFixed(1)}km`;
+}
+
+/** 소요시간 표기는 동선 목록과 지도 위 경로 라벨이 같은 문자열을 사용한다. */
+export function formatDuration(seconds: number): string {
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}분`;
+  return `${Math.floor(minutes / 60)}시간 ${minutes % 60}분`;
 }
 
 export interface Place {

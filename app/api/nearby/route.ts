@@ -13,6 +13,9 @@ import { SEARCH_LIMIT, checkRateLimit, tooManyRequests } from '@/lib/rateLimit';
 export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
   const center = readCenterParams(params.get('lat'), params.get('lng'));
+  // 기본 지도 POI를 탭한 경우에만 온다. 좌표 주변 후보를 자르기 전에 이 id를 찾아야
+  // 밀집 지역에서도 사용자가 누른 장소가 최종 네 곳 밖으로 밀려나지 않는다.
+  const poiID = params.get('poiId')?.trim() || undefined;
   if (!center) {
     return NextResponse.json({ error: '좌표가 올바르지 않습니다.' }, { status: 400 });
   }
@@ -21,7 +24,7 @@ export async function GET(request: Request) {
   if (!limit.allowed) return tooManyRequests(SEARCH_LIMIT);
 
   try {
-    return NextResponse.json(await findNearby(center));
+    return NextResponse.json(await findNearby(center, poiID));
   } catch (cause) {
     if (cause instanceof MissingRestKeyError) {
       return NextResponse.json(

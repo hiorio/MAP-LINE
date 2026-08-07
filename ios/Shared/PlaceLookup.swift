@@ -68,25 +68,39 @@ enum PlaceLookup {
 
 /// 지도를 꾹 누른 자리 주변에 무엇이 있는지 묻는다. 서버의 `/api/nearby`를 부른다.
 ///
-/// 카카오 지도 SDK는 타일에 그려진 가게가 무엇인지 알려 주지 않는다. 화면에 보이는
-/// "○○식당"을 눌렀다는 사실을 코드가 알 방법이 없어서, 좌표로 주변을 되짚는다.
+/// 카카오 지도 SDK는 기본 POI의 id와 좌표는 주지만 이름·주소는 주지 않는다. 기본 POI를
+/// 탭한 경우 id도 서버에 보내 Local API 후보 전체에서 정확히 일치하는 장소를 먼저 찾는다.
 enum NearbyLookup {
     struct Result: Decodable {
         /// 그 지점의 주소. 주변에 아무 장소가 없어도 이건 보여 줄 수 있다.
         let address: String?
+        /// SDK POI id와 Local API 장소 id가 정확히 일치한 경우에만 온다.
+        let tappedPlace: PlaceCandidate?
         let places: [PlaceCandidate]?
         let error: String?
     }
 
-    static func find(lat: Double, lng: Double) async throws -> (address: String?, places: [PlaceCandidate]) {
+    static func find(
+        lat: Double,
+        lng: Double,
+        preferredKakaoPlaceId: String? = nil
+    ) async throws -> (
+        address: String?,
+        tappedPlace: PlaceCandidate?,
+        places: [PlaceCandidate]
+    ) {
         var components = URLComponents(
             url: AppConfig.apiBaseURL.appendingPathComponent("api/nearby"),
             resolvingAgainstBaseURL: false
         )!
-        components.queryItems = [
+        var queryItems = [
             URLQueryItem(name: "lat", value: String(lat)),
             URLQueryItem(name: "lng", value: String(lng)),
         ]
+        if let preferredKakaoPlaceId, !preferredKakaoPlaceId.isEmpty {
+            queryItems.append(URLQueryItem(name: "poiId", value: preferredKakaoPlaceId))
+        }
+        components.queryItems = queryItems
 
         var request = URLRequest(url: components.url!)
         request.timeoutInterval = 15
@@ -96,7 +110,7 @@ enum NearbyLookup {
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw AppError.message(decoded?.error ?? "주변을 찾지 못했습니다.")
         }
-        return (decoded?.address, decoded?.places ?? [])
+        return (decoded?.address, decoded?.tappedPlace, decoded?.places ?? [])
     }
 }
 

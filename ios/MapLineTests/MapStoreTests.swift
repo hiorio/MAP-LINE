@@ -9,11 +9,15 @@ final class MapStoreTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        for entry in MapStore.rememberedMaps() { MapStore.forget(slug: entry.slug) }
+        for entry in MapStore.rememberedMaps() + MapStore.hiddenMaps() {
+            MapStore.discardLocalData(slug: entry.slug)
+        }
     }
 
     override func tearDown() {
-        for entry in MapStore.rememberedMaps() { MapStore.forget(slug: entry.slug) }
+        for entry in MapStore.rememberedMaps() + MapStore.hiddenMaps() {
+            MapStore.discardLocalData(slug: entry.slug)
+        }
         super.tearDown()
     }
 
@@ -52,14 +56,29 @@ final class MapStoreTests: XCTestCase {
         XCTAssertEqual(MapStore.rememberedMaps().map(\.slug), ["최근", "오래된"])
     }
 
-    func test_목록에서지우면편집자격도버린다() {
-        // 목록에서 지웠는데 자격만 남아 있을 이유가 없다.
+    func test_목록에서숨겨도편집자격을보존하고복원할수있다() {
         MapStore.storeEditToken("토큰", for: "abc123")
         MapStore.remember(slug: "abc123", title: "가")
 
-        MapStore.forget(slug: "abc123")
+        MapStore.hide(slug: "abc123")
 
         XCTAssertTrue(MapStore.rememberedMaps().isEmpty)
+        XCTAssertEqual(MapStore.hiddenMaps().map(\.slug), ["abc123"])
+        XCTAssertEqual(MapStore.editToken(for: "abc123"), "토큰")
+
+        MapStore.restoreHidden(slug: "abc123")
+        XCTAssertEqual(MapStore.rememberedMaps().map(\.slug), ["abc123"])
+        XCTAssertTrue(MapStore.hiddenMaps().isEmpty)
+    }
+
+    func test_서버삭제확인뒤로컬자료를버린다() {
+        MapStore.storeEditToken("토큰", for: "abc123")
+        MapStore.remember(slug: "abc123", title: "가")
+
+        MapStore.discardLocalData(slug: "abc123")
+
+        XCTAssertTrue(MapStore.rememberedMaps().isEmpty)
+        XCTAssertTrue(MapStore.hiddenMaps().isEmpty)
         XCTAssertNil(MapStore.editToken(for: "abc123"))
     }
 

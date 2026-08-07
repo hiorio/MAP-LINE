@@ -46,6 +46,10 @@ final class KakaoMapViewController: UIViewController {
     /// 코스의 단계 핀. 중간지점과도 레이어를 나눈다. 둘은 서로 다른 작업의 결과라
     /// 한쪽을 지운다고 다른 쪽이 사라지면 안 된다.
     private static let stopLabelLayerID = "stopPins"
+    private static let candidateLinkLayerID = "candidateLinks"
+    private static let candidateHubLabelLayerID = "candidateHubs"
+    private static let candidateLinkStyleID = "candidate-link-v1"
+    private static let candidateHubStyleID = "candidate-hub-v1"
     private static let legLayerID = "stopLegs"
     private static let legLabelLayerID = "legLabels"
     private static let memoLayerID = "memos"
@@ -60,6 +64,7 @@ final class KakaoMapViewController: UIViewController {
         didSet {
             guard stops != oldValue, let map = kakaoMap else { return }
             renderStops(on: map)
+            renderCandidateLinks(on: map)
             renderLegs(on: map)
         }
     }
@@ -84,6 +89,8 @@ final class KakaoMapViewController: UIViewController {
     var onLongPress: ((GeoPoint) -> Void)?
     /// 찍어 둔 핀을 눌렀을 때. 그 후보의 id를 준다.
     var onTapStopPin: ((String) -> Void)?
+    /// 개인 보관함 마커를 눌렀을 때. 저장 항목의 id를 준다.
+    var onTapSavedPin: ((String) -> Void)?
     /// 카카오 기본 지도에 그려진 장소 마커를 눌렀을 때. 마커 좌표와 카카오 POI id를 준다.
     var onTapMapPoi: ((GeoPoint, String) -> Void)?
     /// 지도 위 메모를 눌렀을 때. 메모의 id를 준다.
@@ -120,6 +127,8 @@ final class KakaoMapViewController: UIViewController {
     /// 처음 보여 줄 자리. 엔진이 뜨기 전에 정해야 한다.
     /// 뜬 뒤에 옮기면 기본 자리가 한 번 보였다 사라져 화면이 튄다.
     var initialCenter: (lat: Double, lng: Double) = (lat: 37.4979, lng: 127.0276) // 강남역
+    /// 문서의 웹 공통 레벨 3은 네이티브 SDK의 레벨 17과 같은 축척이다.
+    private var initialZoomLevel = 17
     /// 엔진 준비 전에 전체 동선을 맞춰 달라는 요청이 오면 준비 직후 적용한다.
     private var pendingFitPoints: [GeoPoint] = []
 
@@ -244,6 +253,23 @@ final class KakaoMapViewController: UIViewController {
         }
     }
 
+    /// 웹 문서의 같은 설정을 그대로 따른다. 사용자가 자동 후보선을 껐던 지도라면
+    /// 앱에서 열어도 다시 생기지 않아야 한다.
+    var showCandidateLinks = true {
+        didSet {
+            guard showCandidateLinks != oldValue, let map = kakaoMap else { return }
+            renderCandidateLinks(on: map)
+        }
+    }
+
+    /// SDK가 그린 결과를 UI 테스트가 그림 외에도 수치로 확인할 수 있게 남긴다.
+    private var renderedCandidateSpokes = 0
+    private var renderedLegCount = 0
+    private var renderedLegSegments = 0
+    private var renderedLegConnectors = 0
+    private var renderedLegLabels = 0
+    private var renderedPerPoint = 0.0
+
     /// 개인 보관함의 장소. 코스 단계보다 아래에 작은 폴더 마크로 보인다.
     var savedPins: [SavedPlacePin] = [] {
         didSet {
@@ -340,17 +366,42 @@ final class KakaoMapViewController: UIViewController {
         guard let map = kakaoMap else {
             // 엔진이 아직이면 처음 자리를 바꿔 둔다. 뜰 때 거기서 시작한다.
             initialCenter = (lat: lat, lng: lng)
+            if let level { initialZoomLevel = MapZoom.nativeLevel(fromDocumentLevel: level) }
             return
         }
         let update = CameraUpdate.make(
             target: MapPoint(longitude: lng, latitude: lat),
-            zoomLevel: level ?? map.zoomLevel,
+            zoomLevel: level.map { MapZoom.nativeLevel(fromDocumentLevel: $0) } ?? map.zoomLevel,
             mapView: map
         )
         map.animateCamera(
             cameraUpdate: update,
             options: CameraAnimationOptions(autoElevation: false, consecutive: false, durationInMillis: 500)
         )
+    }
+
+    /// 현재 위치 버튼은 일반 문서 이동과 다르게 즉시 확실한 피드백을 줘야 한다.
+    ///
+    /// 전국 단위로 축소한 상태를 그대로 보존하면 좌표가 바뀌어도 화면이 거의 같아 보여
+    /// 버튼이 고장 난 것처럼 느껴진다. 기존 배율이 충분히 가까우면 유지하되, 최소한 동네가
+    /// 보이는 공통 레벨 5까지는 확대하고 진행 중인 애니메이션도 즉시 끝낸다.
+    func focusOnCurrentLocation(_ point: GeoPoint) {
+        currentLocation = point
+        let minimumNativeZoom = MapZoom.nativeLevel(fromDocumentLevel: 5)
+        guard let map = kakaoMap else {
+            initialCenter = (lat: point.lat, lng: point.lng)
+            initialZoomLevel = max(initialZoomLevel, minimumNativeZoom)
+            return
+        }
+
+        let update = CameraUpdate.make(
+            target: point.mapPoint,
+            zoomLevel: max(map.zoomLevel, minimumNativeZoom),
+            mapView: map
+        )
+        // moveCamera는 진행 중인 카메라 애니메이션을 종료하고 반드시 새 위치를 적용한다.
+        map.moveCamera(update)
+        renderCurrentLocation(on: map)
     }
 
     /// 여러 장소가 한 화면에 모두 들어오도록 카메라를 맞춘다.
@@ -390,7 +441,7 @@ final class KakaoMapViewController: UIViewController {
         let middle = map.getPosition(CGPoint(x: view.bounds.midX, y: view.bounds.midY))
         return (
             GeoPoint(lat: middle.wgsCoord.latitude, lng: middle.wgsCoord.longitude),
-            map.zoomLevel
+            MapZoom.documentLevel(fromNativeLevel: map.zoomLevel)
         )
     }
 
@@ -417,7 +468,7 @@ extension KakaoMapViewController: MapControllerDelegate {
             viewName: Self.viewName,
             viewInfoName: "map",
             defaultPosition: MapPoint(longitude: initialCenter.lng, latitude: initialCenter.lat),
-            defaultLevel: 17
+            defaultLevel: initialZoomLevel
         )
         mapController?.addView(info)
     }
@@ -454,6 +505,18 @@ extension KakaoMapViewController: MapControllerDelegate {
                 competitionUnit: CompetitionUnit.symbolFirst,
                 orderType: OrderingType.rank,
                 zOrder: 10_003
+            )
+        )
+        // 같은 단계의 후보를 묶는 보조선은 실제 이동 경로보다 아래에 둔다. 작은 회색
+        // 점선과 중심점은 후보가 한 무리라는 것만 설명하고 동선보다 눈에 띄면 안 된다.
+        _ = map.getShapeManager().addShapeLayer(layerID: Self.candidateLinkLayerID, zOrder: 9_998)
+        _ = map.getLabelManager().addLabelLayer(
+            option: LabelLayerOptions(
+                layerID: Self.candidateHubLabelLayerID,
+                competitionType: CompetitionType.none,
+                competitionUnit: CompetitionUnit.symbolFirst,
+                orderType: OrderingType.rank,
+                zOrder: 9_998
             )
         )
         // 구간 선은 핀보다 아래, 손그림보다도 아래다. 사람이 그린 것이 제일 위여야 한다.
@@ -500,6 +563,7 @@ extension KakaoMapViewController: MapControllerDelegate {
             )
         )
         registerMidpointStyles(on: map)
+        registerCandidateLinkStyles(on: map)
         registerLegStyles(on: map)
         registerCurrentLocationStyle(on: map)
         subscribeToMapEvents(on: map)
@@ -507,6 +571,7 @@ extension KakaoMapViewController: MapControllerDelegate {
         // 엔진이 뜨기 전에 받아 둔 것들이 있으면 지금 그린다.
         renderMidpoint(on: map)
         renderStops(on: map)
+        renderCandidateLinks(on: map)
         renderLegs(on: map)
         renderStrokes(on: map)
         renderLabels(on: map)
@@ -557,7 +622,7 @@ extension KakaoMapViewController: DrawingOverlayViewDelegate {
         let epsilon = angularEpsilon(map: map, pixels: 2)
         let stroke = GeoStroke(
             path: simplifyPath(coords, epsilon: epsilon),
-            zoomCreated: map.zoomLevel
+            zoomCreated: MapZoom.documentLevel(fromNativeLevel: map.zoomLevel)
         )
         // didSet이 방금 그린 것까지 포함해 다시 그린다. 여기서 따로 그리면 두 번 그려진다.
         strokes.append(stroke)
@@ -651,10 +716,11 @@ private extension KakaoMapViewController {
                     case Self.stopLabelLayerID:
                         // poiID를 후보 id로 쓴다. 눌린 것이 무엇인지 그대로 알 수 있다.
                         controller.onTapStopPin?(event.poiID)
+                    case Self.savedPlaceLabelLayerID:
+                        controller.onTapSavedPin?(event.poiID)
                     case Self.memoLayerID:
                         controller.onTapMemo?(event.poiID)
                     case Self.midpointLabelLayerID,
-                         Self.savedPlaceLabelLayerID,
                          Self.currentLocationLabelLayerID:
                         return
                     default:
@@ -677,6 +743,7 @@ private extension KakaoMapViewController {
             map.addCameraStoppedEventHandler(target: self) { controller in
                 { _ in
                     guard let map = controller.kakaoMap else { return }
+                    controller.renderCandidateLinks(on: map)
                     controller.renderLegs(on: map)
                 }
             }
@@ -717,21 +784,21 @@ private extension KakaoMapViewController {
         }
     }
 
-    /// 보관함 폴더의 마크와 색을 작은 아이콘으로 지도에 표시한다. 코스 핀처럼 누르는
-    /// 대상은 아니므로 카카오 기본 POI의 터치를 가로채지 않는다.
+    /// 보관함 폴더의 마크와 색을 작은 아이콘으로 지도에 표시한다. 한 번 누르면 장소명·주소와
+    /// 폴더를 확인하고 동선으로 보낼 수 있어야 하므로 별도 클릭 레이어로 둔다.
     func renderSavedPins(on map: KakaoMap) {
         guard let layer = map.getLabelManager()
             .getLabelLayer(layerID: Self.savedPlaceLabelLayerID) else { return }
         layer.clearAllItems()
-        layer.setClickable(false)
+        layer.setClickable(true)
 
         for (index, pin) in savedPins.enumerated() {
             let options = PoiOptions(
                 styleID: savedPlaceStyleID(marker: pin.marker, colorHex: pin.colorHex, on: map),
-                poiID: "saved-\(pin.id)"
+                poiID: pin.id
             )
             options.rank = index
-            options.clickable = false
+            options.clickable = true
             layer.addPoi(option: options, at: pin.location.mapPoint)?.show()
         }
     }
@@ -820,6 +887,116 @@ func memoDragHitSize(_ label: MapLabel) -> CGSize {
         width: min(260, max(52, estimatedTextWidth + 24)),
         height: max(48, renderedFontSize + 22)
     )
+}
+
+// MARK: - 같은 단계 후보 보조선
+
+private extension KakaoMapViewController {
+    /// 웹의 작은 회색 점선과 같은 모양이다. 카카오 iOS 폴리라인에는 점선 속성이 없어
+    /// 실제 선 조각은 `dashedSegments`로 잘라 그린다.
+    func registerCandidateLinkStyles(on map: KakaoMap) {
+        guard !registeredPinStyles.contains(Self.candidateLinkStyleID) else { return }
+
+        let gray = UIColor(hex: "#8A8A83") ?? .systemGray
+        map.getShapeManager().addPolylineStyleSet(
+            PolylineStyleSet(
+                styleSetID: Self.candidateLinkStyleID,
+                styles: [
+                    PolylineStyle(styles: [
+                        PerLevelPolylineStyle(bodyColor: gray, bodyWidth: 2, level: 0),
+                    ]),
+                ]
+            )
+        )
+        map.getLabelManager().addPoiStyle(
+            PoiStyle(
+                styleID: Self.candidateHubStyleID,
+                styles: [
+                    PerLevelPoiStyle(
+                        iconStyle: PoiIconStyle(
+                            symbol: candidateHubIcon(diameter: 6, color: gray),
+                            anchorPoint: CGPoint(x: 0.5, y: 0.5)
+                        ),
+                        level: 0
+                    ),
+                ]
+            )
+        )
+        registeredPinStyles.insert(Self.candidateLinkStyleID)
+        registeredPinStyles.insert(Self.candidateHubStyleID)
+    }
+
+    /// 후보가 둘 이상인 단계마다 각 후보를 단계 중심점으로 잇는다. 후보가 둘이면 두
+    /// 점선이 중심에서 만나므로 결과적으로 두 핀을 잇는 점선 하나처럼 보인다.
+    func renderCandidateLinks(on map: KakaoMap) {
+        guard
+            let lineLayer = map.getShapeManager().getShapeLayer(layerID: Self.candidateLinkLayerID),
+            let hubLayer = map.getLabelManager().getLabelLayer(layerID: Self.candidateHubLabelLayerID)
+        else { return }
+
+        lineLayer.clearAllShapes()
+        hubLayer.clearAllItems()
+        hubLayer.setClickable(false)
+        renderedCandidateSpokes = 0
+
+        guard showCandidateLinks else {
+            updateRenderAccessibilityValue()
+            return
+        }
+
+        let perPoint = angularEpsilon(map: map, pixels: 1)
+        guard perPoint > 0 else {
+            updateRenderAccessibilityValue()
+            return
+        }
+
+        for (stopIndex, stop) in stops.enumerated() where stop.candidates.count >= 2 {
+            guard let hub = stop.centroid else { continue }
+
+            var pieces: [[GeoPoint]] = []
+            for candidate in stop.candidates {
+                let differs = abs(candidate.location.lat - hub.lat) > 1e-12
+                    || abs(candidate.location.lng - hub.lng) > 1e-12
+                guard differs else { continue }
+                pieces.append(
+                    contentsOf: dashedSegments(
+                        [candidate.location, hub],
+                        onLength: 2 * perPoint,
+                        offLength: 5 * perPoint
+                    )
+                )
+                renderedCandidateSpokes += 1
+            }
+
+            if !pieces.isEmpty {
+                let options = MapPolylineShapeOptions(
+                    shapeID: "candidate-links-\(stopIndex)",
+                    styleID: Self.candidateLinkStyleID,
+                    zOrder: 0
+                )
+                options.polylines = pieces.map {
+                    MapPolyline(line: $0.map(\.mapPoint), styleIndex: 0)
+                }
+                lineLayer.addMapPolylineShape(options)?.show()
+            }
+
+            let hubOptions = PoiOptions(
+                styleID: Self.candidateHubStyleID,
+                poiID: "candidate-hub-\(stop.id)"
+            )
+            hubOptions.clickable = false
+            hubLayer.addPoi(option: hubOptions, at: hub.mapPoint)?.show()
+        }
+
+        updateRenderAccessibilityValue()
+    }
+
+    func updateRenderAccessibilityValue() {
+        view.accessibilityValue =
+            "candidateSpokes:\(renderedCandidateSpokes) legs:\(renderedLegCount) " +
+            "segs:\(renderedLegSegments) conns:\(renderedLegConnectors) " +
+            "labels:\(renderedLegLabels) perPt:\(renderedPerPoint)"
+    }
 }
 
 // MARK: - 구간 선
@@ -929,7 +1106,12 @@ private extension KakaoMapViewController {
         // 안 만든 것인지, 만들었는데 안 그려진 것인지, 그려졌는데 짧은 것인지가
         // 그림에서는 똑같아 보인다. 맥이 없어 디버거를 붙일 수 없으니 UI 테스트가
         // 읽어 갈 수 있게 값으로 남긴다.
-        view.accessibilityValue = "legs:\(index) segs:\(drawnSegments) conns:\(drawnConnectors) labels:\(annotations.count) perPt:\(perPoint)"
+        renderedLegCount = index
+        renderedLegSegments = drawnSegments
+        renderedLegConnectors = drawnConnectors
+        renderedLegLabels = annotations.count
+        renderedPerPoint = perPoint
+        updateRenderAccessibilityValue()
     }
 
     func addRouteLabel(
@@ -1355,6 +1537,14 @@ private extension KakaoMapViewController {
                     y: (diameter - symbolSize.height) / 2
                 )
             )
+        }
+    }
+
+    func candidateHubIcon(diameter: CGFloat, color: UIColor) -> UIImage {
+        let size = CGSize(width: diameter, height: diameter)
+        return UIGraphicsImageRenderer(size: size).image { _ in
+            color.setFill()
+            UIBezierPath(ovalIn: CGRect(origin: .zero, size: size)).fill()
         }
     }
 

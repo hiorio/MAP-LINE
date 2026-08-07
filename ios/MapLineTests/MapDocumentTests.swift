@@ -71,7 +71,9 @@ final class MapDocumentTests: XCTestCase {
             stops: [Stop(candidates: [MapPlace(name: "강남역", location: GeoPoint(lat: 37.5, lng: 127.0))])],
             legs: [],
             strokes: [GeoStroke(path: [GeoPoint(lat: 1, lng: 1), GeoPoint(lat: 2, lng: 2)], zoomCreated: 3)],
-            labels: [MapLabel(location: GeoPoint(lat: 1, lng: 1), text: "여기")]
+            labels: [MapLabel(location: GeoPoint(lat: 1, lng: 1), text: "여기")],
+            showCandidateLinks: false,
+            showStopArrows: false
         )
 
         let data = try JSONEncoder().encode(original)
@@ -82,6 +84,26 @@ final class MapDocumentTests: XCTestCase {
         // 앱에서 만든 지도를 웹 링크로 열 수 있어야 한다. 링크 하나로 나눠 보는 것이
         // 이 제품의 전부라 여기가 갈라지면 안 된다.
         XCTAssertEqual(MapStore.shareURL(slug: "abc123").path, "/m/abc123")
+    }
+
+    func test_웹문서와네이티브지도의줌레벨을같은축척으로바꾼다() {
+        XCTAssertEqual(MapZoom.nativeLevel(fromDocumentLevel: 3), 17)
+        XCTAssertEqual(MapZoom.documentLevel(fromNativeLevel: 17), 3)
+        XCTAssertEqual(MapZoom.nativeLevel(fromDocumentLevel: 14), 6)
+        XCTAssertEqual(MapZoom.documentLevel(fromNativeLevel: 21), 1)
+    }
+
+    func test_예전앱이남긴네이티브줌레벨을문서레벨로복구한다() throws {
+        let body = Data("""
+        {"title":"옛 앱 지도","center":{"lat":37.5,"lng":127.0},"zoomLevel":17,
+         "stops":[],"strokes":[{"id":"00000000-0000-0000-0000-000000000001",
+         "path":[{"lat":37.5,"lng":127.0},{"lat":37.51,"lng":127.01}],
+         "color":"#2D6BE4","width":4,"zoomCreated":17}]}
+        """.utf8)
+
+        let document = try JSONDecoder().decode(MapDocument.self, from: body)
+        XCTAssertEqual(document.zoomLevel, 3)
+        XCTAssertEqual(document.strokes.first?.zoomCreated, 3)
     }
 
     func test_메모를옮겨도id와내용은유지된다() {

@@ -13,6 +13,7 @@ struct MidpointView: View {
     @State private var selectedCandidateIDs: Set<String> = []
     @State private var histories: [MidpointHistoryEntry] = []
     @State private var showingHistory = false
+    @State private var storageError: String?
 
     private let historyStore: MidpointHistoryStore
 
@@ -47,7 +48,7 @@ struct MidpointView: View {
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
-                    histories = historyStore.all()
+                    reloadHistory()
                     showingHistory = true
                 } label: {
                     Label("검색 기록", systemImage: "clock.arrow.circlepath")
@@ -55,7 +56,7 @@ struct MidpointView: View {
                 .accessibilityIdentifier("midpoint.history")
             }
         }
-        .onAppear { histories = historyStore.all() }
+        .onAppear(perform: reloadHistory)
         .sheet(isPresented: $addingNew) {
             PlaceSearchSheet(title: "어디서 오나요?") { place in
                 participants.append(
@@ -82,6 +83,17 @@ struct MidpointView: View {
                 onOpen: restore,
                 onDelete: removeHistory
             )
+        }
+        .alert(
+            "검색 기록을 저장하지 못했습니다",
+            isPresented: Binding(
+                get: { storageError != nil },
+                set: { if !$0 { storageError = nil } }
+            )
+        ) {
+            Button("확인", role: .cancel) { storageError = nil }
+        } message: {
+            Text(storageError ?? "")
         }
         .safeAreaInset(edge: .bottom) {
             if let result, let onShowOnMap {
@@ -263,9 +275,14 @@ struct MidpointView: View {
             result = found
             // 기존처럼 바로 1순위를 볼 수 있게 하되, 사용자가 2·3순위도 더 고를 수 있다.
             selectedCandidateIDs = Set(found.candidates.prefix(1).map(\.id))
-            historyStore.add(participants: participants, result: found)
-            histories = historyStore.all()
             phase = .idle
+            do {
+                try historyStore.add(participants: participants, result: found)
+                reloadHistory()
+            } catch {
+                // 중간지점 계산 자체는 성공했다. 기록 저장 실패 때문에 결과까지 지우지 않는다.
+                storageError = error.localizedDescription
+            }
         } catch {
             result = nil
             selectedCandidateIDs = []
@@ -306,8 +323,20 @@ struct MidpointView: View {
     }
 
     private func removeHistory(_ entry: MidpointHistoryEntry) {
-        historyStore.remove(id: entry.id)
-        histories = historyStore.all()
+        do {
+            try historyStore.remove(id: entry.id)
+            reloadHistory()
+        } catch {
+            storageError = error.localizedDescription
+        }
+    }
+
+    private func reloadHistory() {
+        do {
+            histories = try historyStore.all()
+        } catch {
+            storageError = error.localizedDescription
+        }
     }
 
     private func defaultName() -> String {

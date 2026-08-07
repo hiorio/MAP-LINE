@@ -18,6 +18,7 @@ struct ShareIntakeView: View {
     @State private var showRaw = false
     @State private var destinationGroups: [SavedPlaceGroup] = [SavedPlaceGroup.inbox]
     @State private var destinationGroupID = SavedPlaceGroup.inboxID
+    @State private var storageError: String?
 
     /// `State`라고 이름 짓지 않는다. SwiftUI의 `@State`를 가려서 프로퍼티 래퍼가
     /// 통째로 망가진다. 오류 메시지("enum 'State' cannot be used as an attribute")가
@@ -101,8 +102,23 @@ struct ShareIntakeView: View {
                 }
             }
         }
+        .alert(
+            "보관함에 담지 못했습니다",
+            isPresented: Binding(
+                get: { storageError != nil },
+                set: { if !$0 { storageError = nil } }
+            )
+        ) {
+            Button("확인", role: .cancel) { storageError = nil }
+        } message: {
+            Text(storageError ?? "")
+        }
         .task {
-            destinationGroups = groupStore.all()
+            do {
+                destinationGroups = try groupStore.all()
+            } catch {
+                storageError = error.localizedDescription
+            }
             await lookUp()
         }
     }
@@ -199,14 +215,20 @@ struct ShareIntakeView: View {
             guard let selectedID = selected[group.id] else { return nil }
             return group.places.first { $0.id == selectedID }
         }
-        let addedCount = candidates.reduce(into: 0) { count, candidate in
-            if store.add(candidate.asSavedPlace(groupID: destinationGroupID)) { count += 1 }
+        do {
+            let addedCount = try store.add(
+                candidates.map { $0.asSavedPlace(groupID: destinationGroupID) }
+            )
+            let folderName = destinationGroups.first { $0.id == destinationGroupID }?.name ?? "보관함"
+            savedMessage = addedCount > 0
+                ? "\(addedCount)곳을 ‘\(folderName)’에 담았습니다"
+                : "선택한 장소가 이미 보관함에 있습니다"
+            // 담자마자 닫으면 담긴 게 맞는지 확인할 틈이 없다. 잠깐 보여 주고 닫는다.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: onDone)
+        } catch {
+            // 실패를 성공으로 표시하거나 자동으로 닫지 않는다. 원문과 선택을 유지한 채
+            // 저장 공간을 확인하고 다시 누를 수 있어야 한다.
+            storageError = error.localizedDescription
         }
-        let folderName = destinationGroups.first { $0.id == destinationGroupID }?.name ?? "보관함"
-        savedMessage = addedCount > 0
-            ? "\(addedCount)곳을 ‘\(folderName)’에 담았습니다"
-            : "선택한 장소가 이미 보관함에 있습니다"
-        // 담자마자 닫으면 담긴 게 맞는지 확인할 틈이 없다. 잠깐 보여 주고 닫는다.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: onDone)
     }
 }

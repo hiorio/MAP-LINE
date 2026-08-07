@@ -21,6 +21,9 @@ struct ContentView: View {
     @State private var strokes: [GeoStroke] = []
     /// 지도 위에 남긴 메모들.
     @State private var labels: [MapLabel] = []
+    /// 웹에서 만든 지도를 앱이 저장해도 표시 설정을 잃지 않도록 문서 상태로 보존한다.
+    @State private var showCandidateLinks = true
+    @State private var showStopArrows = true
     @State private var showCourse = false
     @State private var showPlacePicker = false
     @State private var showSaved = false
@@ -43,12 +46,15 @@ struct ContentView: View {
     @State private var persistenceStatus: PersistenceStatus = .local
     @State private var autoSaveTask: Task<Void, Never>?
     @State private var pendingServerSave = false
+    @State private var consecutiveSaveFailures = 0
+    @State private var saveConflict: SaveConflict?
+    @State private var showingSaveConflict = false
     @State private var restoredDraft = false
     @State private var lastDraftFingerprint: EditFingerprint?
     @State private var shareLink: ShareLink?
     /// 지금 보고 있는 자리를 물어보기 위해 들고 있는다.
     @State private var mapController: KakaoMapViewController?
-    @State private var pendingCameraCenter: GeoPoint?
+    @State private var pendingCamera: PendingCamera?
     @StateObject private var currentLocation = CurrentLocationProvider()
     /// 개인 보관함은 현재 문서와 별개지만 지도 위에서는 항상 보이는 참고 마커다.
     @State private var savedPins: [SavedPlacePin] = []
@@ -63,6 +69,8 @@ struct ContentView: View {
     @State private var pendingPin: PendingPin?
     /// 눌러서 열어 둔 핀.
     @State private var openedPin: OpenedPin?
+    /// 눌러서 열어 둔 개인 보관함 마커.
+    @State private var openedSavedPin: SavedPlacePin?
     /// 눌러서 열어 둔 메모.
     @State private var openedMemo: MapLabel?
     /// 이 값이 있으면 다음 꾹 누르기는 새 핀이 아니라 해당 메모의 새 위치다.
@@ -77,16 +85,31 @@ struct ContentView: View {
     }
 
     private enum PersistenceStatus: Equatable {
-        case local, saving, saved, failed
+        case local, saving, saved, serverFailed, localFailed, conflict
 
         var text: String {
             switch self {
             case .local: return "기기에 저장됨"
             case .saving: return "저장 중…"
             case .saved: return "저장됨"
-            case .failed: return "기기에만 저장됨"
+            case .serverFailed: return "기기에만 저장됨"
+            case .localFailed: return "기기 저장 실패"
+            case .conflict: return "저장 충돌"
             }
         }
+
+        var needsAttention: Bool {
+            self == .serverFailed || self == .localFailed || self == .conflict
+        }
+    }
+
+    private struct PendingCamera {
+        let center: GeoPoint
+        let zoomLevel: Int
+    }
+
+    private struct SaveConflict {
+        let slug: String
     }
 
     private struct UndoState: Identifiable {
@@ -104,6 +127,8 @@ struct ContentView: View {
         let legs: [StopLeg]
         let strokes: [GeoStroke]
         let labels: [MapLabel]
+        let showCandidateLinks: Bool
+        let showStopArrows: Bool
     }
 
     /// 같은 자리를 다시 꾹 눌러도 시트가 다시 뜨도록 매번 새 id를 준다.
@@ -140,6 +165,7 @@ struct ContentView: View {
                     plot: plot,
                     stops: stops,
                     legs: legs,
+                    showCandidateLinks: showCandidateLinks,
                     strokes: strokes,
                     labels: labels,
                     savedPins: savedPins,
@@ -156,6 +182,9 @@ struct ContentView: View {
                         }
                     },
                     onTapStopPin: { id in openedPin = resolvePin(id) },
+                    onTapSavedPin: { id in
+                        openedSavedPin = savedPins.first { $0.id == id }
+                    },
                     onTapMapPoi: { coordinate, poiID in
                         guard movingMemoID == nil else { return }
                         pendingPin = PendingPin(
@@ -178,9 +207,13 @@ struct ContentView: View {
                             controller.fit(points: preview.stops.flatMap { $0.candidates.map(\.location) })
                         }
                         #endif
-                        if let center = pendingCameraCenter {
-                            controller.move(to: center.lat, lng: center.lng)
-                            pendingCameraCenter = nil
+                        if let camera = pendingCamera {
+                            controller.move(
+                                to: camera.center.lat,
+                                lng: camera.center.lng,
+                                level: camera.zoomLevel
+                            )
+                            pendingCamera = nil
                         }
                     }
                 )
@@ -226,7 +259,13 @@ struct ContentView: View {
                 .presentationDetents([.medium, .large])
             }
             .sheet(isPresented: $showCourse) {
-                CourseSheet(stops: $stops, legs: $legs, searchCenter: placeSearchCenter)
+                CourseSheet(
+                    stops: $stops,
+                    legs: $legs,
+                    searchCenter: placeSearchCenter,
+                    savedPins: savedPins,
+                    onSaveToLibrary: saveToLibrary
+                )
             }
             .sheet(isPresented: $showPlacePicker) {
                 CoursePlacePickerSheet(stops: stops, near: placeSearchCenter) { stopID, candidates in
@@ -247,7 +286,10 @@ struct ContentView: View {
                 }
             }
             .sheet(isPresented: $showMyMaps) {
-                MyMapsView { picked in Task { await open(slug: picked) } }
+                MyMapsView(
+                    onOpen: { picked in Task { await open(slug: picked) } },
+                    onDelete: { deleted in resetAfterDeletedMap(slug: deleted) }
+                )
             }
             .sheet(isPresented: $showTitleEditor, onDismiss: {
                 guard requestNewMapAfterTitleEditor else { return }
@@ -269,16 +311,37 @@ struct ContentView: View {
             } message: {
                 Text(saveError ?? "")
             }
+            .confirmationDialog(
+                "저장 충돌을 해결해 주세요",
+                isPresented: $showingSaveConflict,
+                titleVisibility: .visible
+            ) {
+                if saveConflict != nil {
+                    Button("내 작업을 복사본으로 저장") {
+                        Task { await saveConflictAsCopy() }
+                    }
+                    Button("서버 버전 불러오기", role: .destructive) {
+                        Task { await loadServerAfterConflict() }
+                    }
+                }
+                Button("기기에만 유지", role: .cancel) {}
+            } message: {
+                Text("같은 지도가 다른 곳에서 먼저 저장됐습니다. 현재 작업을 덮어쓰지 않고 기기에 보존했습니다.")
+            }
             .sheet(item: $openedPin) { pin in
                 StopPinSheet(
                     place: pin.place,
                     stopNumber: pin.stopNumber,
                     canChoosePrimary: pin.canChoosePrimary,
                     isPrimary: pin.isPrimary,
+                    savedGroup: savedGroup(containing: pin.place),
                     onMakePrimary: { makePrimary(pin.place) },
+                    onSaveToLibrary: { group in
+                        saveToLibrary(pin.place, group: group)
+                    },
                     onRemove: { remove(pin.place) }
                 )
-                .presentationDetents([.medium])
+                .presentationDetents([.medium, .large])
             }
             .sheet(item: $openedMemo) { memo in
                 MemoSheet(
@@ -288,6 +351,12 @@ struct ContentView: View {
                     onRemove: { removeMemo(memo) }
                 )
                 .presentationDetents([.medium])
+            }
+            .sheet(item: $openedSavedPin) { pin in
+                SavedPlacePinSheet(pin: pin, stops: stops) { stopID, place in
+                    addCoursePlaces([place], toStopID: stopID)
+                }
+                .presentationDetents([.medium, .large])
             }
             .alert("새 지도를 만들까요?", isPresented: $confirmingNewMap) {
                 Button("새 지도 만들기") { Task { await startNewMap() } }
@@ -304,6 +373,8 @@ struct ContentView: View {
             .onChange(of: legs) { _ in documentDidChange() }
             .onChange(of: strokes) { _ in documentDidChange() }
             .onChange(of: labels) { _ in documentDidChange() }
+            .onChange(of: showCandidateLinks) { _ in documentDidChange() }
+            .onChange(of: showStopArrows) { _ in documentDidChange() }
             .onChange(of: scenePhase) { phase in
                 if phase == .active {
                     // 공유 익스텐션은 별도 프로세스다. 앱으로 돌아오는 순간 파일을 다시
@@ -327,12 +398,14 @@ struct ContentView: View {
         let camera = mapController?.cameraSnapshot()
         return MapDocument(
             title: title,
-            center: camera?.center ?? MapPalette.defaultCenter,
-            zoomLevel: camera?.zoomLevel ?? 3,
+            center: camera?.center ?? pendingCamera?.center ?? MapPalette.defaultCenter,
+            zoomLevel: camera?.zoomLevel ?? pendingCamera?.zoomLevel ?? 3,
             stops: stops,
             legs: LegRules.synced(stops: stops, legs: legs),
             strokes: strokes,
-            labels: labels
+            labels: labels,
+            showCandidateLinks: showCandidateLinks,
+            showStopArrows: showStopArrows
         )
     }
 
@@ -340,6 +413,10 @@ struct ContentView: View {
     /// 기기 초안에 남기며, 공유·지도 전환처럼 사람이 요청한 저장만 경고를 띄운다.
     @discardableResult
     private func save(reportError: Bool) async -> Bool {
+        if saveConflict != nil {
+            if reportError { showingSaveConflict = true }
+            return false
+        }
         guard !saving else {
             pendingServerSave = true
             return false
@@ -368,19 +445,92 @@ struct ContentView: View {
                 expectedUpdatedAt: updatedAt
             )
             persistenceStatus = .saved
+            consecutiveSaveFailures = 0
             succeeded = true
-            persistDraft()
+            _ = persistDraft(reportError: reportError)
+        } catch is MapStore.Conflict {
+            // 서버 버전을 조용히 덮거나 로컬 작업을 버리지 않는다. 사용자가 해결 방법을
+            // 고를 때까지 자동 저장을 멈추고 현재 내용은 초안에 계속 남긴다.
+            if let slug {
+                saveConflict = SaveConflict(slug: slug)
+                showingSaveConflict = reportError
+            }
+            persistenceStatus = .conflict
+            _ = persistDraft(reportError: false)
         } catch {
-            persistenceStatus = .failed
+            persistenceStatus = .serverFailed
+            consecutiveSaveFailures = min(consecutiveSaveFailures + 1, 6)
+            _ = persistDraft(reportError: false)
             if reportError { saveError = error.localizedDescription }
         }
 
         saving = false
         if pendingServerSave {
             pendingServerSave = false
-            Task { await save(reportError: false) }
+            if saveConflict == nil {
+                let delay = succeeded ? UInt64(0) : autoSaveDelayNanoseconds
+                Task {
+                    if delay > 0 { try? await Task.sleep(nanoseconds: delay) }
+                    guard !Task.isCancelled else { return }
+                    _ = await save(reportError: false)
+                }
+            }
         }
         return succeeded
+    }
+
+    /// 충돌 당시의 로컬 내용을 새 지도에 저장한다. 원본 서버 지도는 건드리지 않는다.
+    private func saveConflictAsCopy() async {
+        guard saveConflict != nil else { return }
+        showingSaveConflict = false
+        saving = true
+        persistenceStatus = .saving
+
+        let copy = duplicatedMapDocument(currentDocument())
+        do {
+            let newSlug = try await MapStore.create(
+                title: copy.title,
+                center: copy.center,
+                zoomLevel: copy.zoomLevel
+            )
+            let newUpdatedAt = try await MapStore.save(
+                slug: newSlug,
+                document: copy,
+                expectedUpdatedAt: nil
+            )
+            slug = newSlug
+            updatedAt = newUpdatedAt
+            title = copy.title
+            saveConflict = nil
+            consecutiveSaveFailures = 0
+            persistenceStatus = .saved
+            lastDraftFingerprint = editFingerprint
+            _ = persistDraft(reportError: true)
+        } catch {
+            persistenceStatus = .conflict
+            saveError = "복사본을 저장하지 못했습니다. 현재 작업은 기기에 남아 있습니다.\n\(error.localizedDescription)"
+        }
+        saving = false
+    }
+
+    /// 사용자가 명시적으로 고른 경우에만 서버 버전으로 바꾼다. 그 전까지 로컬 초안은
+    /// 그대로 두므로 충돌 알림 하나 때문에 작업이 사라지지 않는다.
+    private func loadServerAfterConflict() async {
+        guard let conflict = saveConflict else { return }
+        showingSaveConflict = false
+        do {
+            let loaded = try await MapStore.load(slug: conflict.slug)
+            saveConflict = nil
+            consecutiveSaveFailures = 0
+            apply(document: loaded.document, slug: conflict.slug, updatedAt: loaded.updatedAt)
+            persistenceStatus = persistDraft(
+                document: loaded.document,
+                reportError: false
+            ) ? .saved : .localFailed
+        } catch {
+            persistenceStatus = .conflict
+            saveError = error.localizedDescription
+        }
     }
 
     /// 저장해 둔 지도를 화면에 올린다.
@@ -393,6 +543,10 @@ struct ContentView: View {
         do {
             let loaded = try await MapStore.load(slug: picked)
             apply(document: loaded.document, slug: picked, updatedAt: loaded.updatedAt)
+            persistenceStatus = persistDraft(
+                document: loaded.document,
+                reportError: false
+            ) ? .saved : .localFailed
         } catch {
             saveError = error.localizedDescription
         }
@@ -432,24 +586,40 @@ struct ContentView: View {
         let current = editFingerprint
         guard current != lastDraftFingerprint else { return }
         lastDraftFingerprint = current
-        persistDraft()
-        persistenceStatus = .local
-        guard hasMeaningfulContent, !isUITesting else { return }
+        let savedLocally = persistDraft(reportError: false)
+        persistenceStatus = savedLocally ? .local : .localFailed
+        guard hasMeaningfulContent, !isUITesting, saveConflict == nil else { return }
 
         autoSaveTask?.cancel()
+        let delay = autoSaveDelayNanoseconds
         autoSaveTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            try? await Task.sleep(nanoseconds: delay)
             guard !Task.isCancelled else { return }
             autoSaveTask = nil
             _ = await save(reportError: false)
         }
     }
 
-    private func persistDraft() {
-        guard restoredDraft else { return }
-        try? draftStore.save(
-            MapDraft(document: currentDocument(), slug: slug, updatedAt: updatedAt)
-        )
+    @discardableResult
+    private func persistDraft(
+        document: MapDocument? = nil,
+        reportError: Bool = false
+    ) -> Bool {
+        guard restoredDraft else { return true }
+        do {
+            try draftStore.save(
+                MapDraft(
+                    document: document ?? currentDocument(),
+                    slug: slug,
+                    updatedAt: updatedAt
+                )
+            )
+            return true
+        } catch {
+            persistenceStatus = .localFailed
+            if reportError { saveError = error.localizedDescription }
+            return false
+        }
     }
 
     private func restoreDraftIfNeeded() {
@@ -465,9 +635,19 @@ struct ContentView: View {
             #endif
             return
         }
-        guard let draft = draftStore.load() else { return }
-        apply(document: draft.document, slug: draft.slug, updatedAt: draft.updatedAt)
-        persistenceStatus = draft.slug == nil ? .local : .saved
+        do {
+            guard let draft = try draftStore.load() else { return }
+            apply(document: draft.document, slug: draft.slug, updatedAt: draft.updatedAt)
+            persistenceStatus = draft.slug == nil ? .local : .saved
+        } catch {
+            persistenceStatus = .localFailed
+            do {
+                try draftStore.quarantineCorruptFiles()
+                saveError = "편집 중이던 지도 파일을 읽지 못해 별도로 보관했습니다. 새 작업은 정상적으로 저장됩니다."
+            } catch {
+                saveError = error.localizedDescription
+            }
+        }
     }
 
     private func apply(document: MapDocument, slug: String?, updatedAt: String?) {
@@ -480,19 +660,38 @@ struct ContentView: View {
         legs = LegRules.synced(stops: document.stops, legs: document.legs)
         strokes = document.strokes
         labels = document.labels
+        showCandidateLinks = document.showCandidateLinks
+        showStopArrows = document.showStopArrows
         lastDraftFingerprint = editFingerprint
         plot = nil
         mapController?.show(midpoint: nil)
         if let mapController {
-            mapController.move(to: document.center.lat, lng: document.center.lng)
+            mapController.move(
+                to: document.center.lat,
+                lng: document.center.lng,
+                level: document.zoomLevel
+            )
         } else {
-            pendingCameraCenter = document.center
+            pendingCamera = PendingCamera(center: document.center, zoomLevel: document.zoomLevel)
         }
-        persistDraft()
     }
 
     private var editFingerprint: EditFingerprint {
-        EditFingerprint(title: title, stops: stops, legs: legs, strokes: strokes, labels: labels)
+        EditFingerprint(
+            title: title,
+            stops: stops,
+            legs: legs,
+            strokes: strokes,
+            labels: labels,
+            showCandidateLinks: showCandidateLinks,
+            showStopArrows: showStopArrows
+        )
+    }
+
+    private var autoSaveDelayNanoseconds: UInt64 {
+        let multiplier = 1 << min(consecutiveSaveFailures, 5)
+        let seconds = min(60.0, 1.5 * Double(multiplier))
+        return UInt64(seconds * 1_000_000_000)
     }
 
     private func waitForCurrentSave() async {
@@ -513,14 +712,55 @@ struct ContentView: View {
         legs = []
         strokes = []
         labels = []
+        showCandidateLinks = true
+        showStopArrows = true
         plot = nil
         slug = nil
         updatedAt = nil
+        saveConflict = nil
+        showingSaveConflict = false
+        consecutiveSaveFailures = 0
         persistenceStatus = .local
         lastDraftFingerprint = editFingerprint
         mapController?.show(midpoint: nil)
-        try? draftStore.clear()
-        persistDraft()
+        do {
+            try draftStore.clear()
+        } catch {
+            persistenceStatus = .localFailed
+            saveError = error.localizedDescription
+        }
+        _ = persistDraft(reportError: true)
+    }
+
+    /// 내 지도 화면에서 지금 열려 있던 서버 지도를 완전 삭제한 경우, 사라진 편집 토큰으로
+    /// 자동 저장을 반복하지 않도록 편집 화면도 새 로컬 지도로 전환한다.
+    private func resetAfterDeletedMap(slug deletedSlug: String) {
+        guard slug == deletedSlug else { return }
+        autoSaveTask?.cancel()
+        pendingServerSave = false
+        title = "새 지도"
+        stops = []
+        legs = []
+        strokes = []
+        labels = []
+        showCandidateLinks = true
+        showStopArrows = true
+        plot = nil
+        slug = nil
+        updatedAt = nil
+        saveConflict = nil
+        showingSaveConflict = false
+        consecutiveSaveFailures = 0
+        persistenceStatus = .local
+        lastDraftFingerprint = editFingerprint
+        mapController?.show(midpoint: nil)
+        do {
+            try draftStore.clear()
+            _ = persistDraft(reportError: true)
+        } catch {
+            persistenceStatus = .localFailed
+            saveError = error.localizedDescription
+        }
     }
 
     // MARK: - 단계 고치기
@@ -681,7 +921,7 @@ struct ContentView: View {
                         .font(.footnote.weight(.semibold))
                         Text(persistenceStatus.text)
                             .font(.caption2)
-                            .foregroundStyle(persistenceStatus == .failed ? Color.orange : Color.secondary)
+                            .foregroundStyle(persistenceStatus.needsAttention ? Color.orange : Color.secondary)
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 7)
@@ -690,6 +930,36 @@ struct ContentView: View {
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("map.title")
                 .accessibilityLabel("지도 이름 \(title), \(persistenceStatus.text)")
+            }
+
+            if persistenceStatus.needsAttention {
+                HStack {
+                    Spacer()
+                    Button {
+                        switch persistenceStatus {
+                        case .conflict:
+                            showingSaveConflict = true
+                        case .localFailed:
+                            retryLocalSave()
+                        case .serverFailed:
+                            Task { _ = await save(reportError: true) }
+                        default:
+                            break
+                        }
+                    } label: {
+                        Label(
+                            persistenceStatus == .conflict ? "저장 충돌 해결" : "저장 다시 시도",
+                            systemImage: "arrow.clockwise"
+                        )
+                        .font(.caption.weight(.medium))
+                        .padding(.horizontal, 11)
+                        .padding(.vertical, 7)
+                        .background(.regularMaterial, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("map.persistence.retry")
+                }
+                .padding(.top, 6)
             }
 
             if let plot {
@@ -938,15 +1208,22 @@ struct ContentView: View {
             case .success(let point):
                 currentLocationPoint = point
                 if let mapController {
-                    // 사용자가 보고 있던 배율은 보존한다. 예전의 고정 level 3은 너무
-                    // 가까워져 지도 변화가 오히려 알아보기 어려웠다.
-                    mapController.move(to: point.lat, lng: point.lng)
+                    mapController.focusOnCurrentLocation(point)
                 } else {
-                    pendingCameraCenter = point
+                    pendingCamera = PendingCamera(
+                        center: point,
+                        zoomLevel: min(pendingCamera?.zoomLevel ?? 5, 5)
+                    )
                 }
             case .failure(let error):
                 saveError = error.localizedDescription
             }
+        }
+    }
+
+    private func retryLocalSave() {
+        if persistDraft(reportError: true) {
+            persistenceStatus = slug == nil ? .local : .saved
         }
     }
 
@@ -961,10 +1238,32 @@ struct ContentView: View {
         }
         #endif
 
-        savedPins = makeSavedPlacePins(
-            places: SavedPlaceStore(storage: AppGroupPlaceStorage()).all(),
-            groups: SavedPlaceGroupStore(storage: AppGroupSavedPlaceGroupStorage()).all()
-        )
+        do {
+            savedPins = makeSavedPlacePins(
+                places: try SavedPlaceStore(storage: AppGroupPlaceStorage()).all(),
+                groups: try SavedPlaceGroupStore(storage: AppGroupSavedPlaceGroupStorage()).all()
+            )
+        } catch {
+            // 서명 없는 CI에서는 App Group 컨테이너가 없을 수 있다. 실제 앱에서는
+            // 보관함 장애를 빈 목록으로 가장하지 않고 사용자에게 알린다.
+            if !isUITesting { saveError = error.localizedDescription }
+        }
+    }
+
+    private func savedGroup(containing place: MapPlace) -> SavedPlaceGroup? {
+        let saved = place.savedPlace()
+        return savedPins.first { isSamePlace($0.place, saved) }?.group
+    }
+
+    private func saveToLibrary(_ place: MapPlace, group: SavedPlaceGroup) -> String? {
+        do {
+            let store = SavedPlaceStore(storage: AppGroupPlaceStorage())
+            _ = try store.addOrMove(place.savedPlace(groupID: group.id), to: group.id)
+            reloadSavedPins()
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
     }
 }
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Point } from '@/lib/geo/rdp';
 import type { LatLng, Place, RoutePath, Stop, StopLeg } from '@/lib/map/types';
-import { legShapes } from './sceneGeometry';
+import { legShapes, routeAnnotations } from './sceneGeometry';
 
 /** 위경도를 그대로 픽셀로 읽는 투영. 기대값을 눈으로 따라갈 수 있다. */
 const project = ({ lat, lng }: LatLng): Point => ({ x: lng, y: lat });
@@ -155,5 +155,41 @@ describe('legShapes', () => {
     const shapes = legShapes([stop('s1', a), stop('s2', b), stop('s3', c)], legs, project);
     // 1→2는 너무 가까워 화살표를 못 그린다. 그래도 2→3은 제 모드로 남아야 한다.
     expect(shapes.some((s) => s.kind === 'path' && s.mode === 'transit')).toBe(true);
+  });
+
+  it('실제 경로의 길이 중간에 이동수단·거리·시간을 놓는다', () => {
+    const a = place('a', 0, 0);
+    const b = place('b', 0, 1000);
+    const path = route(
+      [{ lat: 0, lng: 0 }, { lat: 0, lng: 900 }, { lat: 0, lng: 1000 }],
+      'a',
+      'b',
+    );
+    path.distanceM = 1200;
+    path.durationS = 16 * 60;
+
+    const [annotation] = routeAnnotations(
+      [stop('s1', a), stop('s2', b)],
+      [{ mode: 'walk', route: path }],
+      project,
+    );
+
+    expect(annotation?.at).toEqual({ x: 500, y: 0 });
+    expect(annotation?.text).toBe('도보 · 1.2km · 16분');
+  });
+
+  it('실제 경로가 없거나 끝점이 바뀐 구간에는 시간 라벨을 만들지 않는다', () => {
+    const a = place('a', 0, 0);
+    const b = place('b', 0, 1000);
+    const stops = [stop('s1', a), stop('s2', b)];
+
+    expect(routeAnnotations(stops, [{ mode: 'walk' }], project)).toEqual([]);
+    expect(
+      routeAnnotations(
+        stops,
+        [{ mode: 'walk', route: route([{ lat: 0, lng: 0 }, { lat: 0, lng: 1000 }], 'a', 'old-b') }],
+        project,
+      ),
+    ).toEqual([]);
   });
 });

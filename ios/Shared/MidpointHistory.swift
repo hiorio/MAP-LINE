@@ -28,8 +28,8 @@ struct MidpointHistoryEntry: Codable, Identifiable {
 }
 
 protocol MidpointHistoryStorage {
-    func read() -> [MidpointHistoryEntry]
-    func write(_ entries: [MidpointHistoryEntry])
+    func read() throws -> [MidpointHistoryEntry]
+    func update(_ transform: @escaping (inout [MidpointHistoryEntry]) -> Void) throws
 }
 
 /// 검색 기록 규칙. 경로 좌표가 들어 있어 한 건의 크기가 작지 않으므로 최근 20건만 둔다.
@@ -43,8 +43,8 @@ struct MidpointHistoryStore {
         self.storage = storage
     }
 
-    func all() -> [MidpointHistoryEntry] {
-        storage.read().sorted { $0.searchedAt > $1.searchedAt }
+    func all() throws -> [MidpointHistoryEntry] {
+        try storage.read().sorted { $0.searchedAt > $1.searchedAt }
     }
 
     @discardableResult
@@ -52,19 +52,25 @@ struct MidpointHistoryStore {
         participants: [Midpoint.Participant],
         result: Midpoint.Result,
         searchedAt: Date = Date()
-    ) -> MidpointHistoryEntry {
+    ) throws -> MidpointHistoryEntry {
         let entry = MidpointHistoryEntry(
             searchedAt: searchedAt,
             participants: participants,
             result: result
         )
-        let entries = ([entry] + all()).prefix(Self.maximumCount)
-        storage.write(Array(entries))
+        try storage.update { entries in
+            entries.removeAll { $0.id == entry.id }
+            entries.insert(entry, at: 0)
+            entries.sort { $0.searchedAt > $1.searchedAt }
+            if entries.count > Self.maximumCount {
+                entries.removeLast(entries.count - Self.maximumCount)
+            }
+        }
         return entry
     }
 
-    func remove(id: String) {
-        storage.write(storage.read().filter { $0.id != id })
+    func remove(id: String) throws {
+        try storage.update { $0.removeAll { $0.id == id } }
     }
 }
 
@@ -83,17 +89,23 @@ struct MidpointHistoryFileStorage: MidpointHistoryStorage {
             .appendingPathComponent(Self.fileName)
     }
 
-    func read() -> [MidpointHistoryEntry] {
-        guard let url = fileURL, let data = try? Data(contentsOf: url) else { return [] }
-        return (try? JSONDecoder().decode([MidpointHistoryEntry].self, from: data)) ?? []
+    func read() throws -> [MidpointHistoryEntry] {
+        guard let url = fileURL else {
+            throw LocalDataStoreError.unavailable("중간지점 검색 기록")
+        }
+        return try SafeJSONCollectionFile<MidpointHistoryEntry>(
+            fileURL: url,
+            displayName: "중간지점 검색 기록"
+        ).read()
     }
 
-    func write(_ entries: [MidpointHistoryEntry]) {
-        guard let url = fileURL, let data = try? JSONEncoder().encode(entries) else { return }
-        try? FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try? data.write(to: url, options: .atomic)
+    func update(_ transform: @escaping (inout [MidpointHistoryEntry]) -> Void) throws {
+        guard let url = fileURL else {
+            throw LocalDataStoreError.unavailable("중간지점 검색 기록")
+        }
+        try SafeJSONCollectionFile<MidpointHistoryEntry>(
+            fileURL: url,
+            displayName: "중간지점 검색 기록"
+        ).update(transform)
     }
 }

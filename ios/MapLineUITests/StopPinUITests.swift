@@ -68,6 +68,10 @@ final class StopPinUITests: XCTestCase {
         let detailOpened = remove.waitForExistence(timeout: 10)
         attach(app, name: detailOpened ? "4-핀상세" : "4-핀상세안뜸")
         XCTAssertTrue(detailOpened, "찍어 둔 핀을 눌렀는데 상세가 열리지 않았다")
+        XCTAssertTrue(
+            app.descendants(matching: .any).matching(identifier: "stop.save").firstMatch.exists,
+            "동선 장소 상세에서 보관함 폴더에 저장할 수 없다"
+        )
         app.buttons["닫기"].firstMatch.tap()
 
         try drawWalkingLeg(app, counter: counter)
@@ -307,7 +311,13 @@ final class StopPinUITests: XCTestCase {
 
         app.buttons["닫기"].firstMatch.tap()
         Thread.sleep(forTimeInterval: 3)
-        attach(app, name: "10-같은번호핀둘")
+        attach(app, name: "10-같은번호핀둘-회색보조선")
+
+        let mapView = app.descendants(matching: .any).matching(identifier: "mapReady").firstMatch
+        XCTAssertTrue(
+            ((mapView.value as? String) ?? "").contains("candidateSpokes:2"),
+            "같은 1단계의 후보 두 곳 사이에 회색 보조선이 그려지지 않았다"
+        )
     }
 
     /// 지도에서 새 장소를 꾹 누른 직후 기존 단계의 후보로 담을 수 있는가.

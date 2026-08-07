@@ -1,7 +1,10 @@
 import type { Point } from '@/lib/geo/rdp';
 import { drawableRoute, legEndpoints } from '@/lib/map/legs';
 import {
+  formatDistance,
+  formatDuration,
   stopCentroid,
+  travelModeLabel,
   type LatLng,
   type Stop,
   type StopLeg,
@@ -137,6 +140,14 @@ export type LegShape =
       uy: number;
     };
 
+/** 실제 길찾기 선 위에 표시할 이동수단·거리·시간. */
+export interface RouteAnnotation {
+  legIndex: number;
+  at: Point;
+  mode: TravelMode;
+  text: string;
+}
+
 /** 이 정도로 가까우면 경로가 핀에서 시작한 것이나 다름없다. 도보가 여기 해당한다. */
 const ACCESS_MIN_PX = ARROW_TRIM_PX + 6;
 
@@ -179,6 +190,74 @@ export function legShapes(
     if (arrow) shapes.push({ kind: 'arrow', mode: 'straight', arrow });
   }
   return shapes;
+}
+
+/**
+ * 실제 경로의 화면상 길이 중간에 구간 요약을 하나씩 놓는다.
+ *
+ * 좌표 배열의 가운데를 쓰면 점이 촘촘한 골목 쪽으로 라벨이 치우친다. 현재 지도
+ * 투영을 거친 선분 길이를 누적해 사용자가 보고 있는 선의 절반 지점을 찾는다.
+ */
+export function routeAnnotations(
+  stops: readonly Stop[],
+  legs: readonly StopLeg[],
+  project: Projector,
+): RouteAnnotation[] {
+  const annotations: RouteAnnotation[] = [];
+
+  for (let index = 0; index < Math.max(0, stops.length - 1); index++) {
+    const leg = legs[index];
+    const route = drawableRoute(stops, index, leg);
+    const ends = legEndpoints(stops, index);
+    if (!leg || !route || !ends || route.points.length < 2) continue;
+
+    const at = polylineMidpoint(
+      [ends.from.location, ...route.points, ends.to.location].map(project),
+    );
+    if (!at) continue;
+
+    annotations.push({
+      legIndex: index,
+      at,
+      mode: leg.mode,
+      text: [
+        travelModeLabel(leg.mode),
+        formatDistance(route.distanceM),
+        formatDuration(route.durationS),
+      ]
+        .filter(Boolean)
+        .join(' · '),
+    });
+  }
+
+  return annotations;
+}
+
+function polylineMidpoint(path: readonly Point[]): Point | null {
+  if (path.length === 0) return null;
+  if (path.length === 1) return path[0] ?? null;
+
+  const lengths = path.slice(1).map((point, index) => gap(path[index]!, point));
+  const total = lengths.reduce((sum, length) => sum + length, 0);
+  if (total <= 0) return path[0] ?? null;
+
+  const target = total / 2;
+  let traveled = 0;
+  for (let index = 0; index < lengths.length; index++) {
+    const length = lengths[index]!;
+    if (length <= 0) continue;
+    if (traveled + length >= target) {
+      const from = path[index]!;
+      const to = path[index + 1]!;
+      const ratio = (target - traveled) / length;
+      return {
+        x: from.x + (to.x - from.x) * ratio,
+        y: from.y + (to.y - from.y) * ratio,
+      };
+    }
+    traveled += length;
+  }
+  return path.at(-1) ?? null;
 }
 
 /**

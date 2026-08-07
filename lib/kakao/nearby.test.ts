@@ -73,6 +73,77 @@ describe('toAddressLookup', () => {
     expect(keywordURL.searchParams.get('query')).toBe('더채플앳청담');
     expect(result.places[0]?.name).toBe('더채플앳청담');
   });
+
+  it('카테고리 후보를 최대 15개 요청한다', async () => {
+    vi.stubEnv('KAKAO_REST_KEY', 'test-key');
+    const fetchMock = vi.fn((_input: unknown) => kakaoResponse());
+    vi.stubGlobal('fetch', fetchMock);
+
+    await findNearby({ lat: 37.4979, lng: 127.0276 });
+
+    const categoryURLs = fetchMock.mock.calls
+      .map((call) => new URL(String(call[0])))
+      .filter((url) => url.pathname.includes('/search/category.json'));
+    expect(categoryURLs).toHaveLength(3);
+    expect(categoryURLs.every((url) => url.searchParams.get('size') === '15')).toBe(true);
+  });
+
+  it('최종 네 곳으로 자르기 전에 사용자가 누른 POI를 전체 후보에서 찾는다', async () => {
+    vi.stubEnv('KAKAO_REST_KEY', 'test-key');
+    const cafes = Array.from({ length: 8 }, (_, index) => ({
+      id: index === 7 ? 'tapped-starbucks' : `cafe-${index}`,
+      place_name: index === 7 ? '스타벅스 강남역7번출구점' : `가까운 카페 ${index}`,
+      category_group_name: '카페',
+      x: String(127.0276 + index * 0.00001),
+      y: '37.4979',
+      distance: String(index + 1),
+    }));
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(() => kakaoResponse())
+      .mockImplementationOnce(() => kakaoResponse())
+      .mockImplementationOnce(() => kakaoResponse(cafes))
+      .mockImplementationOnce(() => kakaoResponse());
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await findNearby(
+      { lat: 37.4979, lng: 127.0276 },
+      'tapped-starbucks',
+    );
+
+    expect(result.tappedPlace?.name).toBe('스타벅스 강남역7번출구점');
+    expect(result.places).toHaveLength(4);
+    expect(result.places[0]?.kakaoPlaceId).toBe('tapped-starbucks');
+  });
+
+  it('POI id가 일치하지 않으면 가까운 장소를 누른 장소라고 확정하지 않는다', async () => {
+    vi.stubEnv('KAKAO_REST_KEY', 'test-key');
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(() => kakaoResponse())
+      .mockImplementationOnce(() =>
+        kakaoResponse([
+          {
+            id: 'nearby-restaurant',
+            place_name: '홍할머니떡볶이',
+            x: '127.0276',
+            y: '37.4979',
+            distance: '18',
+          },
+        ]),
+      )
+      .mockImplementationOnce(() => kakaoResponse())
+      .mockImplementationOnce(() => kakaoResponse());
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await findNearby(
+      { lat: 37.4979, lng: 127.0276 },
+      'unrelated-native-map-id',
+    );
+
+    expect(result.tappedPlace).toBeUndefined();
+    expect(result.places[0]?.name).toBe('홍할머니떡볶이');
+  });
 });
 
 describe('toNearbyCandidate', () => {

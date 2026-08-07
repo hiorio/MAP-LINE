@@ -36,12 +36,33 @@ final class MapDraftStoreTests: XCTestCase {
 
         try store.save(draft)
 
-        XCTAssertEqual(store.load(), draft)
+        XCTAssertEqual(try store.load(), draft)
     }
 
     func test_초안을지우면다음실행에서복원하지않는다() throws {
         try store.save(MapDraft(document: MapDocument(title: "임시"), slug: nil, updatedAt: nil))
         try store.clear()
-        XCTAssertNil(store.load())
+        XCTAssertNil(try store.load())
+    }
+
+    func test_현재파일이손상되면마지막정상백업을읽는다() throws {
+        let first = MapDraft(document: MapDocument(title: "정상 백업"), slug: nil, updatedAt: nil)
+        let second = MapDraft(document: MapDocument(title: "최신 초안"), slug: nil, updatedAt: nil)
+        try store.save(first)
+        try store.save(second)
+        try Data("손상".utf8).write(to: store.fileURL, options: .atomic)
+
+        XCTAssertEqual(try store.load(), first)
+    }
+
+    func test_현재파일과백업이모두손상되면빈지도로가장하지않는다() throws {
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data("손상".utf8).write(to: store.fileURL, options: .atomic)
+        try Data("백업도 손상".utf8).write(
+            to: store.fileURL.appendingPathExtension("bak"),
+            options: .atomic
+        )
+
+        XCTAssertThrowsError(try store.load())
     }
 }

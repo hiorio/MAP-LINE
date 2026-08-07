@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Point } from '@/lib/geo/rdp';
-import type { LatLng, MapLabel, Stop, Stroke } from '@/lib/map/types';
+import type { LatLng, MapLabel, Stop, StopLeg, Stroke } from '@/lib/map/types';
 import { renderOgOverlay, type OgOverlayInput } from './ogOverlay';
 
 /** 위경도를 그대로 픽셀로 읽는 투영. 기대값을 눈으로 따라갈 수 있다. */
@@ -98,6 +98,30 @@ describe('renderOgOverlay', () => {
     const off = renderOgOverlay(input({ stops, showCandidateLinks: false, showStopArrows: false }));
     expect(off).not.toContain('stroke-dasharray');
     expect(off).not.toContain('<polygon');
+  });
+
+  it('실제 경로 중간에 이동수단·거리·시간을 그린다', () => {
+    const stops: Stop[] = [
+      { id: 's1', candidates: [place('a', 0, 0)] },
+      { id: 's2', candidates: [place('b', 0, 400)] },
+    ];
+    const legs: StopLeg[] = [
+      {
+        mode: 'transit',
+        route: {
+          points: [{ lat: 0, lng: 0 }, { lat: 0, lng: 400 }],
+          distanceM: 1200,
+          durationS: 16 * 60,
+          fromPlaceId: 'a',
+          toPlaceId: 'b',
+          fetchedAt: '2026-08-07T00:00:00.000Z',
+        },
+      },
+    ];
+
+    const svg = renderOgOverlay(input({ stops, legs }));
+    expect(svg).toContain('대중교통 · 1.2km · 16분');
+    expect(svg).toContain('stroke-width="6"');
   });
 
   it('메모는 흰 배경 상자와 함께 그린다', () => {

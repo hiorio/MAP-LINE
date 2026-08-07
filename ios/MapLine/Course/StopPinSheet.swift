@@ -11,10 +11,14 @@ struct StopPinSheet: View {
     /// 같은 단계에 후보가 여럿인가. 하나뿐이면 대표를 고를 일이 없다.
     let canChoosePrimary: Bool
     let isPrimary: Bool
+    /// 이미 개인 보관함에 있으면 그 폴더. nil이면 아직 저장하지 않은 장소다.
+    let savedGroup: SavedPlaceGroup?
     let onMakePrimary: () -> Void
+    let onSaveToLibrary: (SavedPlaceGroup) -> String?
     let onRemove: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @State private var showingFolderPicker = false
 
     var body: some View {
         NavigationStack {
@@ -52,6 +56,27 @@ struct StopPinSheet: View {
                 }
 
                 Section {
+                    Button {
+                        showingFolderPicker = true
+                    } label: {
+                        Label(
+                            savedGroup.map { "‘\($0.name)’에 저장됨 · 폴더 변경" }
+                                ?? "보관함 폴더에 저장",
+                            systemImage: savedGroup == nil
+                                ? "folder.badge.plus"
+                                : "checkmark.circle.fill"
+                        )
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                    .accessibilityIdentifier("stop.save")
+                } header: {
+                    Text("보관함")
+                } footer: {
+                    Text("동선을 짜다가 찾은 장소를 보관해 두면 다른 지도에서도 다시 쓸 수 있습니다.")
+                }
+
+                Section {
                     Button(role: .destructive) {
                         onRemove()
                         dismiss()
@@ -69,6 +94,14 @@ struct StopPinSheet: View {
                     Button("닫기") { dismiss() }
                 }
             }
+        }
+        .sheet(isPresented: $showingFolderPicker) {
+            SavedPlaceFolderPickerSheet(
+                placeName: place.name,
+                currentGroupID: savedGroup?.id,
+                onPick: onSaveToLibrary
+            )
+            .presentationDetents([.medium, .large])
         }
     }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import Security
 
 /// 지도를 서버에 만들고, 불러오고, 저장한다.
 ///
@@ -13,11 +14,35 @@ enum MapStore {
     private static let tokenPrefix = "mapline.token."
 
     static func editToken(for slug: String) -> String? {
-        UserDefaults.standard.string(forKey: tokenPrefix + slug)
+        do {
+            if let token = try EditTokenKeychain.read(slug: slug) { return token }
+        } catch {
+            // 아래의 이전 UserDefaults 저장소를 가용성 안전망으로 확인한다.
+        }
+
+        // 예전 버전의 UserDefaults 토큰을 발견하면 Keychain으로 옮긴다. Keychain이 일시적으로
+        // 실패하면 기존 값을 지우지 않아 편집 권한 자체가 사라지는 일을 피한다.
+        guard let legacy = UserDefaults.standard.string(forKey: tokenPrefix + slug) else {
+            return nil
+        }
+        do {
+            try EditTokenKeychain.write(legacy, slug: slug)
+            UserDefaults.standard.removeObject(forKey: tokenPrefix + slug)
+        } catch {
+            // 기존 값을 그대로 두면 다음 읽기 때 다시 이전할 수 있다.
+        }
+        return legacy
     }
 
     static func storeEditToken(_ token: String, for slug: String) {
-        UserDefaults.standard.set(token, forKey: tokenPrefix + slug)
+        do {
+            try EditTokenKeychain.write(token, slug: slug)
+            UserDefaults.standard.removeObject(forKey: tokenPrefix + slug)
+        } catch {
+            // 서버에서 토큰을 받은 뒤 저장에 실패하면 그 지도는 즉시 편집 불능이 된다.
+            // Keychain 장애 시에는 예전 저장소를 가용성 안전망으로 남기고 다음 읽기 때 재이전한다.
+            UserDefaults.standard.set(token, forKey: tokenPrefix + slug)
+        }
     }
 
     // MARK: - 내가 만든 지도 목록
@@ -54,14 +79,20 @@ enum MapStore {
     }
 
     private static let indexKey = "mapline.maps"
+    private static let indexBackupKey = "mapline.maps.backup"
+    private static let hiddenIndexKey = "mapline.maps.hidden"
+    private static let hiddenIndexBackupKey = "mapline.maps.hidden.backup"
 
     static func rememberedMaps() -> [Entry] {
-        guard
-            let data = UserDefaults.standard.data(forKey: indexKey),
-            let entries = try? JSONDecoder().decode([Entry].self, from: data)
-        else { return [] }
         // 최근에 저장한 것이 위로.
-        return entries.sorted { $0.savedAt > $1.savedAt }
+        readEntries(key: indexKey, backupKey: indexBackupKey)
+            .sorted { $0.savedAt > $1.savedAt }
+    }
+
+    /// 목록에서 잠시 숨겼지만 편집 자격은 기기에 남아 있는 지도들.
+    static func hiddenMaps() -> [Entry] {
+        readEntries(key: hiddenIndexKey, backupKey: hiddenIndexBackupKey)
+            .sorted { $0.savedAt > $1.savedAt }
     }
 
     static func remember(
@@ -71,7 +102,8 @@ enum MapStore {
         savedAt: Date = Date()
     ) {
         let current = rememberedMaps()
-        let existingCount = current.first { $0.slug == slug }?.stopCount
+        let hidden = hiddenMaps()
+        let existingCount = (current + hidden).first { $0.slug == slug }?.stopCount
         var entries = current.filter { $0.slug != slug }
         entries.append(
             Entry(
@@ -81,15 +113,56 @@ enum MapStore {
                 stopCount: stopCount ?? existingCount
             )
         )
-        guard let data = try? JSONEncoder().encode(entries) else { return }
-        UserDefaults.standard.set(data, forKey: indexKey)
+        writeEntries(entries, key: indexKey, backupKey: indexBackupKey)
+        writeEntries(
+            hidden.filter { $0.slug != slug },
+            key: hiddenIndexKey,
+            backupKey: hiddenIndexBackupKey
+        )
     }
 
-    static func forget(slug: String) {
-        let entries = rememberedMaps().filter { $0.slug != slug }
-        guard let data = try? JSONEncoder().encode(entries) else { return }
-        UserDefaults.standard.set(data, forKey: indexKey)
-        // 편집 토큰도 함께 버린다. 목록에서 지웠는데 자격만 남아 있을 이유가 없다.
+    /// 목록에서만 숨긴다. 서버 지도·공유 링크·편집 토큰은 그대로 둔다.
+    static func hide(slug: String) {
+        guard let entry = rememberedMaps().first(where: { $0.slug == slug }) else { return }
+        var hidden = hiddenMaps().filter { $0.slug != slug }
+        hidden.append(entry)
+
+        // 숨긴 쪽을 먼저 써서 두 UserDefaults 갱신 사이에 앱이 끝나도 항목을 잃지 않는다.
+        writeEntries(hidden, key: hiddenIndexKey, backupKey: hiddenIndexBackupKey)
+        writeEntries(
+            rememberedMaps().filter { $0.slug != slug },
+            key: indexKey,
+            backupKey: indexBackupKey
+        )
+    }
+
+    static func restoreHidden(slug: String) {
+        guard let entry = hiddenMaps().first(where: { $0.slug == slug }) else { return }
+        var visible = rememberedMaps().filter { $0.slug != slug }
+        visible.append(entry)
+
+        // 복원할 때도 보이는 쪽을 먼저 써서 중간 종료가 데이터 손실이 아닌 중복으로 끝나게 한다.
+        writeEntries(visible, key: indexKey, backupKey: indexBackupKey)
+        writeEntries(
+            hiddenMaps().filter { $0.slug != slug },
+            key: hiddenIndexKey,
+            backupKey: hiddenIndexBackupKey
+        )
+    }
+
+    /// 서버 삭제가 확인된 뒤에만 로컬 목록과 편집 자격을 함께 버린다.
+    static func discardLocalData(slug: String) {
+        writeEntries(
+            rememberedMaps().filter { $0.slug != slug },
+            key: indexKey,
+            backupKey: indexBackupKey
+        )
+        writeEntries(
+            hiddenMaps().filter { $0.slug != slug },
+            key: hiddenIndexKey,
+            backupKey: hiddenIndexBackupKey
+        )
+        try? EditTokenKeychain.delete(slug: slug)
         UserDefaults.standard.removeObject(forKey: tokenPrefix + slug)
     }
 
@@ -223,6 +296,34 @@ enum MapStore {
         return decoded?.updatedAt
     }
 
+    // MARK: - 완전 삭제
+
+    /// 서버의 지도와 공유 링크를 지운다. 서버가 성공을 확인하기 전에는 로컬 편집 토큰을
+    /// 건드리지 않으므로 네트워크 실패가 편집권 상실로 이어지지 않는다.
+    static func delete(slug: String) async throws {
+        guard let token = editToken(for: slug) else {
+            throw AppError.message("이 기기에서는 삭제할 수 없는 지도입니다.")
+        }
+
+        var request = URLRequest(
+            url: AppConfig.apiBaseURL.appendingPathComponent("api/maps/\(slug)")
+        )
+        request.httpMethod = "DELETE"
+        request.setValue(token, forHTTPHeaderField: "X-Edit-Token")
+        request.timeoutInterval = 20
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw AppError.message("삭제 응답을 읽지 못했습니다.")
+        }
+        guard http.statusCode == 200 else {
+            let decoded = try? JSONDecoder().decode(SaveResponse.self, from: data)
+            throw AppError.message(decoded?.error ?? "지도를 삭제하지 못했습니다 (\(http.statusCode))")
+        }
+
+        discardLocalData(slug: slug)
+    }
+
     // MARK: - 복제와 썸네일
 
     /// 서버의 OG 이미지가 지도 한 장을 이미 렌더링하므로 내 지도 목록도 같은 그림을 쓴다.
@@ -255,6 +356,88 @@ enum MapStore {
     /// 나눠 볼 주소. 웹이 여는 것과 같은 링크다.
     static func shareURL(slug: String) -> URL {
         AppConfig.apiBaseURL.appendingPathComponent("m/\(slug)")
+    }
+
+    private static func readEntries(key: String, backupKey: String) -> [Entry] {
+        let defaults = UserDefaults.standard
+        if let data = defaults.data(forKey: key),
+           let entries = try? JSONDecoder().decode([Entry].self, from: data) {
+            return entries
+        }
+        if let data = defaults.data(forKey: backupKey),
+           let entries = try? JSONDecoder().decode([Entry].self, from: data) {
+            return entries
+        }
+        return []
+    }
+
+    private static func writeEntries(_ entries: [Entry], key: String, backupKey: String) {
+        let defaults = UserDefaults.standard
+        guard let encoded = try? JSONEncoder().encode(entries) else { return }
+        if let current = defaults.data(forKey: key),
+           (try? JSONDecoder().decode([Entry].self, from: current)) != nil {
+            defaults.set(current, forKey: backupKey)
+        }
+        defaults.set(encoded, forKey: key)
+    }
+}
+
+/// 익명 편집 토큰은 서버 지도를 고칠 수 있는 유일한 자격이므로 일반 설정값과 분리한다.
+private enum EditTokenKeychain {
+    private static let service = "com.hiorio.mapline.edit-token"
+
+    static func read(slug: String) throws -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: slug,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        if status == errSecItemNotFound { return nil }
+        guard status == errSecSuccess else { throw osStatusError(status) }
+        guard let data = item as? Data, let token = String(data: data, encoding: .utf8) else {
+            throw LocalDataStoreError.corrupted("지도 편집 권한")
+        }
+        return token
+    }
+
+    static func write(_ token: String, slug: String) throws {
+        let key: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: slug,
+        ]
+        let value: [String: Any] = [
+            kSecValueData as String: Data(token.utf8),
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
+        ]
+        let updateStatus = SecItemUpdate(key as CFDictionary, value as CFDictionary)
+        if updateStatus == errSecSuccess { return }
+        guard updateStatus == errSecItemNotFound else { throw osStatusError(updateStatus) }
+
+        var insert = key
+        value.forEach { insert[$0.key] = $0.value }
+        let addStatus = SecItemAdd(insert as CFDictionary, nil)
+        guard addStatus == errSecSuccess else { throw osStatusError(addStatus) }
+    }
+
+    static func delete(slug: String) throws {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: slug,
+        ]
+        let status = SecItemDelete(query as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw osStatusError(status)
+        }
+    }
+
+    private static func osStatusError(_ status: OSStatus) -> Error {
+        NSError(domain: NSOSStatusErrorDomain, code: Int(status))
     }
 }
 

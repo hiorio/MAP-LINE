@@ -14,6 +14,7 @@ import {
   candidateLinks,
   labelBoxSize,
   legShapes,
+  routeAnnotations,
   ACCESS_STYLE,
   ARROW_COLOR,
   HUB_RADIUS,
@@ -88,6 +89,12 @@ export function drawScene(
   // 보관함은 코스 핀보다 아래에 깔아 둔다. 코스가 주인공이다.
   for (const saved of scene.saved ?? []) {
     drawSavedMarker(ctx, saved.name, project(saved.location));
+  }
+
+  // 경로선보다 위, 단계 핀보다 아래에 놓는다. 핀 번호를 가리지 않으면서도 지도
+  // 도로와 손그림 위에서 이동수단·시간을 바로 읽을 수 있다.
+  if (scene.showStopArrows !== false) {
+    drawRouteAnnotations(ctx, scene.stops, scene.legs ?? [], project);
   }
 
   // 같은 단계의 후보는 모두 같은 번호를 달고 같은 모양으로 찍힌다.
@@ -193,6 +200,29 @@ function drawStopArrows(
     ctx.lineTo(right.x, right.y);
     ctx.closePath();
     ctx.fill();
+  }
+  ctx.restore();
+}
+
+/** 실제 경로 중간에 앱과 같은 `도보 · 1.2km · 16분` 요약을 표시한다. */
+function drawRouteAnnotations(
+  ctx: CanvasRenderingContext2D,
+  stops: readonly Stop[],
+  legs: readonly StopLeg[],
+  project: Projector,
+) {
+  ctx.save();
+  ctx.font = `700 16px ${LABEL_FONT}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = 6;
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.96)';
+
+  for (const annotation of routeAnnotations(stops, legs, project)) {
+    ctx.strokeText(annotation.text, annotation.at.x, annotation.at.y);
+    ctx.fillStyle = MODE_STYLE[annotation.mode].color;
+    ctx.fillText(annotation.text, annotation.at.x, annotation.at.y);
   }
   ctx.restore();
 }

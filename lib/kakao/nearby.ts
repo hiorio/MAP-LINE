@@ -24,14 +24,14 @@ const CATEGORY_CODES = ['FD6', 'CE7', 'AT4'] as const;
  * 손가락으로 짚은 지점 주변. 좁으면 아무것도 안 잡히고 넓으면 엉뚱한 게 섞인다.
  *
  * 반경은 60m를 유지한다. 좁히면 한적한 동네에서 아무것도 안 잡혀 "여기에 핀"밖에
- * 못 하게 된다. 대신 보여 주는 개수를 줄인다. 이 메뉴는 "짚은 자리가 어디인가"를
- * 묻는 것이지 주변 검색 결과가 아니다. 강남 한복판에서 60m 안에 가게가 수십 곳이라
- * 여섯 개를 늘어놓으면 고르는 일이 되어 버린다. 가까운 순으로 잘라 넷만 둔다.
+ * 못 하게 된다. 카카오가 허용하는 한 페이지 최대 15곳까지 서버 안에서 검사한 뒤,
+ * 사용자가 누른 POI를 먼저 찾고 화면에 보낼 때만 넷으로 줄인다. 먼저 넷으로 자르면
+ * 강남처럼 밀집한 곳에서는 정확히 누른 스타벅스가 후보에서 사라진다.
  */
 const RADIUS_M = 60;
 /** 주소가 가리키는 건물의 POI는 출입구/대표점이 눌린 좌표보다 조금 멀 수 있다. */
 const BUILDING_RADIUS_M = 150;
-const PER_CATEGORY = 5;
+const PER_CATEGORY = 15;
 export const NEARBY_LIMIT = 4;
 
 interface KakaoCategoryDocument {
@@ -49,6 +49,12 @@ interface KakaoCategoryDocument {
 export interface NearbyResult {
   /** 그 지점의 주소. 주변에 아무 장소가 없어도 이건 보여 줄 수 있다. */
   address?: string;
+  /** SDK가 준 POI id와 Local API 장소 id가 정확히 일치한 경우에만 존재한다. */
+  tappedPlace?: PlaceCandidate;
+  /**
+   * 가까운 후보 목록. 예전 iOS와의 호환을 위해 tappedPlace가 있으면 첫 항목에도 넣는다.
+   * 새 iOS는 명시적인 tappedPlace를 읽고 이 중복을 화면에서 제거한다.
+   */
   places: PlaceCandidate[];
 }
 
@@ -57,7 +63,10 @@ export interface AddressLookup {
   buildingName?: string;
 }
 
-export async function findNearby(center: LatLng): Promise<NearbyResult> {
+export async function findNearby(
+  center: LatLng,
+  preferredKakaoPlaceId?: string,
+): Promise<NearbyResult> {
   const key = process.env.KAKAO_REST_KEY;
   if (!key) throw new MissingRestKeyError();
 
@@ -69,28 +78,42 @@ export async function findNearby(center: LatLng): Promise<NearbyResult> {
   );
   const addressResult = await addressPromise;
 
-  // 예식장처럼 Kakao의 15개 대표 카테고리에 없는 시설도 있다. 좌표→주소 응답의
-  // 건물명이 있으면 그 이름으로 한 번 더 찾아, 음식점 후보보다 앞에 둔다.
+  // 예식장처럼 Kakao의 대표 카테고리에 없는 시설도 있다. 좌표→주소 응답의
+  // 건물명이 있으면 그 이름으로 한 번 더 찾아 전체 후보에 보탠다.
   const buildingPromise = addressResult.buildingName
     ? fetchKeyword(addressResult.buildingName, center, headers)
     : Promise.resolve([]);
   const [categoryResults, buildingResults] = await Promise.all([categoryPromise, buildingPromise]);
 
-  // 카테고리가 겹치면 같은 장소가 두 번 나온다.
+  // 카테고리나 건물명 검색이 겹치면 같은 장소가 두 번 나온다. 먼저 모든 후보를
+  // 모아야 뒤쪽에 있던 정확한 POI를 찾을 수 있다.
   const seen = new Set<string>();
-  const categoryPlaces = categoryResults
-    .flat()
-    .sort((a, b) => (a.distanceM ?? Infinity) - (b.distanceM ?? Infinity));
-  const places = [...buildingResults, ...categoryPlaces]
+  const candidates = [...buildingResults, ...categoryResults.flat()]
     .filter((place) => {
       const id = place.kakaoPlaceId || `${place.name}:${place.location.lat}`;
       if (seen.has(id)) return false;
       seen.add(id);
       return true;
     })
-    .slice(0, NEARBY_LIMIT);
+    .sort((a, b) => (a.distanceM ?? Infinity) - (b.distanceM ?? Infinity));
 
-  return { ...(addressResult.address ? { address: addressResult.address } : {}), places };
+  const normalizedPreferredID = preferredKakaoPlaceId?.trim();
+  const tappedPlace = normalizedPreferredID
+    ? candidates.find((place) => place.kakaoPlaceId === normalizedPreferredID)
+    : undefined;
+  const nearbyLimit = tappedPlace ? NEARBY_LIMIT - 1 : NEARBY_LIMIT;
+  const nearbyPlaces = candidates
+    .filter((place) => place !== tappedPlace)
+    .slice(0, nearbyLimit);
+  // 현재 배포된 iOS는 tappedPlace 필드를 모른다. 정확한 장소를 첫 항목에도 두면 서버를
+  // 먼저 배포해도 구버전이 오히려 다른 근처 장소를 누른 곳으로 표시하지 않는다.
+  const places = tappedPlace ? [tappedPlace, ...nearbyPlaces] : nearbyPlaces;
+
+  return {
+    ...(addressResult.address ? { address: addressResult.address } : {}),
+    ...(tappedPlace ? { tappedPlace } : {}),
+    places,
+  };
 }
 
 async function fetchAddress(

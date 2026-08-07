@@ -13,6 +13,7 @@ struct SavedPlacesView: View {
     @State private var deletingGroup: SavedPlaceGroup?
     @State private var query = ""
     @State private var editMode: EditMode = .inactive
+    @State private var storageError: String?
 
     private let placeStore = SavedPlaceStore(storage: AppGroupPlaceStorage())
     private let groupStore = SavedPlaceGroupStore(storage: AppGroupSavedPlaceGroupStorage())
@@ -99,12 +100,16 @@ struct SavedPlacesView: View {
         }
         .sheet(item: $editor) { target in
             SavedPlaceGroupEditor(group: target.group) { group in
-                if target.group == nil {
-                    _ = groupStore.add(group)
-                } else {
-                    groupStore.update(group)
+                do {
+                    if target.group == nil {
+                        _ = try groupStore.add(group)
+                    } else {
+                        try groupStore.update(group)
+                    }
+                    reload()
+                } catch {
+                    storageError = error.localizedDescription
                 }
-                reload()
             }
         }
         .alert(
@@ -119,6 +124,17 @@ struct SavedPlacesView: View {
             Button("취소", role: .cancel) { deletingGroup = nil }
         } message: { group in
             Text("‘\(group.name)’의 장소는 삭제되지 않고 ‘받은 장소’로 이동합니다.")
+        }
+        .alert(
+            "보관함을 저장하지 못했습니다",
+            isPresented: Binding(
+                get: { storageError != nil },
+                set: { if !$0 { storageError = nil } }
+            )
+        ) {
+            Button("확인", role: .cancel) { storageError = nil }
+        } message: {
+            Text(storageError ?? "")
         }
         .onAppear(perform: reload)
     }
@@ -218,20 +234,32 @@ struct SavedPlacesView: View {
     private func moveGroups(from source: IndexSet, to destination: Int) {
         var reordered = customGroups
         reordered.move(fromOffsets: source, toOffset: destination)
-        groupStore.reorder(customGroupIDs: reordered.map(\.id))
-        reload()
+        do {
+            try groupStore.reorder(customGroupIDs: reordered.map(\.id))
+            reload()
+        } catch {
+            storageError = error.localizedDescription
+        }
     }
 
     private func reload() {
-        groups = groupStore.all()
-        places = placeStore.all()
+        do {
+            groups = try groupStore.all()
+            places = try placeStore.all()
+        } catch {
+            storageError = error.localizedDescription
+        }
     }
 
     private func delete(_ group: SavedPlaceGroup) {
-        placeStore.moveAll(from: group.id, to: SavedPlaceGroup.inboxID)
-        groupStore.remove(id: group.id)
-        deletingGroup = nil
-        reload()
+        do {
+            try placeStore.moveAll(from: group.id, to: SavedPlaceGroup.inboxID)
+            try groupStore.remove(id: group.id)
+            deletingGroup = nil
+            reload()
+        } catch {
+            storageError = error.localizedDescription
+        }
     }
 }
 
@@ -250,6 +278,7 @@ private struct SavedPlaceGroupView: View {
     @State private var selectingForCourse = false
     @State private var courseSelection: Set<String> = []
     @State private var pendingCoursePlaces: CoursePlaces?
+    @State private var storageError: String?
 
     private struct CoursePlaces: Identifiable {
         let id = UUID()
@@ -346,8 +375,15 @@ private struct SavedPlaceGroupView: View {
         }
         .sheet(isPresented: $searching) {
             PlaceSearchSheet(title: "\(group.name)에 장소 추가", near: nil) { candidate in
-                _ = store.addOrMove(candidate.asSavedPlace(groupID: group.id), to: group.id)
-                reload()
+                do {
+                    _ = try store.addOrMove(
+                        candidate.asSavedPlace(groupID: group.id),
+                        to: group.id
+                    )
+                    reload()
+                } catch {
+                    storageError = error.localizedDescription
+                }
             }
         }
         .sheet(item: $moveRequest) { request in
@@ -356,10 +392,14 @@ private struct SavedPlaceGroupView: View {
                 sourceGroupID: group.id,
                 groups: groups
             ) { targetID in
-                store.move(ids: Set(request.places.map(\.id)), to: targetID)
-                courseSelection = []
-                selectingForCourse = false
-                reload()
+                do {
+                    try store.move(ids: Set(request.places.map(\.id)), to: targetID)
+                    courseSelection = []
+                    selectingForCourse = false
+                    reload()
+                } catch {
+                    storageError = error.localizedDescription
+                }
             }
         }
         .sheet(item: $pendingCoursePlaces) { picked in
@@ -411,6 +451,17 @@ private struct SavedPlaceGroupView: View {
                 .background(.regularMaterial)
             }
         }
+        .alert(
+            "보관함을 저장하지 못했습니다",
+            isPresented: Binding(
+                get: { storageError != nil },
+                set: { if !$0 { storageError = nil } }
+            )
+        ) {
+            Button("확인", role: .cancel) { storageError = nil }
+        } message: {
+            Text(storageError ?? "")
+        }
         .onAppear(perform: reload)
     }
 
@@ -450,13 +501,21 @@ private struct SavedPlaceGroupView: View {
     }
 
     private func reload() {
-        places = store.all(in: group.id)
-        onChanged()
+        do {
+            places = try store.all(in: group.id)
+            onChanged()
+        } catch {
+            storageError = error.localizedDescription
+        }
     }
 
     private func remove(_ place: SavedPlace) {
-        store.remove(id: place.id)
-        reload()
+        do {
+            try store.remove(id: place.id)
+            reload()
+        } catch {
+            storageError = error.localizedDescription
+        }
     }
 
     private func toggleCourseSelection(_ place: SavedPlace) {
@@ -468,13 +527,7 @@ private struct SavedPlaceGroupView: View {
     }
 
     private func mapPlace(_ place: SavedPlace) -> MapPlace {
-        MapPlace(
-            name: place.name,
-            address: place.address,
-            kakaoPlaceId: place.kakaoPlaceId,
-            location: GeoPoint(lat: place.lat, lng: place.lng),
-            pinColor: group.colorHex
-        )
+        place.mapPlace(pinColor: group.colorHex)
     }
 }
 

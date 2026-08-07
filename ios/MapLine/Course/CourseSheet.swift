@@ -8,6 +8,8 @@ struct CourseSheet: View {
     @Binding var stops: [Stop]
     @Binding var legs: [StopLeg]
     var searchCenter: PlaceCandidate.Coordinate?
+    var savedPins: [SavedPlacePin]
+    let onSaveToLibrary: (MapPlace, SavedPlaceGroup) -> String?
 
     @Environment(\.dismiss) private var dismiss
     /// 지금 길찾기를 부르고 있는 구간들. 여러 구간을 동시에 바꿀 수 있다.
@@ -19,6 +21,7 @@ struct CourseSheet: View {
     @State private var undoRemoval: RemovalUndo?
     @State private var undoTask: Task<Void, Never>?
     @State private var routeRevision = 0
+    @State private var openedCandidate: OpenedCandidate?
 
     private struct CandidateTarget: Identifiable {
         let stopID: String
@@ -30,6 +33,15 @@ struct CourseSheet: View {
         let message: String
         let stops: [Stop]
         let legs: [StopLeg]
+    }
+
+    private struct OpenedCandidate: Identifiable {
+        let stopID: String
+        let place: MapPlace
+        let stopNumber: Int
+        let canChoosePrimary: Bool
+        let isPrimary: Bool
+        var id: String { place.id }
     }
 
     var body: some View {
@@ -75,6 +87,25 @@ struct CourseSheet: View {
                 }
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
+            }
+            .sheet(item: $openedCandidate) { picked in
+                StopPinSheet(
+                    place: picked.place,
+                    stopNumber: picked.stopNumber,
+                    canChoosePrimary: picked.canChoosePrimary,
+                    isPrimary: picked.isPrimary,
+                    savedGroup: savedGroup(containing: picked.place),
+                    onMakePrimary: {
+                        togglePrimary(stopID: picked.stopID, placeID: picked.place.id)
+                    },
+                    onSaveToLibrary: { group in
+                        onSaveToLibrary(picked.place, group)
+                    },
+                    onRemove: {
+                        removeCandidate(stopID: picked.stopID, placeID: picked.place.id)
+                    }
+                )
+                .presentationDetents([.medium, .large])
             }
             .environment(\.editMode, $editMode)
             .safeAreaInset(edge: .bottom) {
@@ -133,18 +164,46 @@ struct CourseSheet: View {
                                 .foregroundStyle(Color.accentColor)
                         }
 
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(place.name)
-                                .font(.subheadline.weight(.medium))
-                                .lineLimit(1)
-                            if let address = place.address, !address.isEmpty {
-                                Text(address)
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
+                        Button {
+                            openedCandidate = OpenedCandidate(
+                                stopID: stop.id,
+                                place: place,
+                                stopNumber: index + 1,
+                                canChoosePrimary: stop.candidates.count > 1,
+                                isPrimary: stop.primaryId == place.id
+                            )
+                        } label: {
+                            HStack(spacing: 6) {
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(place.name)
+                                        .font(.subheadline.weight(.medium))
+                                        .lineLimit(1)
+                                    if let address = place.address, !address.isEmpty {
+                                        Text(address)
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                    }
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                if let group = savedGroup(containing: place) {
+                                    Image(systemName: group.marker.symbolName)
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.secondary)
+                                        .accessibilityLabel("\(group.name)에 저장됨")
+                                }
+                                Image(systemName: "chevron.right")
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundStyle(.tertiary)
                             }
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("\(place.name) 상세")
+                        .accessibilityValue(
+                            savedGroup(containing: place).map { "\($0.name)에 저장됨" }
+                                ?? "보관함에 저장되지 않음"
+                        )
+                        .accessibilityIdentifier("course.placeDetail.\(index).\(candidateIndex)")
 
                         Button(role: .destructive) {
                             removeCandidate(stopID: stop.id, placeID: place.id)
@@ -173,6 +232,11 @@ struct CourseSheet: View {
             .accessibilityIdentifier("course.addCandidate.\(index)")
         }
         .padding(.vertical, 2)
+    }
+
+    private func savedGroup(containing place: MapPlace) -> SavedPlaceGroup? {
+        let saved = place.savedPlace()
+        return savedPins.first { isSamePlace($0.place, saved) }?.group
     }
 
     /// 검색 화면에서 체크한 여러 곳을 한 번에 담는다. 대상이 없으면 웹처럼 한 단계로 묶는다.

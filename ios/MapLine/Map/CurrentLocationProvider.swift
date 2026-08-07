@@ -10,11 +10,15 @@ final class CurrentLocationProvider: NSObject, ObservableObject, CLLocationManag
     private let manager = CLLocationManager()
     private var completion: ((Result<GeoPoint, Error>) -> Void)?
     private var timeoutWorkItem: DispatchWorkItem?
+    private var retryWorkItem: DispatchWorkItem?
+    private var locationRequestStarted = false
 
     override init() {
         super.init()
         manager.delegate = self
-        manager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
+        // 지도 중심을 찾는 기능에는 10m GPS 고정밀도가 필요하지 않다. 실내에서도 Wi-Fi·
+        // 기지국 위치가 빨리 오도록 100m를 요청하고, 받은 실제 정확도는 그대로 사용한다.
+        manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
     }
 
     func request(completion: @escaping (Result<GeoPoint, Error>) -> Void) {
@@ -40,6 +44,7 @@ final class CurrentLocationProvider: NSObject, ObservableObject, CLLocationManag
 
         self.completion = completion
         isRequesting = true
+        locationRequestStarted = false
         continueAfterAuthorization(manager.authorizationStatus)
     }
 
@@ -51,7 +56,12 @@ final class CurrentLocationProvider: NSObject, ObservableObject, CLLocationManag
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         // 위치 관리자는 오래된 캐시를 먼저 섞어 보내기도 한다. 정확도와 시각이 유효한
         // 가장 최신 값이 올 때까지 기다린다.
-        guard let location = mostRecentUsableLocation(locations) else { return }
+        guard let location = mostRecentUsableLocation(locations) else {
+            // requestLocation은 한 번 전달한 뒤 멈춘다. 오래된 캐시뿐이었다면 한 번 더
+            // 요청하지 않는 한 새 좌표가 영원히 오지 않는다.
+            scheduleRetry()
+            return
+        }
         finish(
             .success(
                 GeoPoint(
@@ -63,9 +73,16 @@ final class CurrentLocationProvider: NSObject, ObservableObject, CLLocationManag
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        // GPS가 준비되는 동안 흔히 한두 번 오는 임시 오류다. 여기서 요청을 끝내면
-        // 권한을 허용했는데도 버튼이 아무 일도 안 하는 것처럼 보인다.
-        guard !isTransientLocationError(error) else { return }
+        // GPS가 준비되는 동안 흔히 한두 번 오는 임시 오류다. 일회 요청은 오류 뒤에
+        // 자동으로 계속되지 않으므로 제한 시간 안에서 다시 요청한다.
+        guard !isTransientLocationError(error) else {
+            scheduleRetry()
+            return
+        }
+        if (error as? CLError)?.code == .denied {
+            finish(.failure(LocationError.permissionDenied))
+            return
+        }
         finish(.failure(error))
     }
 
@@ -87,8 +104,7 @@ final class CurrentLocationProvider: NSObject, ObservableObject, CLLocationManag
                 )
                 return
             }
-            manager.startUpdatingLocation()
-            scheduleTimeout()
+            beginLocationRequest()
         case .denied, .restricted:
             finish(.failure(LocationError.permissionDenied))
         @unknown default:
@@ -96,19 +112,44 @@ final class CurrentLocationProvider: NSObject, ObservableObject, CLLocationManag
         }
     }
 
+    private func beginLocationRequest() {
+        guard isRequesting, !locationRequestStarted else { return }
+        locationRequestStarted = true
+        scheduleTimeout()
+        // 한 번의 지도 이동만 필요하므로 지속 추적 대신 Apple의 일회 요청 API를 쓴다.
+        manager.requestLocation()
+    }
+
+    private func scheduleRetry() {
+        guard isRequesting else { return }
+        locationRequestStarted = false
+        retryWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.isRequesting else { return }
+            self.beginLocationRequest()
+        }
+        retryWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: work)
+    }
+
     private func scheduleTimeout() {
-        timeoutWorkItem?.cancel()
+        // 재시도할 때마다 제한 시간을 새로 시작하면 GPS가 계속 실패하는 기기에서 버튼이
+        // 영원히 로딩 상태가 된다. 최초 일회 요청부터 20초를 전체 한도로 쓴다.
+        guard timeoutWorkItem == nil else { return }
         let work = DispatchWorkItem { [weak self] in
             guard self?.isRequesting == true else { return }
             self?.finish(.failure(LocationError.timedOut))
         }
         timeoutWorkItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 12, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 20, execute: work)
     }
 
     private func finish(_ result: Result<GeoPoint, Error>) {
         timeoutWorkItem?.cancel()
         timeoutWorkItem = nil
+        retryWorkItem?.cancel()
+        retryWorkItem = nil
+        locationRequestStarted = false
         manager.stopUpdatingLocation()
         let callback = completion
         completion = nil

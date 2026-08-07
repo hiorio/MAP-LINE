@@ -132,10 +132,10 @@ struct MapDocument: Equatable, Codable {
     ) {
         self.title = title
         self.center = center
-        self.zoomLevel = zoomLevel
+        self.zoomLevel = MapZoom.normalizedDocumentLevel(zoomLevel)
         self.stops = stops
         self.legs = legs
-        self.strokes = strokes
+        self.strokes = strokes.map { $0.normalizingDocumentZoomLevel() }
         self.labels = labels
         self.showCandidateLinks = showCandidateLinks
         self.showStopArrows = showStopArrows
@@ -147,10 +147,13 @@ struct MapDocument: Equatable, Codable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         title = try container.decodeIfPresent(String.self, forKey: .title) ?? ""
         center = try container.decodeIfPresent(GeoPoint.self, forKey: .center) ?? MapPalette.defaultCenter
-        zoomLevel = try container.decodeIfPresent(Int.self, forKey: .zoomLevel) ?? 3
+        zoomLevel = MapZoom.normalizedDocumentLevel(
+            try container.decodeIfPresent(Int.self, forKey: .zoomLevel) ?? 3
+        )
         stops = try container.decodeIfPresent([Stop].self, forKey: .stops) ?? []
         legs = try container.decodeIfPresent([StopLeg].self, forKey: .legs) ?? []
-        strokes = try container.decodeIfPresent([GeoStroke].self, forKey: .strokes) ?? []
+        let decodedStrokes = try container.decodeIfPresent([GeoStroke].self, forKey: .strokes) ?? []
+        strokes = decodedStrokes.map { $0.normalizingDocumentZoomLevel() }
         labels = try container.decodeIfPresent([MapLabel].self, forKey: .labels) ?? []
         showCandidateLinks = try container.decodeIfPresent(Bool.self, forKey: .showCandidateLinks) ?? true
         showStopArrows = try container.decodeIfPresent(Bool.self, forKey: .showStopArrows) ?? true

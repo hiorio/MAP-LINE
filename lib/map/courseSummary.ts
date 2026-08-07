@@ -1,12 +1,14 @@
-import { formatDistance, type LatLng, type Stop, type StopLeg, type TravelMode } from './types';
+import {
+  formatDistance,
+  formatDuration,
+  travelModeLabel,
+  type LatLng,
+  type Stop,
+  type StopLeg,
+} from './types';
 import { drawableRoute } from './legs';
 
-const MODE_LABEL: Record<TravelMode, string> = {
-  straight: '직선',
-  walk: '도보',
-  transit: '대중교통',
-  bicycle: '자전거',
-};
+export { formatDuration } from './types';
 
 export interface SharedCourseCandidate {
   id: string;
@@ -57,7 +59,7 @@ export function buildSharedCourse(
       ...(leg
         ? {
             nextLeg: {
-              label: MODE_LABEL[leg.mode],
+              label: travelModeLabel(leg.mode),
               ...(route
                 ? {
                     detail: `${formatDistance(route.distanceM)} · ${formatDuration(route.durationS)}`,
@@ -69,12 +71,6 @@ export function buildSharedCourse(
         : {}),
     };
   });
-}
-
-export function formatDuration(seconds: number): string {
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes}분`;
-  return `${Math.floor(minutes / 60)}시간 ${minutes % 60}분`;
 }
 
 /** 카카오톡 같은 링크 미리보기에서도 첫 후보만 확정 장소처럼 보이지 않게 한다. */

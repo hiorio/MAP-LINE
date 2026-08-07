@@ -7,16 +7,29 @@ import SwiftUI
 struct MyMapsView: View {
     /// 고른 지도를 화면에 올린다.
     let onOpen: (String) -> Void
+    /// 현재 열려 있는 지도가 완전 삭제된 경우 편집 화면도 안전하게 비우기 위한 알림.
+    let onDelete: (String) -> Void
+
+    init(
+        onOpen: @escaping (String) -> Void,
+        onDelete: @escaping (String) -> Void = { _ in }
+    ) {
+        self.onOpen = onOpen
+        self.onDelete = onDelete
+    }
 
     @Environment(\.dismiss) private var dismiss
     @State private var entries: [MapStore.Entry] = []
+    @State private var hiddenEntries: [MapStore.Entry] = []
     @State private var duplicatingSlug: String?
+    @State private var deletingSlug: String?
+    @State private var deletingEntry: MapStore.Entry?
     @State private var resultMessage: String?
 
     var body: some View {
         NavigationStack {
             List {
-                if entries.isEmpty {
+                if entries.isEmpty && hiddenEntries.isEmpty {
                     Section {
                         VStack(alignment: .leading, spacing: 6) {
                             Text("아직 저장한 지도가 없습니다.").font(.body)
@@ -64,7 +77,7 @@ struct MyMapsView: View {
                         .padding(.vertical, 3)
                     }
                     .buttonStyle(.plain)
-                    .disabled(duplicatingSlug != nil)
+                    .disabled(duplicatingSlug != nil || deletingSlug != nil)
                     .accessibilityIdentifier("mymaps.row.\(entry.slug)")
                     .swipeActions(edge: .leading, allowsFullSwipe: false) {
                         Button { duplicate(entry) } label: {
@@ -73,17 +86,61 @@ struct MyMapsView: View {
                         .tint(.blue)
                         .accessibilityIdentifier("mymaps.duplicate")
                     }
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button(role: .destructive) { deletingEntry = entry } label: {
+                            Label("완전 삭제", systemImage: "trash")
+                        }
+                        Button { hide(entry) } label: {
+                            Label("숨기기", systemImage: "eye.slash")
+                        }
+                        .tint(.gray)
+                    }
                     .contextMenu {
                         Button { duplicate(entry) } label: {
                             Label("지도 복제", systemImage: "plus.square.on.square")
                         }
+                        Button { hide(entry) } label: {
+                            Label("목록에서 숨기기", systemImage: "eye.slash")
+                        }
+                        Button(role: .destructive) { deletingEntry = entry } label: {
+                            Label("공유 지도 완전 삭제", systemImage: "trash")
+                        }
                     }
                 }
-                .onDelete { offsets in
-                    // 목록에서만 지운다. 서버의 지도와 이미 나눠 준 링크는 그대로 산다 —
-                    // 링크를 받은 사람 화면에서 지도가 사라지면 안 된다.
-                    for index in offsets { MapStore.forget(slug: entries[index].slug) }
-                    entries = MapStore.rememberedMaps()
+
+                if !hiddenEntries.isEmpty {
+                    Section {
+                        ForEach(hiddenEntries) { entry in
+                            HStack(spacing: 12) {
+                                mapThumbnail(entry)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(entry.title.isEmpty ? "제목 없는 지도" : entry.title)
+                                        .font(.body.weight(.semibold))
+                                        .lineLimit(1)
+                                    Text("공유 링크와 편집 권한은 유지됩니다.")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Button("복원") { restore(entry) }
+                                    .buttonStyle(.bordered)
+                                    .disabled(deletingSlug != nil)
+                            }
+                            .padding(.vertical, 3)
+                            .contextMenu {
+                                Button { restore(entry) } label: {
+                                    Label("목록으로 복원", systemImage: "eye")
+                                }
+                                Button(role: .destructive) { deletingEntry = entry } label: {
+                                    Label("공유 지도 완전 삭제", systemImage: "trash")
+                                }
+                            }
+                        }
+                    } header: {
+                        Text("숨긴 지도")
+                    } footer: {
+                        Text("완전 삭제하기 전까지 링크를 받은 사람은 계속 지도를 볼 수 있습니다.")
+                    }
                 }
             }
             .navigationTitle("내 지도")
@@ -94,8 +151,22 @@ struct MyMapsView: View {
                 }
             }
         }
+        .confirmationDialog(
+            "공유 지도까지 완전히 삭제할까요?",
+            isPresented: Binding(
+                get: { deletingEntry != nil },
+                set: { if !$0 { deletingEntry = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: deletingEntry
+        ) { entry in
+            Button("완전 삭제", role: .destructive) { delete(entry) }
+            Button("취소", role: .cancel) { deletingEntry = nil }
+        } message: { _ in
+            Text("서버의 지도와 공유 링크가 함께 사라지며 되돌릴 수 없습니다.")
+        }
         .alert(
-            "지도 복제",
+            "내 지도",
             isPresented: Binding(
                 get: { resultMessage != nil },
                 set: { if !$0 { resultMessage = nil } }
@@ -109,7 +180,7 @@ struct MyMapsView: View {
             if ProcessInfo.processInfo.arguments.contains("-uiTestingSeedMaps") {
                 MapStore.remember(slug: "ui-map", title: "주말 나들이", stopCount: 3)
             }
-            entries = MapStore.rememberedMaps()
+            reloadEntries()
         }
         .task { await refreshMissingMetadata() }
     }
@@ -144,13 +215,45 @@ struct MyMapsView: View {
         Task {
             do {
                 _ = try await MapStore.duplicate(slug: entry.slug)
-                entries = MapStore.rememberedMaps()
+                reloadEntries()
                 resultMessage = "‘\(entry.title.isEmpty ? "제목 없는 지도" : entry.title)’ 복사본을 만들었습니다."
             } catch {
                 resultMessage = error.localizedDescription
             }
             duplicatingSlug = nil
         }
+    }
+
+    private func hide(_ entry: MapStore.Entry) {
+        MapStore.hide(slug: entry.slug)
+        reloadEntries()
+    }
+
+    private func restore(_ entry: MapStore.Entry) {
+        MapStore.restoreHidden(slug: entry.slug)
+        reloadEntries()
+    }
+
+    private func delete(_ entry: MapStore.Entry) {
+        guard deletingSlug == nil else { return }
+        deletingEntry = nil
+        deletingSlug = entry.slug
+        Task {
+            do {
+                try await MapStore.delete(slug: entry.slug)
+                onDelete(entry.slug)
+                reloadEntries()
+                resultMessage = "‘\(entry.title.isEmpty ? "제목 없는 지도" : entry.title)’와 공유 링크를 삭제했습니다."
+            } catch {
+                resultMessage = error.localizedDescription
+            }
+            deletingSlug = nil
+        }
+    }
+
+    private func reloadEntries() {
+        entries = MapStore.rememberedMaps()
+        hiddenEntries = MapStore.hiddenMaps()
     }
 
     /// 예전 앱이 저장한 목록에는 단계 수가 없다. 목록은 먼저 즉시 보여 주고, 모르는
@@ -170,7 +273,7 @@ struct MyMapsView: View {
                 savedAt: savedAt
             )
         }
-        entries = MapStore.rememberedMaps()
+        reloadEntries()
     }
 
     private func savedAtText(_ iso: String) -> String {

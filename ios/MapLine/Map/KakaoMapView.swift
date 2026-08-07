@@ -14,6 +14,8 @@ struct KakaoMapView: UIViewControllerRepresentable {
     var stops: [Stop]
     /// 단계 사이 구간.
     var legs: [StopLeg]
+    /// 같은 단계에 후보가 여럿일 때 후보끼리 묶어 보이는 회색 보조선.
+    var showCandidateLinks: Bool
     /// 손으로 그린 획들.
     var strokes: [GeoStroke]
     /// 지도 위에 남긴 메모들.
@@ -24,6 +26,8 @@ struct KakaoMapView: UIViewControllerRepresentable {
     var currentLocation: GeoPoint?
     var onLongPress: (GeoPoint) -> Void
     var onTapStopPin: (String) -> Void
+    /// 개인 보관함 마커를 눌렀을 때 저장 항목 id를 준다.
+    var onTapSavedPin: (String) -> Void
     var onTapMapPoi: (GeoPoint, String) -> Void
     var onTapMemo: (String) -> Void
     /// 메모를 길게 누른 채 끌고 손을 뗐을 때 확정된 위치.
@@ -65,11 +69,13 @@ struct KakaoMapView: UIViewControllerRepresentable {
         // 오래된 클로저를 들고 있으면 이미 사라진 화면 상태를 붙잡게 된다.
         controller.onLongPress = onLongPress
         controller.onTapStopPin = onTapStopPin
+        controller.onTapSavedPin = onTapSavedPin
         controller.onTapMapPoi = onTapMapPoi
         controller.onTapMemo = onTapMemo
         controller.onMoveMemo = onMoveMemo
         controller.onStrokesChanged = onStrokesChanged
         controller.memoDragEnabled = !isChoosingMemoMoveTarget
+        controller.showCandidateLinks = showCandidateLinks
         // 컨트롤러 쪽 didSet이 같은 값이면 다시 그리지 않는다.
         // 단계를 먼저 넣는다. 구간은 단계를 근거로 그려지므로 순서가 뒤바뀌면
         // 아직 없는 단계를 가리키는 구간을 한 번 그리게 된다.

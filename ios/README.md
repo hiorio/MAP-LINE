@@ -37,7 +37,7 @@ SDK의 롱프레스 이벤트는 시간을 바꿀 수 없어 앱은 `UILongPress
 |---|---|
 | 손그림 (위경도 고정, RDP 단순화, 한 획 되돌리기·전체 지우기) | `ContentView.swift`, `Map/DrawingOverlayView.swift`, `Domain/GeoStroke.swift` |
 | 꾹 눌러 주변 장소·건물명 찾기 또는 이름 검색 → 새 단계/기존 단계 후보로 담기 | `Course/DropPinSheet.swift`, `Shared/PlaceLookup.swift`(`NearbyLookup`) |
-| 번호 붙은 단계 핀, 복수검색·단계 선택·후보 일괄 추가, 대표 지정·재정렬·삭제 복구 | `Course/CoursePlacePickerSheet.swift`, `Course/CourseSheet.swift`, `Course/StopPinSheet.swift`, `Domain/MapDocument.swift` |
+| 번호 붙은 단계 핀, 복수검색·단계 선택·후보 일괄 추가, 같은 단계 회색 보조선, 대표 지정·재정렬·삭제 복구 | `Course/CoursePlacePickerSheet.swift`, `Course/CourseSheet.swift`, `Course/StopPinSheet.swift`, `Map/KakaoMapViewController.swift`, `Domain/MapDocument.swift` |
 | 구간 이동수단(직선/도보/대중교통/자전거), 실제 경로와 선 중간 거리·시간 표시 | `Course/CourseSheet.swift`, `Domain/StopLeg.swift`, `Domain/RouteLookup.swift`, `Domain/LegShapes.swift`, `Map/LegStyle.swift` |
 | 지도 위 메모 작성·수정·롱프레스 드래그 이동·삭제 | `Map/KakaoMapViewController.swift`, `Course/DropPinSheet.swift`, `Course/MemoSheet.swift`, `Domain/MapDocument.swift`(`MapLabel`) |
 | 자동 초안·서버 저장·지도 이름·이름 모달의 새 지도·불러오기·썸네일·단계 수·복제·공유 링크 | `Domain/MapDraftStore.swift`, `Domain/MapStore.swift`, `Course/MapTitleSheet.swift`, `Course/MyMapsView.swift` |
@@ -55,9 +55,17 @@ SDK의 롱프레스 이벤트는 시간을 바꿀 수 없어 앱은 `UILongPress
 지도에서 새 장소를 꾹 눌러 `핀 찍기`를 선택해도, 이미 단계가 있으면 `새 단계 만들기`와
 각 `N단계에 후보로 추가` 중 하나를 고릅니다. 첫 장소만 선택 단계를 생략하고 바로
 1단계가 됩니다.
+카카오 기본 장소 마커를 한 번 누르면 SDK의 POI id를 `/api/nearby`에 함께 보냅니다. 서버는
+음식점·카페·관광명소를 카테고리별 최대 15곳까지 내부에서 검사한 뒤 정확히 같은 id를 먼저
+분리하고, 마지막에 화면용 네 곳으로 줄입니다. id가 일치한 경우에만 `지도에서 누른 장소`로
+표시하며, 일치하지 않으면 가까운 가게를 누른 장소라고 단정하지 않고 `이 위치의 가까운 후보`로
+표시합니다.
 핀 컨텍스트의 주변 장소와 단계 선택 행은 글자·아이콘뿐 아니라 행의 빈 여백까지 전체가
 터치 영역입니다. 저장된 핀 상세의 대표 지정·삭제 행도 같은 규칙을 씁니다.
 단계 핀은 20pt, 장소 이름표는 16pt입니다.
+같은 단계에 후보가 둘 이상이면 각 후보를 단계 중심점으로 잇는 작은 회색 점선과 중심점을
+표시합니다. 실제 단계 사이 이동 경로보다 아래에 깔리고, 웹에서 자동 후보선을 꺼 저장한
+지도는 앱에서도 꺼진 상태를 유지합니다.
 
 지도 오른쪽 핵심 편집 버튼은 글자 없는 50pt 원형 아이콘입니다. 장소 추가는 파랑, 손그림은
 보라, 공유는 청록이라 지도 타일 위에서도 구별되고 기능 이름은 접근성 레이블로 제공합니다.
@@ -110,7 +118,10 @@ SDK의 롱프레스 이벤트는 시간을 바꿀 수 없어 앱은 `UILongPress
 폴더 안에서 여러 장소를 선택하면 한 번의 작업으로 원하는 폴더에 일괄 이동할 수 있습니다.
 
 지도 왼쪽 아래의 현재 위치 버튼은 탭할 때만 위치 권한과 좌표를 한 번 요청해 그곳으로
-지도를 이동합니다. 계속 추적하거나 위치를 서버에 저장하지 않습니다.
+지도를 이동합니다. Core Location의 일회 요청을 사용하고, 준비 중 임시 오류나 오래된 캐시만
+오면 20초 전체 제한 안에서 다시 요청합니다. 성공하면 진행 중인 카메라 이동을 끝내고 현재
+위치에 즉시 맞추며, 너무 넓게 축소돼 있었다면 최소한 동네가 보이는 레벨까지 확대하고 파란
+위치점을 표시합니다. 계속 추적하거나 위치를 서버에 저장하지 않습니다.
 
 중간지점은 참가자마다 정한 도보·대중교통·자전거를 후보 검색과 최종 실제 경로 시간에
 모두 반영합니다. 결과 1·2·3순위를 여러 개 체크해 지도에 함께 올릴 수 있고, 지도 선도
@@ -173,8 +184,8 @@ ios/
   코드를 넣으면 익스텐션 빌드가 깨집니다. 실제로 `RouteLookup`을 여기 뒀다가
   `Domain/`으로 옮겼습니다.
 - **그리기는 전부 `KakaoMapViewController`에 있습니다.** 레이어를 용도별로 나눠 두었고
-  (`strokes` / `stopPins` / `stopLegs` / `midpointPins` / `midpointLinks` / `memos` /
-  `savedPlaces` / `currentLocation`),
+  (`strokes` / `stopPins` / `candidateLinks` / `candidateHubs` / `stopLegs` / `midpointPins` /
+  `midpointLinks` / `memos` / `savedPlaces` / `currentLocation`),
   한쪽을 지울 때 다른 쪽이 같이 사라지지 않게 하려는 것입니다.
 - **웹과 같은 값을 내야 하는 규칙은 웹 파일을 명시해 뒀습니다.** `lib/map/types.ts`,
   `lib/map/legs.ts`, `lib/render/sceneGeometry.ts`가 짝입니다. 한쪽만 고치면 같은

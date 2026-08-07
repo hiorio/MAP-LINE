@@ -6,6 +6,7 @@ import { drawableRoute, legEndpoints } from '@/lib/map/legs';
 import { isSamePlace } from '@/lib/map/savedPlaces';
 import {
   formatDistance,
+  formatDuration,
   type LatLng,
   type PlaceCandidate,
   type TravelMode,
@@ -452,12 +453,6 @@ function LegEditor({ index }: { index: number }) {
       )}
     </div>
   );
-}
-
-function formatDuration(seconds: number): string {
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes}분`;
-  return `${Math.floor(minutes / 60)}시간 ${minutes % 60}분`;
 }
 
 /**
