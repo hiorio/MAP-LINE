@@ -63,4 +63,18 @@ describe('POST /api/parse-share', () => {
     expect(body.groups).toHaveLength(10);
     expect(searchAddress).toHaveBeenCalledTimes(10);
   });
+
+  it('장소 목록이 없는 카카오맵 그룹 공유를 장소명으로 검색하지 않는다', async () => {
+    const response = await POST(
+      request(
+        ['[카카오맵] 음식점 그룹', '[카카오맵] 음식점 그룹', 'https://kko.to/DzukR3dcsd0'].join('\n'),
+      ),
+    );
+    const body = (await response.json()) as { error: string };
+
+    expect(response.status).toBe(422);
+    expect(body.error).toContain('장소 목록이 포함되지 않아');
+    expect(searchAddress).not.toHaveBeenCalled();
+    expect(searchPlaces).not.toHaveBeenCalled();
+  });
 });

@@ -1,21 +1,28 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { BrandHomeLink } from '@/components/brand/BrandHomeLink';
 import { KakaoMap } from '@/components/map/KakaoMap';
 import { useMapCanvas } from '@/components/map/useMapCanvas';
 import { PlaceStrip } from '@/components/panels/PlaceStrip';
 import { SharedCourseSheet } from '@/components/panels/SharedCourseSheet';
 import { focusPlaces } from '@/lib/map/focusPlaces';
+import { legEndpoints } from '@/lib/map/legs';
 import { readEditToken } from '@/lib/map/persistence';
+import { requestRoute } from '@/lib/map/requestRoute';
 import { sceneViewport } from '@/lib/map/sceneViewport';
+import type { StopLeg } from '@/lib/map/types';
 import type { StoredMapDocument } from '@/lib/map/getMapDocument';
 
 export function Viewer({ document }: { document: StoredMapDocument }) {
   const [map, setMap] = useState<kakao.maps.Map | null>(null);
   const [canEdit, setCanEdit] = useState(false);
   const [courseOpen, setCourseOpen] = useState(false);
+  const [liveLegs, setLiveLegs] = useState<StopLeg[]>(document.legs ?? []);
+  const [loadingCarLegs, setLoadingCarLegs] = useState<Set<number>>(new Set());
+  const [failedCarLegs, setFailedCarLegs] = useState<Set<number>>(new Set());
+  const carRouteRequests = useRef(new Map<string, 'loading' | 'loaded'>());
   const viewport = useMemo(
     () => sceneViewport(document, { width: 800, height: 420 }),
     [document],
@@ -25,6 +32,56 @@ export function Viewer({ document }: { document: StoredMapDocument }) {
   useEffect(() => {
     setCanEdit(Boolean(readEditToken(document.slug)));
   }, [document.slug]);
+
+  useEffect(() => {
+    setLiveLegs(document.legs ?? []);
+    setLoadingCarLegs(new Set());
+    setFailedCarLegs(new Set());
+    carRouteRequests.current.clear();
+  }, [document.slug, document.legs]);
+
+  useEffect(() => {
+    if (!courseOpen) return;
+
+    // 자동차 경로는 제공자 저장 조건 때문에 DB에 남기지 않는다. 공유 링크를 실제로 연
+    // 사람이 동선 상세까지 볼 때만 한 번 받아, 이 브라우저 세션의 지도에만 얹는다.
+    for (const [index, leg] of (document.legs ?? []).entries()) {
+      if (leg.mode !== 'car') continue;
+      const ends = legEndpoints(document.stops, index);
+      if (!ends) continue;
+
+      const token = `${index}:${ends.from.id}:${ends.to.id}`;
+      if (carRouteRequests.current.has(token)) continue;
+      carRouteRequests.current.set(token, 'loading');
+      setLoadingCarLegs((current) => new Set(current).add(index));
+      setFailedCarLegs((current) => {
+        const next = new Set(current);
+        next.delete(index);
+        return next;
+      });
+
+      void requestRoute('car', ends.from, ends.to).then((route) => {
+        setLoadingCarLegs((current) => {
+          const next = new Set(current);
+          next.delete(index);
+          return next;
+        });
+        if (!route) {
+          carRouteRequests.current.delete(token);
+          setFailedCarLegs((current) => new Set(current).add(index));
+          return;
+        }
+        carRouteRequests.current.set(token, 'loaded');
+        setLiveLegs((current) => {
+          const active = current[index];
+          if (!active || active.mode !== 'car') return current;
+          const next = [...current];
+          next[index] = { mode: 'car', route };
+          return next;
+        });
+      });
+    }
+  }, [courseOpen, document.legs, document.stops]);
 
   useEffect(() => {
     // 프리페치·크롤러와 구분하기 위해 실제로 열렸을 때만 센다.
@@ -73,7 +130,7 @@ export function Viewer({ document }: { document: StoredMapDocument }) {
             focusPlaces(readyMap, viewport.coordinates, 56);
           }}
         />
-        <ViewerCanvas map={map} document={document} />
+        <ViewerCanvas map={map} document={document} legs={liveLegs} />
       </div>
 
       <PlaceStrip stops={document.stops} onFocus={(location) => focusPlaces(map, [location])} />
@@ -81,7 +138,9 @@ export function Viewer({ document }: { document: StoredMapDocument }) {
       {courseOpen && (
         <SharedCourseSheet
           stops={document.stops}
-          legs={document.legs ?? []}
+          legs={liveLegs}
+          loadingLegIndexes={loadingCarLegs}
+          failedLegIndexes={failedCarLegs}
           onFocus={(location) => focusPlaces(map, [location])}
           onClose={() => setCourseOpen(false)}
         />
@@ -102,16 +161,18 @@ export function Viewer({ document }: { document: StoredMapDocument }) {
 function ViewerCanvas({
   map,
   document,
+  legs,
 }: {
   map: kakao.maps.Map | null;
   document: StoredMapDocument;
+  legs: readonly StopLeg[];
 }) {
   const { canvasRef } = useMapCanvas({
     map,
     scene: {
       stops: document.stops,
-      // 저장된 경로를 그대로 그린다. 보는 쪽에서 길찾기를 부르지 않는다.
-      legs: document.legs ?? [],
+      // 자동차만 동선 상세를 연 세션에서 실시간으로 보완하고, 나머지는 저장 경로를 쓴다.
+      legs,
       strokes: document.strokes,
       labels: document.labels,
       showCandidateLinks: document.showCandidateLinks,

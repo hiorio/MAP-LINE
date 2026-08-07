@@ -97,6 +97,7 @@ export const MODE_STYLE: Record<TravelMode, { color: string; width: number; dash
   walk: WALK_STYLE,
   transit: { color: '#2D6BE4', width: 8 },
   bicycle: { color: '#2FA35B', width: 7, dash: [8, 5] },
+  car: { color: '#E66A2C', width: 8 },
 };
 
 export interface StopArrow {

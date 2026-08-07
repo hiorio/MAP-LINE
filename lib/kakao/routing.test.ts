@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { NoRouteError, parsePath, parseTransit } from './routing';
+import { NoRouteError, parseDriving, parsePath, parseTransit } from './routing';
 
 /** 실제 응답에서 가져온 모양. 강남역 → 역삼역 도보. */
 const walkBody = {
@@ -40,6 +40,26 @@ const transitBody = {
     {
       properties: { type: 'BUS', totalDistance: 1397, totalTime: 720 },
       steps: [{ properties: { guidance: '간선 8146', type: 'BUS' }, path: { points: [[1, 1], [2, 2]] } }],
+    },
+  ],
+};
+
+/** Kakao Mobility 자동차 길찾기 응답의 필요한 부분만 남긴 모양. */
+const drivingBody = {
+  routes: [
+    {
+      result_code: 0,
+      result_msg: '길찾기 성공',
+      summary: { distance: 1_842, duration: 428 },
+      sections: [
+        {
+          roads: [
+            { vertexes: [127.0276, 37.4979, 127.0286, 37.4984] },
+            // 앞 도로 끝점이 다음 도로 첫점으로 다시 온다.
+            { vertexes: [127.0286, 37.4984, 127.0309, 37.4991] },
+          ],
+        },
+      ],
     },
   ],
 };
@@ -177,5 +197,35 @@ describe('parseTransit', () => {
       ],
     };
     expect(parseTransit(body).legs).toBeUndefined();
+  });
+});
+
+describe('parseDriving', () => {
+  it('도로별 평면 좌표 배열을 하나의 경로로 잇고 중복 이음매를 버린다', () => {
+    expect(parseDriving(drivingBody).points).toEqual([
+      { lat: 37.4979, lng: 127.0276 },
+      { lat: 37.4984, lng: 127.0286 },
+      { lat: 37.4991, lng: 127.0309 },
+    ]);
+  });
+
+  it('요약 거리와 시간을 보존한다', () => {
+    expect(parseDriving(drivingBody)).toMatchObject({ distanceM: 1_842, durationS: 428 });
+  });
+
+  it('카카오모빌리티 실패 코드를 NoRouteError에 남긴다', () => {
+    try {
+      parseDriving({ routes: [{ result_code: 103, result_msg: '도착지 도로 탐색 실패' }] });
+      throw new Error('예외가 필요하다');
+    } catch (error) {
+      expect(error).toBeInstanceOf(NoRouteError);
+      expect((error as NoRouteError).status).toBe('CAR_103');
+    }
+  });
+
+  it('성공 응답이어도 그릴 좌표가 없으면 경로로 치지 않는다', () => {
+    expect(() =>
+      parseDriving({ routes: [{ result_code: 0, summary: {}, sections: [] }] }),
+    ).toThrowError(NoRouteError);
   });
 });

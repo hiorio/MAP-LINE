@@ -20,7 +20,9 @@ export interface ParsedShare {
   query: string;
 }
 
-const URL_PATTERN = /https?:\/\/\S+|\b(?:www\.|naver\.me|kko\.kr|place\.map\.kakao\.com)\S*/gi;
+const URL_PATTERN = /https?:\/\/\S+|\b(?:www\.|naver\.me|kko\.(?:kr|to)|place\.map\.kakao\.com)\S*/gi;
+const KAKAO_SHORT_URL = /https?:\/\/(?:www\.)?kko\.(?:kr|to)\/\S+/i;
+const KAKAO_MAP_PREFIX = /^\s*[[(【]\s*카카오맵\s*[\])】]/;
 
 /** 접두 브래킷: [네이버 지도], [카카오맵] 등 */
 const LEADING_BRACKET = /^[[(【]\s*[^\])】]*\s*[\])】]\s*/;
@@ -38,6 +40,28 @@ const NOISE = /^(?:카카오맵에서\s*보기|네이버\s*지도에서\s*보기
 
 export function parseShareText(raw: string): ParsedShare | null {
   return parseShareTexts(raw)[0] ?? null;
+}
+
+/**
+ * 카카오맵의 저장 장소 그룹 공유인지 판별한다.
+ *
+ * 그룹 공유는 iOS 공유 확장에 장소 목록을 주지 않고 `그룹 이름 + kko.to 링크`만
+ * 넘긴다. 이 값을 일반 장소명으로 검색하면 "음식점 그룹"과 이름이 비슷한 엉뚱한
+ * 가게가 나오므로, 검색 API를 호출하기 전에 별도 안내로 막는다.
+ */
+export function isUnsupportedKakaoGroupShare(raw: string): boolean {
+  if (!KAKAO_SHORT_URL.test(raw)) return false;
+
+  const originalLines = raw.split(/[\r\n]+/).map((line) => line.trim()).filter(Boolean);
+  if (!originalLines.some((line) => KAKAO_MAP_PREFIX.test(line))) return false;
+
+  const contentLines = originalLines
+    .map((line) => line.replace(URL_PATTERN, ' ').replace(/\s+/g, ' ').trim())
+    .map((line) => line.replace(LEADING_BRACKET, '').trim())
+    .filter((line) => line.length > 0 && !NOISE.test(line));
+  const uniqueLines = [...new Set(contentLines)];
+
+  return uniqueLines.length === 1 && /(?:장소\s*)?그룹$/.test(uniqueLines[0] ?? '');
 }
 
 /** 한 번의 공유에 여러 장소가 들어오면 주소 줄을 경계로 각각 분리한다. */

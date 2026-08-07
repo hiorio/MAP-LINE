@@ -6,11 +6,15 @@ import type { LatLng, Stop, StopLeg } from '@/lib/map/types';
 export function SharedCourseSheet({
   stops,
   legs,
+  loadingLegIndexes = new Set(),
+  failedLegIndexes = new Set(),
   onFocus,
   onClose,
 }: {
   stops: readonly Stop[];
   legs: readonly StopLeg[];
+  loadingLegIndexes?: ReadonlySet<number>;
+  failedLegIndexes?: ReadonlySet<number>;
   onFocus: (location: LatLng) => void;
   onClose: () => void;
 }) {
@@ -98,6 +102,12 @@ export function SharedCourseSheet({
                 <div className="mt-3 ml-3 border-l-2 border-dashed border-hairline py-1 pl-6 text-xs text-ink/55">
                   <span className="font-medium text-ink">다음 단계까지 {step.nextLeg.label}</span>
                   {step.nextLeg.detail && <span className="ml-2 tabular-nums">{step.nextLeg.detail}</span>}
+                  {loadingLegIndexes.has(step.number - 1) && (
+                    <span className="ml-2">자동차 경로 불러오는 중…</span>
+                  )}
+                  {failedLegIndexes.has(step.number - 1) && (
+                    <span className="ml-2 text-coral">자동차 경로를 불러오지 못했습니다</span>
+                  )}
                   {step.nextLeg.guidance.map((guidance, index) => (
                     <span key={`${guidance}-${index}`} className="ml-1.5 rounded bg-ink/5 px-1.5 py-0.5">
                       {guidance}

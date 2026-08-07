@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { stripNonPersistableRouteCaches } from '@/lib/map/persistencePolicy';
 import { getServiceClient } from '@/lib/supabase/server';
 
 /** save_map_document가 raise하는 코드. 0002 마이그레이션 참고. */
@@ -59,7 +60,7 @@ export async function PATCH(request: Request, { params }: Params) {
   const { data, error } = await supabase.rpc('save_map_document', {
     p_slug: slug,
     p_edit_token: editToken,
-    p_document: document,
+    p_document: stripNonPersistableRouteCaches(document as Record<string, unknown>),
     p_expected_updated_at: expectedUpdatedAt,
   });
 

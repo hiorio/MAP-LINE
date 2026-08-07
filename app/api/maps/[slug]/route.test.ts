@@ -101,6 +101,35 @@ describe('PATCH /api/maps/[slug]', () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ title: '저장됨' });
   });
+
+  it('자동차 이동수단은 저장하되 외부 경로 결과는 DB로 보내지 않는다', async () => {
+    const rpc = vi.fn(async () => ({ data: { slug: 'abc12345' }, error: null }));
+    getServiceClient.mockReturnValue({ rpc });
+    const carRoute = { points: [{ lat: 37.5, lng: 127 }], distanceM: 10, durationS: 20 };
+    const walkRoute = { points: [{ lat: 37.6, lng: 127.1 }], distanceM: 30, durationS: 40 };
+
+    const response = await PATCH(
+      patchRequest({
+        document: {
+          legs: [
+            { mode: 'car', route: carRoute },
+            { mode: 'walk', route: walkRoute },
+          ],
+        },
+      }, 'token'),
+      { params },
+    );
+
+    expect(response.status).toBe(200);
+    expect(rpc).toHaveBeenCalledWith('save_map_document', expect.objectContaining({
+      p_document: {
+        legs: [
+          { mode: 'car' },
+          { mode: 'walk', route: walkRoute },
+        ],
+      },
+    }));
+  });
 });
 
 describe('DELETE /api/maps/[slug]', () => {

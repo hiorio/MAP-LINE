@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
 import { MissingRestKeyError, searchAddress, searchPlaces } from '@/lib/kakao/localSearch';
-import { parseShareTexts, type ParsedShare } from '@/lib/kakao/parseShareText';
+import {
+  isUnsupportedKakaoGroupShare,
+  parseShareTexts,
+  type ParsedShare,
+} from '@/lib/kakao/parseShareText';
 import type { PlaceCandidate } from '@/lib/map/types';
 import { readCenterParams } from '@/lib/kakao/searchParams';
 import { SEARCH_LIMIT, checkRateLimit, tooManyRequests } from '@/lib/rateLimit';
@@ -20,6 +24,16 @@ export async function POST(request: Request) {
 
   if (typeof text !== 'string' || text.trim().length === 0) {
     return NextResponse.json({ error: '붙여넣은 텍스트가 없습니다.' }, { status: 400 });
+  }
+
+  if (isUnsupportedKakaoGroupShare(text)) {
+    return NextResponse.json(
+      {
+        error:
+          '카카오맵 그룹 공유에는 장소 목록이 포함되지 않아 자동으로 가져올 수 없습니다. 그룹 안의 장소를 개별 공유하거나 장소명·주소 목록을 붙여넣어 주세요.',
+      },
+      { status: 422 },
+    );
   }
 
   // 이 경로도 결국 Kakao Local을 부른다. 검색과 같은 한도를 공유한다.

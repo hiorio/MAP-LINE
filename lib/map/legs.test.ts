@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   ROUTE_TTL_DAYS,
+  CAR_ROUTE_TTL_HOURS,
   drawableRoute,
   isRouteStale,
   legEndpoints,
@@ -132,6 +133,12 @@ describe('isRouteStale', () => {
 
   it('시각을 못 읽으면 낡은 것으로 본다', () => {
     expect(isRouteStale(route('a', 'b', 'nope'), now)).toBe(true);
+  });
+
+  it('현재 교통을 반영하는 자동차 경로는 한 시간 뒤 갱신한다', () => {
+    const old = new Date(now - (CAR_ROUTE_TTL_HOURS + 0.5) * 3_600_000).toISOString();
+    expect(isRouteStale(route('a', 'b', old), now, 'car')).toBe(true);
+    expect(isRouteStale(route('a', 'b', old), now, 'walk')).toBe(false);
   });
 });
 

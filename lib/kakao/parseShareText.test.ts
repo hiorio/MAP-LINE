@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { extractDistrict, parseShareText, parseShareTexts } from './parseShareText';
+import {
+  extractDistrict,
+  isUnsupportedKakaoGroupShare,
+  parseShareText,
+  parseShareTexts,
+} from './parseShareText';
 
 describe('parseShareText', () => {
   it('네이버 지도 공유 텍스트에서 이름·주소·지역을 뽑는다', () => {
@@ -107,5 +112,27 @@ describe('extractDistrict', () => {
 
   it('군 단위도 인식한다', () => {
     expect(extractDistrict('강원특별자치도 양양군 현북면')).toBe('양양군');
+  });
+});
+
+describe('isUnsupportedKakaoGroupShare', () => {
+  it('목록 없이 그룹명과 단축 링크만 온 카카오맵 공유를 판별한다', () => {
+    expect(
+      isUnsupportedKakaoGroupShare(
+        ['[카카오맵] 음식점 그룹', '[카카오맵] 음식점 그룹', 'https://kko.to/DzukR3dcsd0'].join('\n'),
+      ),
+    ).toBe(true);
+  });
+
+  it('주소가 포함된 개별 장소 공유는 그룹으로 오인하지 않는다', () => {
+    expect(
+      isUnsupportedKakaoGroupShare(
+        ['[카카오맵] 스타벅스 강남점', '서울특별시 강남구 강남대로 390', 'https://kko.to/example'].join('\n'),
+      ),
+    ).toBe(false);
+  });
+
+  it('일반 텍스트의 그룹 이름은 막지 않는다', () => {
+    expect(isUnsupportedKakaoGroupShare('음식점 그룹')).toBe(false);
   });
 });

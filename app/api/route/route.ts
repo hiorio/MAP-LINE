@@ -9,8 +9,8 @@ import { ROUTE_LIMIT, checkRateLimit, tooManyRequests } from '@/lib/rateLimit';
  * 두 지점 사이의 실제 경로를 돌려준다.
  *
  * 카카오 REST 키는 서버 전용이라 클라이언트가 직접 길찾기를 부를 수 없다.
- * 자동차는 지원하지 않는다. 카카오모빌리티의 자동차 길찾기는 결과를 저장할 수 없어
- * 링크를 나중에 여는 이 제품과 맞지 않는다.
+ * 도보·대중교통·자전거는 Kakao Maps Routing, 자동차는 Kakao Mobility Directions를
+ * 사용하지만 클라이언트에는 같은 경로 응답으로 돌려준다.
  */
 export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;

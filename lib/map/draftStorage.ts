@@ -1,4 +1,5 @@
 import type { MapDocument } from './types';
+import { stripNonPersistableRouteCaches } from './persistencePolicy';
 
 /**
  * 서버 저장(T12)이 붙기 전까지 쓰는 로컬 초안 저장소.
@@ -23,7 +24,10 @@ export function loadDraft(slug: string): MapDocument | null {
 export function saveDraft(slug: string, document: MapDocument): void {
   if (typeof window === 'undefined') return;
   try {
-    window.localStorage.setItem(PREFIX + slug, JSON.stringify(document));
+    // 자동차 길찾기 결과는 브라우저 폴백에도 영구 저장하지 않는다. 서버 저장 실패나
+    // 충돌 때 이 경로로 내려와도 사용자가 고른 수단만 남기고 좌표·거리·시간은 버린다.
+    const persistable = stripNonPersistableRouteCaches(document);
+    window.localStorage.setItem(PREFIX + slug, JSON.stringify(persistable));
   } catch {
     // 용량 초과는 편집을 막을 이유가 되지 않는다. 서버 저장이 붙으면 사라질 경로다.
   }

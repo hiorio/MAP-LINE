@@ -639,6 +639,34 @@ describeIfConfigured('updated_at 트리거', () => {
       expect(data.legs[0]).not.toHaveProperty('route');
     });
 
+    it('자동차 모드는 남기되 외부 길찾기 결과는 DB에 저장하지 않는다', async () => {
+      const { slug, editToken } = await createMap();
+      const { ids, document } = makeSample();
+      await save(slug, editToken, {
+        ...document,
+        legs: [
+          {
+            mode: 'car',
+            route: {
+              points: [
+                { lat: 37.4979, lng: 127.0276 },
+                { lat: 37.499, lng: 127.029 },
+              ],
+              distanceM: 1_842,
+              durationS: 428,
+              fromPlaceId: ids.placeA,
+              toPlaceId: ids.placeB,
+              fetchedAt: '2026-08-07T00:00:00.000Z',
+            },
+          },
+        ],
+      });
+      const { data } = await read(slug);
+
+      expect(data.legs[0].mode).toBe('car');
+      expect(data.legs[0]).not.toHaveProperty('route');
+    });
+
     it('대중교통 구간 배지를 왕복시킨다', async () => {
       const { slug, editToken } = await createMap();
       const { ids, document } = makeSample();

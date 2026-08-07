@@ -5,15 +5,14 @@ import {
   NotEnoughParticipantsError,
   findMidpoint,
 } from '@/lib/midpoint/findMidpoint';
-import { isTravelMode } from '@/lib/map/types';
 import type { Participant } from '@/lib/midpoint/geometry';
 import { MIDPOINT_LIMIT, checkRateLimit, tooManyRequests } from '@/lib/rateLimit';
 
 /**
  * 여러 곳에서 오는 사람들이 모이기 좋은 자리를 돌려준다.
  *
- * 한 번 부를 때 길찾기가 `참가자 수 × 결선 후보 수`만큼 나간다. 길찾기는 하루
- * 1,000건뿐이라 다른 경로보다 훨씬 빡빡하게 잡는다.
+ * 한 번 부를 때 길찾기가 `참가자 수 × 결선 후보 수`만큼 나간다. 단일 동선보다
+ * 외부 길찾기 쿼터를 훨씬 빠르게 쓰므로 다른 경로보다 빡빡하게 잡는다.
  */
 const MAX_PARTICIPANTS = 6;
 
@@ -70,7 +69,9 @@ function readParticipants(value: unknown): Participant[] | null {
     const { id, name, location, mode } = raw as Record<string, unknown>;
 
     if (typeof id !== 'string' || id.trim() === '') return null;
-    if (!isTravelMode(mode) || mode === 'straight') return null;
+    // 동선의 TravelMode에는 자동차도 있지만, 모임 중간지점 참가자 화면은 아직
+    // 도보·대중교통·자전거만 받는다. 공용 타입이 늘었다고 몰래 허용하지 않는다.
+    if (mode !== 'walk' && mode !== 'transit' && mode !== 'bicycle') return null;
     if (typeof location !== 'object' || location === null) return null;
 
     const { lat, lng } = location as Record<string, unknown>;

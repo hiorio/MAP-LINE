@@ -392,6 +392,7 @@ const MODE_LABELS: { mode: TravelMode; label: string }[] = [
   { mode: 'walk', label: '도보' },
   { mode: 'transit', label: '대중교통' },
   { mode: 'bicycle', label: '자전거' },
+  { mode: 'car', label: '자동차' },
 ];
 
 /**

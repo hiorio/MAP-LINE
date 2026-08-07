@@ -4,20 +4,17 @@ import { MissingRestKeyError } from './localSearch';
 import { recordKakaoCall } from './usage';
 
 /**
- * 카카오맵 길찾기. **서버에서만** 호출한다.
+ * 카카오 길찾기. **서버에서만** 호출한다.
  *
- * 카카오모빌리티의 자동차 길찾기(`apis-navi`)와는 다른 API다. 그쪽은 결과의 자체 DB
- * 저장이 정책상 막혀 있어 링크를 나중에 여는 이 제품과 맞지 않는다. 이쪽
- * (`dapi.kakao.com/v2/routing`)은 개발자 운영정책이 적용되고, 사용자 환경 개선 목적에
- * 신선도를 유지하는 캐시는 허용된다. 그래서 도보·대중교통·자전거만 쓴다.
- *
- * 셋 다 별도 신청 없이 기존 REST 키로 열려 있고 각각 하루 1,000건이다.
+ * 도보·대중교통·자전거는 Kakao Maps Routing, 자동차는 Kakao Mobility Directions를
+ * 쓴다. 두 제품의 응답 모양이 달라 여기서 하나의 RoutePath 모양으로 정규화한다.
  */
-const ENDPOINTS: Record<Exclude<TravelMode, 'straight'>, string> = {
+const ENDPOINTS: Record<Exclude<TravelMode, 'straight' | 'car'>, string> = {
   walk: 'https://dapi.kakao.com/v2/routing/walk',
   transit: 'https://dapi.kakao.com/v2/routing/publictraffic',
   bicycle: 'https://dapi.kakao.com/v2/routing/bicycle',
 };
+const CAR_ENDPOINT = 'https://apis-navi.kakaomobility.com/v1/directions';
 
 /** 길찾기가 좌표를 못 냈을 때. 호출 자체는 성공(200)하고 status로 알려 온다. */
 export class NoRouteError extends Error {
@@ -35,12 +32,20 @@ export async function fetchRoute(
   const key = process.env.KAKAO_REST_KEY;
   if (!key) throw new MissingRestKeyError();
 
-  const url = new URL(ENDPOINTS[mode]);
+  const url = new URL(mode === 'car' ? CAR_ENDPOINT : ENDPOINTS[mode]);
   // 좌표는 x=경도, y=위도다. Local API와 같은 함정이 여기에도 있다.
-  url.searchParams.set('start_x', String(from.lng));
-  url.searchParams.set('start_y', String(from.lat));
-  url.searchParams.set('end_x', String(to.lng));
-  url.searchParams.set('end_y', String(to.lat));
+  if (mode === 'car') {
+    url.searchParams.set('origin', `${from.lng},${from.lat}`);
+    url.searchParams.set('destination', `${to.lng},${to.lat}`);
+    url.searchParams.set('priority', 'RECOMMEND');
+    // 도로 좌표가 필요하다. summary=true면 거리·시간만 오고 지도에 그릴 선이 없다.
+    url.searchParams.set('summary', 'false');
+  } else {
+    url.searchParams.set('start_x', String(from.lng));
+    url.searchParams.set('start_y', String(from.lat));
+    url.searchParams.set('end_x', String(to.lng));
+    url.searchParams.set('end_y', String(to.lat));
+  }
 
   void recordKakaoCall('route');
   const response = await fetch(url, { headers: { Authorization: `KakaoAK ${key}` } });
@@ -49,6 +54,7 @@ export async function fetchRoute(
   }
 
   const body: unknown = await response.json();
+  if (mode === 'car') return parseDriving(body);
   return mode === 'transit' ? parseTransit(body) : parsePath(body);
 }
 
@@ -133,6 +139,41 @@ export function parseTransit(body: unknown): Parsed {
     distanceM: toNumber(props['totalDistance']),
     durationS: toNumber(props['totalTime']),
     ...(legs.length > 0 ? { legs } : {}),
+  };
+}
+
+/**
+ * 자동차 길찾기 응답.
+ *
+ * 각 도로의 `vertexes`는 `[경도, 위도, 경도, 위도, ...]`인 평평한 배열이다. 경유지
+ * 없이 호출해도 여러 section/road로 나뉠 수 있으므로 모두 순서대로 이어 붙인다.
+ */
+export function parseDriving(body: unknown): Parsed {
+  const root = asRecord(body);
+  const first = asArray(root['routes'])[0];
+  if (first === undefined) throw new NoRouteError('CAR_UNKNOWN');
+
+  const route = asRecord(first);
+  const resultCode = toNumber(route['result_code']);
+  if (resultCode !== 0) throw new NoRouteError(`CAR_${resultCode}`);
+
+  const summary = asRecord(route['summary']);
+  const points: LatLng[] = [];
+
+  for (const section of asArray(route['sections'])) {
+    for (const road of asArray(asRecord(section)['roads'])) {
+      const vertexes = asArray(asRecord(road)['vertexes']);
+      for (let index = 0; index + 1 < vertexes.length; index += 2) {
+        appendPoint(points, [vertexes[index], vertexes[index + 1]]);
+      }
+    }
+  }
+
+  if (points.length < 2) throw new NoRouteError('CAR_NO_PATH');
+  return {
+    points,
+    distanceM: toNumber(summary['distance']),
+    durationS: toNumber(summary['duration']),
   };
 }
 

@@ -47,15 +47,16 @@ export interface Stop {
  * 'straight'가 기본이다. 후보가 아직 여럿이라 어디로 갈지 안 정한 단계에까지
  * 정확한 경로를 그리면 정해진 것처럼 보인다.
  */
-export type TravelMode = 'straight' | 'walk' | 'transit' | 'bicycle';
+export type TravelMode = 'straight' | 'walk' | 'transit' | 'bicycle' | 'car';
 
-export const TRAVEL_MODES: readonly TravelMode[] = ['straight', 'walk', 'transit', 'bicycle'];
+export const TRAVEL_MODES: readonly TravelMode[] = ['straight', 'walk', 'transit', 'bicycle', 'car'];
 
 const TRAVEL_MODE_LABEL: Record<TravelMode, string> = {
   straight: '직선',
   walk: '도보',
   transit: '대중교통',
   bicycle: '자전거',
+  car: '자동차',
 };
 
 export function travelModeLabel(mode: TravelMode): string {

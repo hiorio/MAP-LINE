@@ -1,4 +1,11 @@
-import { stopAnchor, type Place, type RoutePath, type Stop, type StopLeg } from './types';
+import {
+  stopAnchor,
+  type Place,
+  type RoutePath,
+  type Stop,
+  type StopLeg,
+  type TravelMode,
+} from './types';
 
 /**
  * 단계 사이 구간을 다루는 순수 함수들.
@@ -15,6 +22,8 @@ import { stopAnchor, type Place, type RoutePath, type Stop, type StopLeg } from 
  * 요구한다. 길이 크게 바뀌는 일은 드물어도 대중교통 노선은 개편된다.
  */
 export const ROUTE_TTL_DAYS = 7;
+/** 자동차 시간은 현재 교통량을 반영하므로 다른 수단보다 빨리 갱신한다. */
+export const CAR_ROUTE_TTL_HOURS = 1;
 
 /** 구간 배열을 단계 수에 맞춘다. 길이는 항상 max(0, stops - 1)이다. */
 export function syncLegLength(stops: readonly Stop[], legs: readonly StopLeg[]): StopLeg[] {
@@ -46,11 +55,18 @@ export function matchesEndpoints(route: RoutePath, from: Place, to: Place): bool
   return route.fromPlaceId === from.id && route.toPlaceId === to.id;
 }
 
-export function isRouteStale(route: RoutePath, now: number = Date.now()): boolean {
+export function isRouteStale(
+  route: RoutePath,
+  now: number = Date.now(),
+  mode: TravelMode = 'straight',
+): boolean {
   const fetched = new Date(route.fetchedAt).getTime();
   // 시각을 못 읽으면 낡은 것으로 본다. 다시 받는 편이 틀린 그림을 두는 것보다 낫다.
   if (!Number.isFinite(fetched)) return true;
-  return now - fetched > ROUTE_TTL_DAYS * 24 * 60 * 60 * 1000;
+  const ttl = mode === 'car'
+    ? CAR_ROUTE_TTL_HOURS * 60 * 60 * 1000
+    : ROUTE_TTL_DAYS * 24 * 60 * 60 * 1000;
+  return now - fetched > ttl;
 }
 
 /**
@@ -86,7 +102,7 @@ export function legsNeedingRoute(
     if (!legEndpoints(stops, i)) continue;
 
     const usable = drawableRoute(stops, i, leg);
-    if (!usable || isRouteStale(usable, now)) indexes.push(i);
+    if (!usable || isRouteStale(usable, now, leg.mode)) indexes.push(i);
   }
   return indexes;
 }
