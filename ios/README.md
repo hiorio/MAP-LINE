@@ -243,6 +243,11 @@ cd ios && xcodegen generate && open MapLine.xcodeproj
 
 ## TestFlight
 
+앱과 공유 익스텐션의 `CFBundleVersion`은 `CURRENT_PROJECT_VERSION`을 사용합니다. TestFlight
+워크플로는 `github.run_number`를 두 타깃에 넣고, 아카이브의 실제 Info.plist 값이 같은지
+검사한 뒤에만 업로드합니다. ExportOptions의 자동 번호 변경은 꺼 두므로 GitHub 실행 번호와
+App Store Connect의 빌드 번호가 일치합니다.
+
 `.github/workflows/testflight.yml`을 수동 실행(`workflow_dispatch`)하면 아카이브해서
 업로드합니다. **EAS 같은 유료 빌드 서비스는 필요 없습니다** — Apple 개발자 프로그램
 연회비 외에 추가 비용이 없습니다.

@@ -217,6 +217,20 @@ jobs:
           echo "✅ 아카이브에 들어간 팀: $TEAM_IN_ARCHIVE"
           echo "ARCHIVE_TEAM=$TEAM_IN_ARCHIVE" >> "$GITHUB_ENV"
 
+          # XcodeGen이 만든 실제 Info.plist가 명령줄의 빌드 번호를 받았는지 확인한다.
+          # 이 연결이 빠지면 로그에는 32처럼 보여도 아카이브는 계속 1이고, 자동 번호
+          # 보정을 끈 순간 App Store Connect가 "이전 빌드보다 낮다"며 거절한다.
+          EXPECTED_BUILD=${{ github.run_number }}
+          APP_BUILD=$(plutil -extract CFBundleVersion raw -o - \
+            ../MapLine.xcarchive/Products/Applications/MapLine.app/Info.plist)
+          EXT_BUILD=$(plutil -extract CFBundleVersion raw -o - \
+            ../MapLine.xcarchive/Products/Applications/MapLine.app/PlugIns/ShareExtension.appex/Info.plist)
+          if [ "$APP_BUILD" != "$EXPECTED_BUILD" ] || [ "$EXT_BUILD" != "$EXPECTED_BUILD" ]; then
+            echo "❌ 실제 빌드 번호가 다르다: 앱=$APP_BUILD 익스텐션=$EXT_BUILD 예상=$EXPECTED_BUILD"
+            exit 1
+          fi
+          echo "✅ 실제 빌드 번호: 앱=$APP_BUILD, 익스텐션=$EXT_BUILD"
+
       - name: 내보내고 올린다
         env:
           KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
