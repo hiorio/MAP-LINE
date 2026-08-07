@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
+import { BrandHomeLink } from '@/components/brand/BrandHomeLink';
 import { KakaoMap } from '@/components/map/KakaoMap';
 import { useMapCanvas } from '@/components/map/useMapCanvas';
 import { PlaceStrip } from '@/components/panels/PlaceStrip';
@@ -33,6 +34,12 @@ export function Viewer({ document }: { document: StoredMapDocument }) {
   return (
     <div className="flex h-dvh flex-col overflow-hidden">
       <header className="z-30 flex h-12 shrink-0 items-center gap-2 border-b border-hairline bg-white px-3">
+        <BrandHomeLink
+          iconSize={28}
+          className="shrink-0"
+          nameClassName="text-xs font-semibold tracking-tight"
+        />
+        <span aria-hidden="true" className="h-5 w-px shrink-0 bg-hairline" />
         <h1 className="min-w-0 flex-1 truncate text-sm font-medium">
           {document.title || '제목 없는 지도'}
         </h1>
@@ -85,7 +92,7 @@ export function Viewer({ document }: { document: StoredMapDocument }) {
         href="/"
         className="z-30 flex h-12 shrink-0 items-center justify-center border-t border-hairline bg-ink text-sm font-medium text-white"
       >
-        나도 지도 만들기
+        도화지에서 나도 지도 만들기
       </Link>
     </div>
   );

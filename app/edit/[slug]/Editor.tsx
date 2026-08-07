@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { BrandHomeLink } from '@/components/brand/BrandHomeLink';
 import { KakaoMap } from '@/components/map/KakaoMap';
 import { MapOverlay } from '@/components/map/MapOverlay';
 import { PlacePanel } from '@/components/panels/PlacePanel';
@@ -141,6 +142,12 @@ function EditorTopBar({ slug, saveMode }: { slug: string; saveMode: SaveMode }) 
 
   return (
     <header className="z-30 flex h-12 shrink-0 items-center gap-2 border-b border-hairline bg-white px-3">
+      <BrandHomeLink
+        iconSize={28}
+        className="shrink-0"
+        nameClassName="text-xs font-semibold tracking-tight"
+      />
+      <span aria-hidden="true" className="h-5 w-px shrink-0 bg-hairline" />
       <input
         value={title}
         onChange={(e) => setTitle(e.target.value)}

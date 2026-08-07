@@ -1,5 +1,6 @@
 import { CreateMapButton } from '@/components/CreateMapButton';
 import { DemoMap } from '@/components/DemoMap';
+import { BrandHomeLink } from '@/components/brand/BrandHomeLink';
 
 /**
  * 설계안 §7.1 — 데모 지도 + CTA 단일 버튼.
@@ -17,7 +18,12 @@ export default function LandingPage() {
   return (
     <main className="mx-auto flex min-h-dvh max-w-lg flex-col gap-8 px-5 py-12 sm:py-16">
       <header className="space-y-4">
-        <p className="text-xs font-medium tracking-[0.2em] text-ink/35">MAP-LINE</p>
+        <BrandHomeLink
+          iconSize={46}
+          priority
+          subtitle="함께 만드는 모임 동선 지도"
+          nameClassName="text-xl font-semibold tracking-tight"
+        />
         <h1 className="text-[28px] font-semibold leading-[1.35] sm:text-3xl">
           손으로 그린 지도를
           <br />

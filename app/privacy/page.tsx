@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { BrandHomeLink } from '@/components/brand/BrandHomeLink';
 
 export const metadata: Metadata = {
   title: '개인정보 처리방침',
@@ -12,9 +13,7 @@ export default function PrivacyPage() {
   return (
     <main className="mx-auto min-h-dvh max-w-2xl px-5 py-10 sm:px-8 sm:py-16">
       <header className="mb-10 border-b border-hairline pb-7">
-        <Link href="/" className="text-xs font-semibold tracking-[0.18em] text-ink/45">
-          도화지
-        </Link>
+        <BrandHomeLink iconSize={32} nameClassName="text-sm font-semibold tracking-tight" />
         <h1 className="mt-3 text-3xl font-semibold tracking-tight">개인정보 처리방침</h1>
         <p className="mt-3 text-sm text-ink/50">시행 및 최종 수정: {UPDATED_AT}</p>
       </header>

@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { BrandHomeLink } from '@/components/brand/BrandHomeLink';
 
 export const metadata: Metadata = {
   title: '지원',
@@ -12,9 +13,7 @@ export default function SupportPage() {
   return (
     <main className="mx-auto flex min-h-dvh max-w-2xl flex-col px-5 py-10 sm:px-8 sm:py-16">
       <header className="mb-10 border-b border-hairline pb-7">
-        <Link href="/" className="text-xs font-semibold tracking-[0.18em] text-ink/45">
-          도화지
-        </Link>
+        <BrandHomeLink iconSize={32} nameClassName="text-sm font-semibold tracking-tight" />
         <h1 className="mt-3 text-3xl font-semibold tracking-tight">도움이 필요하신가요?</h1>
         <p className="mt-3 leading-7 text-ink/60">
           지도 저장이나 공유가 예상대로 동작하지 않으면 아래 내용을 먼저 확인해 주세요.

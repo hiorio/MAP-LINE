@@ -13,22 +13,23 @@ type Props = { params: Promise<{ slug: string }> };
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const document = await getMapDocument(slug);
-  if (!document) return { title: '지도를 찾을 수 없습니다 · MAP-LINE' };
+  if (!document) return { title: { absolute: '지도를 찾을 수 없습니다 · 도화지' } };
 
   const title = document.title || '제목 없는 지도';
   const description = sharedCourseDescription(document.stops);
 
   return {
-    title: `${title} · MAP-LINE`,
+    title: { absolute: `${title} · 도화지` },
     description,
     openGraph: {
-      title,
+      siteName: '도화지',
+      title: `${title} · 도화지`,
       description,
       type: 'article',
       // 이미지는 요청이 올 때 만들어 Storage에 캐시한다. 여기서 미리 만들지 않는다.
       images: [{ url: `/api/og/${slug}`, width: 1600, height: 840, alt: title }],
     },
-    twitter: { card: 'summary_large_image', title, description },
+    twitter: { card: 'summary_large_image', title: `${title} · 도화지`, description },
   };
 }
 

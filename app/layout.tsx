@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next';
+import appIcon from '@/ios/MapLine/Assets.xcassets/AppIcon.appiconset/icon-1024.png';
 import './globals.css';
 
 /**
@@ -14,6 +15,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
+  themeColor: '#FAF8F4',
 };
 
 /**
@@ -24,11 +26,23 @@ const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000';
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
+  applicationName: '도화지',
   title: {
     default: '도화지',
     template: '%s | 도화지',
   },
   description: '핀, 메모, 손그림과 실제 이동 경로를 한 장의 지도로 만들고 공유합니다.',
+  icons: {
+    icon: [{ url: appIcon.src, type: 'image/png', sizes: '1024x1024' }],
+    apple: [{ url: appIcon.src, type: 'image/png', sizes: '1024x1024' }],
+  },
+  manifest: '/manifest.webmanifest',
+  openGraph: {
+    type: 'website',
+    siteName: '도화지',
+    title: '도화지',
+    description: '핀, 메모, 손그림과 실제 이동 경로를 한 장의 지도로 만들고 공유합니다.',
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
