@@ -36,7 +36,7 @@ SDK의 롱프레스 이벤트는 시간을 바꿀 수 없어 앱은 `UILongPress
 | 기능 | 파일 |
 |---|---|
 | 손그림 (위경도 고정, RDP 단순화, 한 획 되돌리기·전체 지우기) | `ContentView.swift`, `Map/DrawingOverlayView.swift`, `Domain/GeoStroke.swift` |
-| 꾹 눌러 주변 장소·건물명 찾기 또는 이름 검색 → 새 단계/기존 단계 후보로 담기 | `Course/DropPinSheet.swift`, `Shared/PlaceLookup.swift`(`NearbyLookup`) |
+| 꾹 눌러 주변 장소·건물명 찾기 또는 이름 검색 → 새 단계/기존 단계 후보/보관함 폴더에 담기 | `Course/DropPinSheet.swift`, `Course/SavedPlaceFolderPickerSheet.swift`, `Shared/PlaceLookup.swift`(`NearbyLookup`) |
 | 번호 붙은 단계 핀, 복수검색·단계 선택·후보 일괄 추가, 같은 단계 회색 보조선, 대표 지정·재정렬·삭제 복구 | `Course/CoursePlacePickerSheet.swift`, `Course/CourseSheet.swift`, `Course/StopPinSheet.swift`, `Map/KakaoMapViewController.swift`, `Domain/MapDocument.swift` |
 | 구간 이동수단(직선/도보/대중교통/자전거), 실제 경로와 선 중간 거리·시간 표시 | `Course/CourseSheet.swift`, `Domain/StopLeg.swift`, `Domain/RouteLookup.swift`, `Domain/LegShapes.swift`, `Map/LegStyle.swift` |
 | 지도 위 메모 작성·수정·롱프레스 드래그 이동·삭제 | `Map/KakaoMapViewController.swift`, `Course/DropPinSheet.swift`, `Course/MemoSheet.swift`, `Domain/MapDocument.swift`(`MapLabel`) |
@@ -53,8 +53,8 @@ SDK의 롱프레스 이벤트는 시간을 바꿀 수 없어 앱은 `UILongPress
 곳 체크하고 `새 단계` 또는 기존 `N단계`를 고른 뒤 하단 버튼으로 한 번에 담습니다.
 동선 화면의 `이 단계에 후보 추가`도 같은 시트를 해당 단계가 선택된 상태로 엽니다.
 지도에서 새 장소를 꾹 눌러 `핀 찍기`를 선택해도, 이미 단계가 있으면 `새 단계 만들기`와
-각 `N단계에 후보로 추가` 중 하나를 고릅니다. 첫 장소만 선택 단계를 생략하고 바로
-1단계가 됩니다.
+각 `N단계에 후보로 추가` 또는 `보관함 폴더에 저장` 중 하나를 고릅니다. 보관함을 고르면
+같은 화면에서 폴더 선택으로 이어집니다. 첫 장소만 선택 단계를 생략하고 바로 1단계가 됩니다.
 카카오 기본 장소 마커를 한 번 누르면 SDK의 POI id를 `/api/nearby`에 함께 보냅니다. 서버는
 음식점·카페·관광명소를 카테고리별 최대 15곳까지 내부에서 검사한 뒤 정확히 같은 id를 먼저
 분리하고, 마지막에 화면용 네 곳으로 줄입니다. id가 일치한 경우에만 `지도에서 누른 장소`로
@@ -62,7 +62,7 @@ SDK의 롱프레스 이벤트는 시간을 바꿀 수 없어 앱은 `UILongPress
 표시합니다.
 핀 컨텍스트의 주변 장소와 단계 선택 행은 글자·아이콘뿐 아니라 행의 빈 여백까지 전체가
 터치 영역입니다. 저장된 핀 상세의 대표 지정·삭제 행도 같은 규칙을 씁니다.
-단계 핀은 20pt, 장소 이름표는 16pt입니다.
+단계 핀은 20pt, 보관함 폴더 마커는 22pt, 장소 이름표는 16pt입니다.
 같은 단계에 후보가 둘 이상이면 각 후보를 단계 중심점으로 잇는 작은 회색 점선과 중심점을
 표시합니다. 실제 단계 사이 이동 경로보다 아래에 깔리고, 웹에서 자동 후보선을 꺼 저장한
 지도는 앱에서도 꺼진 상태를 유지합니다.
@@ -83,7 +83,9 @@ SDK의 롱프레스 이벤트는 시간을 바꿀 수 없어 앱은 `UILongPress
 `내 지도`에는 공유 미리보기 썸네일·지도 이름·단계 수·저장 시각을 함께 표시합니다. 기존에
 단계 수가 저장되지 않은 목록은 화면을 연 뒤 지도를 읽어 보완합니다. 행의 스와이프 또는
 컨텍스트 메뉴에서 `지도 복제`를 고르면 단계·후보·그림·메모·구간 경로를 보존한 새 지도를
-만들고 이름 뒤에 `복사본`을 붙입니다.
+만들고 이름 뒤에 `복사본`을 붙입니다. 다른 지도를 고르면 목록 시트가 완전히 닫힌 뒤
+핀·실제 경로·손그림·메모 전체 범위로 카메라를 맞춥니다. 강원도 지도를 보다가 서울 지도를
+열어도 이전 지역에 남거나 빈 지도처럼 보이지 않습니다.
 
 동선 화면의 `순서 변경`은 단계 카드를 드래그해 번호를 바꿉니다. 순서를 바꿔도 같은
 방향으로 계속 인접한 구간만 기존 이동수단·경로를 보존하고, 새로 맞닿은 구간은 직선으로

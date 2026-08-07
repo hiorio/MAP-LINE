@@ -408,17 +408,17 @@ final class KakaoMapViewController: UIViewController {
     func fit(points: [GeoPoint]) {
         guard !points.isEmpty else { return }
         pendingFitPoints = points
+        let south = points.map(\.lat).min() ?? points[0].lat
+        let north = points.map(\.lat).max() ?? points[0].lat
+        let west = points.map(\.lng).min() ?? points[0].lng
+        let east = points.map(\.lng).max() ?? points[0].lng
         let center = GeoPoint(
-            lat: points.reduce(0) { $0 + $1.lat } / Double(points.count),
-            lng: points.reduce(0) { $0 + $1.lng } / Double(points.count)
+            lat: (south + north) / 2,
+            lng: (west + east) / 2
         )
         initialCenter = (lat: center.lat, lng: center.lng)
         guard let map = kakaoMap else { return }
 
-        let south = points.map(\.lat).min() ?? center.lat
-        let north = points.map(\.lat).max() ?? center.lat
-        let west = points.map(\.lng).min() ?? center.lng
-        let east = points.map(\.lng).max() ?? center.lng
         let latPadding = max((north - south) * 0.12, 0.003)
         let lngPadding = max((east - west) * 0.12, 0.003)
         let area = AreaRect(
@@ -1396,7 +1396,7 @@ private extension KakaoMapViewController {
                     PerLevelPoiStyle(
                         iconStyle: PoiIconStyle(
                             symbol: savedPlaceIcon(
-                                diameter: 24,
+                                diameter: 22,
                                 fill: UIColor(hex: colorHex) ?? .systemBlue,
                                 systemName: marker.symbolName
                             ),

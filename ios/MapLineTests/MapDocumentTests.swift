@@ -142,4 +142,37 @@ final class MapDocumentTests: XCTestCase {
         XCTAssertGreaterThan(long.width, short.width)
         XCTAssertLessThanOrEqual(long.width, 260)
     }
+
+    func test_다른지도를열면핀경로손그림메모를모두카메라범위에넣는다() {
+        let first = GeoPoint(lat: 37.5, lng: 127.0)
+        let second = GeoPoint(lat: 37.6, lng: 127.1)
+        let routeBend = GeoPoint(lat: 37.7, lng: 127.2)
+        let strokePoint = GeoPoint(lat: 37.8, lng: 127.3)
+        let memoPoint = GeoPoint(lat: 37.9, lng: 127.4)
+        let route = RoutePath(
+            points: [first, routeBend],
+            distanceM: 1_000,
+            durationS: 600,
+            legs: nil,
+            fromPlaceId: "first",
+            toPlaceId: "second",
+            fetchedAt: "2026-08-07T00:00:00Z"
+        )
+        let document = MapDocument(
+            stops: [
+                Stop(candidates: [MapPlace(id: "first", name: "첫 장소", location: first)]),
+                Stop(candidates: [MapPlace(id: "second", name: "둘째 장소", location: second)]),
+            ],
+            legs: [StopLeg(mode: .walk, route: route)],
+            strokes: [GeoStroke(path: [first, strokePoint], zoomCreated: 3)],
+            labels: [MapLabel(location: memoPoint, text: "여기")]
+        )
+
+        let points = document.contentViewportPoints
+        XCTAssertTrue(points.contains(first))
+        XCTAssertTrue(points.contains(second))
+        XCTAssertTrue(points.contains(routeBend))
+        XCTAssertTrue(points.contains(strokePoint))
+        XCTAssertTrue(points.contains(memoPoint))
+    }
 }

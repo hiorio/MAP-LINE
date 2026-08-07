@@ -28,6 +28,9 @@ struct ContentView: View {
     @State private var showPlacePicker = false
     @State private var showSaved = false
     @State private var showMyMaps = false
+    /// 보관한 지도 행을 누른 뒤 시트가 완전히 내려가면 이 지도를 연다. 지도 엔진이
+    /// 시트 전환 중에 멈춘 상태에서 카메라 요청을 삼키지 않게 하기 위한 대기열이다.
+    @State private var pendingMapSlug: String?
     @State private var showTitleEditor = false
     @State private var confirmingNewMap = false
     /// 이름 편집 시트가 내려간 뒤 새 지도 확인창을 띄운다. 시트 위에 alert를 바로
@@ -55,6 +58,8 @@ struct ContentView: View {
     /// 지금 보고 있는 자리를 물어보기 위해 들고 있는다.
     @State private var mapController: KakaoMapViewController?
     @State private var pendingCamera: PendingCamera?
+    /// 지도 엔진이 준비되기 전에 다른 지도를 연 경우, 준비 직후 이 점들을 한 화면에 맞춘다.
+    @State private var pendingViewportPoints: [GeoPoint] = []
     @StateObject private var currentLocation = CurrentLocationProvider()
     /// 개인 보관함은 현재 문서와 별개지만 지도 위에서는 항상 보이는 참고 마커다.
     @State private var savedPins: [SavedPlacePin] = []
@@ -207,7 +212,11 @@ struct ContentView: View {
                             controller.fit(points: preview.stops.flatMap { $0.candidates.map(\.location) })
                         }
                         #endif
-                        if let camera = pendingCamera {
+                        if !pendingViewportPoints.isEmpty {
+                            controller.fit(points: pendingViewportPoints)
+                            pendingViewportPoints = []
+                            pendingCamera = nil
+                        } else if let camera = pendingCamera {
                             controller.move(
                                 to: camera.center.lat,
                                 lng: camera.center.lng,
@@ -252,6 +261,9 @@ struct ContentView: View {
                     onPick: { stopID, place in
                         addCoursePlaces([place], toStopID: stopID)
                     },
+                    onSaveToLibrary: { place, group in
+                        saveToLibrary(place, group: group)
+                    },
                     onWriteMemo: { text in
                         labels.append(MapLabel(location: pin.coordinate, text: text))
                     }
@@ -285,9 +297,13 @@ struct ContentView: View {
                     addCoursePlaces(places, toStopID: stopID)
                 }
             }
-            .sheet(isPresented: $showMyMaps) {
+            .sheet(isPresented: $showMyMaps, onDismiss: {
+                guard let picked = pendingMapSlug else { return }
+                pendingMapSlug = nil
+                Task { await open(slug: picked) }
+            }) {
                 MyMapsView(
-                    onOpen: { picked in Task { await open(slug: picked) } },
+                    onOpen: { pendingMapSlug = $0 },
                     onDelete: { deleted in resetAfterDeletedMap(slug: deleted) }
                 )
             }
@@ -542,7 +558,12 @@ struct ContentView: View {
         }
         do {
             let loaded = try await MapStore.load(slug: picked)
-            apply(document: loaded.document, slug: picked, updatedAt: loaded.updatedAt)
+            apply(
+                document: loaded.document,
+                slug: picked,
+                updatedAt: loaded.updatedAt,
+                focusOnContent: true
+            )
             persistenceStatus = persistDraft(
                 document: loaded.document,
                 reportError: false
@@ -650,7 +671,12 @@ struct ContentView: View {
         }
     }
 
-    private func apply(document: MapDocument, slug: String?, updatedAt: String?) {
+    private func apply(
+        document: MapDocument,
+        slug: String?,
+        updatedAt: String?,
+        focusOnContent: Bool = false
+    ) {
         self.slug = slug
         self.updatedAt = updatedAt
         title = document.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -665,6 +691,23 @@ struct ContentView: View {
         lastDraftFingerprint = editFingerprint
         plot = nil
         mapController?.show(midpoint: nil)
+
+        // 목록에서 지도를 명시적으로 고른 경우에는 그 지도에서 마지막으로 보던 카메라보다
+        // 실제 핀·경로·메모가 우선이다. 강원도 지도를 보고 있다가 서울 지도를 열어도
+        // 서울 동선 전체가 즉시 화면 안에 들어와야 한다.
+        let viewportPoints = focusOnContent ? document.contentViewportPoints : []
+        if !viewportPoints.isEmpty {
+            pendingCamera = nil
+            if let mapController {
+                pendingViewportPoints = []
+                mapController.fit(points: viewportPoints)
+            } else {
+                pendingViewportPoints = viewportPoints
+            }
+            return
+        }
+
+        pendingViewportPoints = []
         if let mapController {
             mapController.move(
                 to: document.center.lat,

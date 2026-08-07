@@ -200,6 +200,11 @@ final class StopPinUITests: XCTestCase {
                 .matching(identifier: "droppin.target.0").firstMatch.exists,
             "기존 1단계에 후보로 추가하는 선택지가 없다"
         )
+        XCTAssertTrue(
+            app.descendants(matching: .any)
+                .matching(identifier: "droppin.target.library").firstMatch.exists,
+            "고른 장소를 이 화면에서 보관함 폴더에 저장할 수 없다"
+        )
         attach(app, name: "5-새단계또는후보선택")
         // 단계명 글자 밖의 행 오른쪽 여백도 선택 영역이어야 한다.
         newStop.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()

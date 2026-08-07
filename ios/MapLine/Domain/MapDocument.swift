@@ -158,6 +158,18 @@ struct MapDocument: Equatable, Codable {
         showCandidateLinks = try container.decodeIfPresent(Bool.self, forKey: .showCandidateLinks) ?? true
         showStopArrows = try container.decodeIfPresent(Bool.self, forKey: .showStopArrows) ?? true
     }
+
+    /// 이 지도를 불러왔을 때 한 화면에 들어와야 하는 사용자 콘텐츠 좌표들.
+    ///
+    /// 저장 당시의 카메라만 복원하면 사람이 동선에서 멀리 떨어진 곳을 보고 저장한 지도는
+    /// 다시 열어도 빈 화면처럼 보인다. 단계 후보뿐 아니라 실제 경로, 손그림, 메모까지
+    /// 포함해야 그 지도에서 만든 것이 화면 밖으로 빠지지 않는다.
+    var contentViewportPoints: [GeoPoint] {
+        stops.flatMap { $0.candidates.map(\.location) }
+            + legs.compactMap(\.route).flatMap(\.points)
+            + strokes.flatMap(\.path)
+            + labels.map(\.location)
+    }
 }
 
 /// 웹과 맞춘 값들.

@@ -12,6 +12,8 @@ struct DropPinSheet: View {
     let stops: [Stop]
     /// `stopID`가 nil이면 새 단계, 값이 있으면 그 단계의 후보로 담는다.
     let onPick: (_ stopID: String?, _ place: MapPlace) -> Void
+    /// 동선에 넣지 않고 개인 보관함의 고른 폴더에 저장한다.
+    let onSaveToLibrary: (_ place: MapPlace, _ group: SavedPlaceGroup) -> String?
     /// 장소가 아니라 그 자리에 할 말을 남긴다.
     let onWriteMemo: (String) -> Void
 
@@ -25,6 +27,8 @@ struct DropPinSheet: View {
     @State private var searchingPlace = false
     @State private var memo = ""
     @State private var pickedPlace: MapPlace?
+    @State private var showingFolderPicker = false
+    @State private var dismissAfterFolderPicker = false
 
     private enum Phase: Equatable {
         case loading, ready, failed(String)
@@ -73,6 +77,24 @@ struct DropPinSheet: View {
             }
         }
         .task { await load() }
+        .sheet(isPresented: $showingFolderPicker, onDismiss: {
+            guard dismissAfterFolderPicker else { return }
+            dismissAfterFolderPicker = false
+            dismiss()
+        }) {
+            if let pickedPlace {
+                SavedPlaceFolderPickerSheet(
+                    placeName: pickedPlace.name,
+                    currentGroupID: nil,
+                    onPick: { group in
+                        let error = onSaveToLibrary(pickedPlace, group)
+                        if error == nil { dismissAfterFolderPicker = true }
+                        return error
+                    }
+                )
+                .presentationDetents([.medium, .large])
+            }
+        }
     }
 
     private var placePicker: some View {
@@ -187,8 +209,21 @@ struct DropPinSheet: View {
                             symbol: "square.stack.3d.up.fill"
                         )
                     }
-                    .accessibilityIdentifier("droppin.target.\(index)")
+                        .accessibilityIdentifier("droppin.target.\(index)")
                 }
+            }
+
+            Section("보관함") {
+                Button {
+                    showingFolderPicker = true
+                } label: {
+                    targetRow(
+                        title: "보관함 폴더에 저장",
+                        subtitle: "다른 지도에서도 다시 쓸 수 있게 보관합니다",
+                        symbol: "folder.badge.plus"
+                    )
+                }
+                .accessibilityIdentifier("droppin.target.library")
             }
         }
         .accessibilityIdentifier("droppin.targetPicker")
