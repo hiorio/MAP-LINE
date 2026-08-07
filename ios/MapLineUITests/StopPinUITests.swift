@@ -82,6 +82,7 @@ final class StopPinUITests: XCTestCase {
     func test_지도기본POI를한번눌러_핀메뉴를연다() throws {
         let app = XCUIApplication()
         app.launchArguments.append("-uiTesting")
+        app.launchArguments.append("-uiTestingTappedPlace")
         app.launch()
         try waitForMap(app)
 

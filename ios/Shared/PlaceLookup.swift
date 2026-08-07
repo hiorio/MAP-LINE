@@ -89,6 +89,25 @@ enum NearbyLookup {
         tappedPlace: PlaceCandidate?,
         places: [PlaceCandidate]
     ) {
+        #if DEBUG
+        // 지도 기본 POI 탭 UI 테스트는 실제 SDK 탭 이벤트까지는 그대로 통과시키되,
+        // 아직 배포되지 않은 서버 응답이나 외부 검색 결과 순서에는 기대지 않는다.
+        // 다른 테스트와 실제 앱에는 이 인자가 없으므로 네트워크 경로가 그대로 실행된다.
+        if ProcessInfo.processInfo.arguments.contains("-uiTestingTappedPlace"),
+           let preferredKakaoPlaceId {
+            let tappedPlace = PlaceCandidate(
+                kakaoPlaceId: preferredKakaoPlaceId,
+                name: "지도에서 누른 테스트 장소",
+                address: "서울특별시 강남구",
+                roadAddress: nil,
+                category: "테스트 장소",
+                location: .init(lat: lat, lng: lng),
+                distanceM: 0
+            )
+            return (tappedPlace.displayAddress, tappedPlace, [tappedPlace])
+        }
+        #endif
+
         var components = URLComponents(
             url: AppConfig.apiBaseURL.appendingPathComponent("api/nearby"),
             resolvingAgainstBaseURL: false
