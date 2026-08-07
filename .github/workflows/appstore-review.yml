@@ -1,0 +1,65 @@
+name: App Store Review
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Inspect processing state or submit version 1.0 for review
+        required: true
+        default: inspect
+        type: choice
+        options:
+          - inspect
+          - submit
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: App Store Connect API 준비
+        env:
+          KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$KEY_ID"
+          test -n "$ISSUER_ID"
+          test -n "$PRIVATE_KEY"
+          python3 -m pip install --quiet cryptography
+          printf '%s' "$PRIVATE_KEY" > "$RUNNER_TEMP/AuthKey_${KEY_ID}.p8"
+          chmod 600 "$RUNNER_TEMP/AuthKey_${KEY_ID}.p8"
+          openssl pkey -in "$RUNNER_TEMP/AuthKey_${KEY_ID}.p8" -noout
+
+      - name: 스크린샷 상태 확인 및 심사 처리
+        env:
+          KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_ID: '6797682561'
+          VERSION_STRING: '1.0'
+          PLATFORM: IOS
+          ACTION: ${{ inputs.action }}
+        run: |
+          set -euo pipefail
+          python3 scripts/app_store_review.py \
+            "$KEY_ID" \
+            "$ISSUER_ID" \
+            "$RUNNER_TEMP/AuthKey_${KEY_ID}.p8" \
+            "$ACTION"
+
+      - name: 임시 API 키 삭제
+        if: always()
+        env:
+          KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+        run: rm -f "$RUNNER_TEMP/AuthKey_${KEY_ID}.p8"
