@@ -50,6 +50,17 @@ final class ScreenshotUITests: XCTestCase {
                 app.descendants(matching: .any).matching(identifier: "menu.renameMap").firstMatch.exists,
                 "메뉴에 지도 이름 변경이 없다"
             )
+            let brand = app.descendants(matching: .any)
+                .matching(identifier: "menu.brand").firstMatch
+            XCTAssertTrue(brand.exists, "메뉴 머리글에 도화지 이름과 지도 아이콘이 없다")
+            let statusBar = app.statusBars.firstMatch
+            if brand.exists, statusBar.exists {
+                XCTAssertGreaterThanOrEqual(
+                    brand.frame.minY,
+                    statusBar.frame.maxY - 1,
+                    "메뉴 머리글이 시계/상태바 영역과 겹친다"
+                )
+            }
             // 중간지점은 지도 버튼을 없애고 메뉴에서만 들어간다.
             let fromMenu = app.descendants(matching: .any).matching(identifier: "menu.midpoint").firstMatch
             XCTAssertTrue(fromMenu.exists, "메뉴에 중간지점 찾기가 없다")

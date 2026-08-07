@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// 앱의 첫 화면은 지도다.
 ///
@@ -239,7 +240,6 @@ struct ContentView: View {
                         onOpenSaved: { showSaved = true },
                         onOpenMyMaps: { showMyMaps = true }
                     )
-                    .ignoresSafeArea()
                 }
             }
             .sheet(isPresented: $showMidpoint) {
@@ -1325,6 +1325,38 @@ struct SideMenu: View {
 
     private let width: CGFloat = 280
 
+    /// 홈 화면에 실제로 표시되는 앱 아이콘을 그대로 메뉴 헤더에도 사용한다.
+    /// AppIcon은 일반 이미지 세트와 달리 빌드 과정에서 이름이 바뀔 수 있어
+    /// 번들의 아이콘 메타데이터와 생성된 PNG까지 차례로 확인한다.
+    private static let appIconImage: UIImage? = {
+        if let image = UIImage(named: "AppIcon") {
+            return image
+        }
+
+        for dictionaryKey in ["CFBundleIcons", "CFBundleIcons~ipad"] {
+            guard
+                let icons = Bundle.main.infoDictionary?[dictionaryKey] as? [String: Any],
+                let primary = icons["CFBundlePrimaryIcon"] as? [String: Any]
+            else { continue }
+
+            let names = (primary["CFBundleIconFiles"] as? [String] ?? [])
+                + [primary["CFBundleIconName"] as? String].compactMap { $0 }
+            for name in names.reversed() {
+                if let image = UIImage(named: name) {
+                    return image
+                }
+            }
+        }
+
+        return Bundle.main.paths(forResourcesOfType: "png", inDirectory: nil)
+            .filter { URL(fileURLWithPath: $0).lastPathComponent.localizedCaseInsensitiveContains("AppIcon") }
+            .compactMap(UIImage.init(contentsOfFile:))
+            .max {
+                ($0.size.width * $0.scale) * ($0.size.height * $0.scale)
+                    < ($1.size.width * $1.scale) * ($1.size.height * $1.scale)
+            }
+    }()
+
     var body: some View {
         ZStack(alignment: .leading) {
             // 바깥을 누르면 닫힌다. 뒤 지도가 움직이지 않도록 덮어 둔다.
@@ -1332,12 +1364,40 @@ struct SideMenu: View {
                 .ignoresSafeArea()
                 .onTapGesture { close() }
 
+            // 패널의 검은 배경만 상태바 뒤까지 채운다. 내용까지 안전영역을 무시하면
+            // 다이내믹 아일랜드/시계와 앱 이름이 겹친다.
+            Color(.systemBackground)
+                .frame(width: width)
+                .frame(maxHeight: .infinity)
+                .ignoresSafeArea(edges: .vertical)
+
             VStack(alignment: .leading, spacing: 0) {
-                Text("도화지")
-                    .font(.title2.weight(.bold))
-                    .padding(.horizontal, 20)
-                    .padding(.top, 24)
-                    .padding(.bottom, 20)
+                HStack(spacing: 10) {
+                    Group {
+                        if let appIcon = Self.appIconImage {
+                            Image(uiImage: appIcon)
+                                .resizable()
+                                .scaledToFill()
+                        } else {
+                            Image(systemName: "app.fill")
+                                .resizable()
+                                .scaledToFit()
+                                .foregroundStyle(Color.accentColor)
+                                .padding(4)
+                        }
+                    }
+                    .frame(width: 30, height: 30)
+                    .background(Color.secondary.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    Text("도화지")
+                        .font(.title2.weight(.bold))
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("도화지")
+                .accessibilityIdentifier("menu.brand")
+                .padding(.horizontal, 20)
+                .padding(.top, 12)
+                .padding(.bottom, 20)
 
                 item("plus.square.on.square", "새 지도", "현재 지도를 저장하고 새로 시작합니다") {
                     close()
@@ -1383,8 +1443,6 @@ struct SideMenu: View {
             }
             .frame(width: width)
             .frame(maxHeight: .infinity)
-            .background(Color(.systemBackground))
-            .ignoresSafeArea(edges: .vertical)
             .transition(.move(edge: .leading))
         }
     }
