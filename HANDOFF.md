@@ -10,14 +10,20 @@
 
 **웹 v0.1이 배포돼 돌아가고 있고, iOS 앱이 웹 기능을 전부 따라잡았습니다.**
 
-### 2026-08-07 통합 배포 검증 — 진행 중
+### 2026-08-07 iOS CI·TestFlight 31 완료 — 운영 서버 배포 대기
 
-- 누적 소스는 `2656136`으로 커밋해 `agent/ios-map-poi-context`에 푸시
-- 첫 iOS CI `31144854535`에서 Swift 빌드·도메인 테스트와 UI 테스트 9개는 통과했고,
-  기본 지도 POI 테스트 1개만 아직 새 `/api/nearby`가 배포되지 않은 운영 서버 응답을 기다리다 실패
-- 해당 UI 테스트는 카카오 지도 SDK의 실제 POI 탭은 그대로 거치되, 장소 응답만 DEBUG 전용
+- 누적 소스 `2656136`과 UI 테스트 안정화 `0944516`을
+  `agent/ios-map-poi-context`에 푸시
+- iOS CI `31146150106`에서 Swift 빌드·번들 키 확인·도메인 테스트·UI 테스트·스크린샷
+  추출까지 모두 통과
+- 카카오 지도 SDK의 실제 POI 탭은 그대로 검증하되, UI 테스트의 장소 응답만 DEBUG 전용
   `-uiTestingTappedPlace` 고정값을 사용하도록 분리. 서버의 POI 선별은 웹 단위 테스트가 담당
-- 다음 순서: 이 보정까지 `main`에 반영 → Railway 자동 배포와 iOS CI 확인 → TestFlight 수동 실행
+- TestFlight `31146966867`에서 **도화지 1.0 (31)** 아카이브와 Apple 업로드 성공.
+  `ARCHIVE SUCCEEDED`, `Upload succeeded`, `EXPORT SUCCEEDED`를 로그에서 확인했고 이번 CI가
+  만든 개발 인증서와 API 키도 회수·삭제 완료
+- 이번 요청에서는 운영 `main`과 Railway를 변경하지 않았다. 따라서 새 `/api/nearby`의 최대
+  15개 내부 검사·정확한 POI 우선 처리와 웹 경로 요약 표시는 운영 서버 배포 전까지 비활성이다.
+  TestFlight 31도 기존 운영 API 주소를 사용하므로 이 부분을 켜려면 `main`/Railway 배포 승인이 필요
 
 ### 2026-08-07 같은 단계 후보선·웹 경로 요약 — 소스만 반영, 빌드 전
 
