@@ -244,6 +244,9 @@ jobs:
             <key>destination</key><string>upload</string>
             $TEAM_ENTRY
             <key>signingStyle</key><string>automatic</string>
+            <!-- archive에서 정한 github.run_number를 App Store Connect가 다시 다음 번호로
+                 바꾸지 않게 한다. 로그와 실제 TestFlight 빌드 번호가 같아야 한다. -->
+            <key>manageAppVersionAndBuildNumber</key><false/>
             <key>uploadSymbols</key><true/>
           </dict>
           </plist>
