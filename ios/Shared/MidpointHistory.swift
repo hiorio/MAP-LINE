@@ -3,7 +3,8 @@ import Foundation
 /// 중간지점 검색 한 번의 입력과 결과.
 ///
 /// 후보 이름만 남기면 나중에 왜 그곳이 1순위였는지 알 수 없다. 참가자의 출발지와
-/// 이동수단, 서버가 계산한 경로까지 함께 보관해 당시 결과를 그대로 다시 연다.
+/// 이동수단, 저장 가능한 경로를 함께 보관한다. 자동차 경로는 제공자 조건 때문에
+/// 제외하고 다시 계산할 수 있다는 상태로 남긴다.
 struct MidpointHistoryEntry: Codable, Identifiable {
     let id: String
     let searchedAt: Date
@@ -56,7 +57,7 @@ struct MidpointHistoryStore {
         let entry = MidpointHistoryEntry(
             searchedAt: searchedAt,
             participants: participants,
-            result: result
+            result: result.historySnapshot()
         )
         try storage.update { entries in
             entries.removeAll { $0.id == entry.id }

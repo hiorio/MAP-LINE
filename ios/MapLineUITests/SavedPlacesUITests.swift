@@ -40,10 +40,14 @@ final class SavedPlacesUITests: XCTestCase {
             .matching(identifier: "saved.marker.coffee").firstMatch
         XCTAssertTrue(coffee.exists, "카페 마크 선택지가 없다")
         coffee.tap()
+        app.swipeUp()
+        let nature = app.descendants(matching: .any)
+            .matching(identifier: "saved.marker.nature").firstMatch
+        XCTAssertTrue(nature.waitForExistence(timeout: 5), "확장된 자연 마크 선택지가 없다")
         attach(app, name: "보관함-폴더마크편집")
     }
 
-    func test_내지도에썸네일이름과단계수가보인다() {
+    func test_보관함안의내동선에썸네일이름과단계수가보인다() {
         let app = XCUIApplication()
         app.launchArguments.append(contentsOf: ["-uiTesting", "-uiTestingSeedMaps"])
         app.launch()
@@ -52,15 +56,23 @@ final class SavedPlacesUITests: XCTestCase {
         XCTAssertTrue(menu.waitForExistence(timeout: 30), "지도 화면이 뜨지 않았다")
         menu.tap()
 
-        let myMaps = app.descendants(matching: .any).matching(identifier: "menu.myMaps").firstMatch
-        XCTAssertTrue(myMaps.waitForExistence(timeout: 5), "메뉴에 내 지도가 없다")
-        myMaps.tap()
+        XCTAssertFalse(
+            app.descendants(matching: .any).matching(identifier: "menu.myMaps").firstMatch.exists,
+            "내 동선은 보관함 밖의 메뉴에 중복 노출되면 안 된다"
+        )
+        let saved = app.descendants(matching: .any).matching(identifier: "menu.saved").firstMatch
+        XCTAssertTrue(saved.waitForExistence(timeout: 5), "메뉴에 보관함이 없다")
+        saved.tap()
+
+        let myRoutes = app.descendants(matching: .any).matching(identifier: "saved.myRoutes").firstMatch
+        XCTAssertTrue(myRoutes.waitForExistence(timeout: 10), "보관함 안에 내 동선이 없다")
+        myRoutes.tap()
 
         let row = app.descendants(matching: .any).matching(identifier: "mymaps.row.ui-map").firstMatch
-        XCTAssertTrue(row.waitForExistence(timeout: 10), "내 지도 항목이 보이지 않는다")
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "내 동선 항목이 보이지 않는다")
         XCTAssertTrue(app.staticTexts["주말 나들이"].exists, "지도 이름이 보이지 않는다")
         XCTAssertTrue(app.staticTexts["3단계"].exists, "단계 수가 보이지 않는다")
-        attach(app, name: "내지도-썸네일-이름-단계수")
+        attach(app, name: "내동선-썸네일-이름-단계수")
     }
 
     private func attach(_ app: XCUIApplication, name: String) {

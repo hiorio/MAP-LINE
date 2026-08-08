@@ -56,7 +56,7 @@ enum MapStore {
         let slug: String
         var title: String
         var savedAt: String
-        /// 예전 목록 파일에는 없을 수 있다. 그 경우 내 지도 화면이 서버에서 한 번 보완한다.
+        /// 예전 목록 파일에는 없을 수 있다. 그 경우 내 동선 화면이 서버에서 한 번 보완한다.
         var stopCount: Int?
         var id: String { slug }
 
@@ -326,7 +326,7 @@ enum MapStore {
 
     // MARK: - 복제와 썸네일
 
-    /// 서버의 OG 이미지가 지도 한 장을 이미 렌더링하므로 내 지도 목록도 같은 그림을 쓴다.
+    /// 서버의 OG 이미지가 지도 한 장을 이미 렌더링하므로 내 동선 목록도 같은 그림을 쓴다.
     static func thumbnailURL(slug: String) -> URL {
         AppConfig.apiBaseURL.appendingPathComponent("api/og/\(slug)")
     }

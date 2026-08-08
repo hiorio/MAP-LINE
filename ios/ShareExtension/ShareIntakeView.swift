@@ -16,8 +16,9 @@ struct ShareIntakeView: View {
     @State private var savedMessage: String?
     @State private var selected: [String: String] = [:]
     @State private var showRaw = false
-    @State private var destinationGroups: [SavedPlaceGroup] = [SavedPlaceGroup.inbox]
-    @State private var destinationGroupID = SavedPlaceGroup.inboxID
+    @State private var destinationGroups: [SavedPlaceGroup] = []
+    @State private var destinationGroupID: String?
+    @State private var showingFolderCreator = false
     @State private var storageError: String?
 
     /// `State`라고 이름 짓지 않는다. SwiftUI의 `@State`를 가려서 프로퍼티 래퍼가
@@ -50,13 +51,25 @@ struct ShareIntakeView: View {
                             }
                         }
                         Section("담을 폴더") {
-                            Picker("폴더", selection: $destinationGroupID) {
-                                ForEach(destinationGroups) { group in
-                                    Label(group.name, systemImage: group.marker.symbolName)
-                                        .tag(group.id)
+                            if destinationGroups.isEmpty {
+                                Label("폴더를 먼저 만들어 주세요", systemImage: "folder.badge.plus")
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                Picker("폴더 선택", selection: $destinationGroupID) {
+                                    Text("선택하세요").tag(nil as String?)
+                                    ForEach(destinationGroups) { group in
+                                        Label(group.name, systemImage: group.marker.symbolName)
+                                            .tag(Optional(group.id))
+                                    }
                                 }
+                                .pickerStyle(.menu)
+                                .accessibilityIdentifier("share.destinationFolder")
                             }
-                            .pickerStyle(.menu)
+
+                            Button { showingFolderCreator = true } label: {
+                                Label("새 폴더 만들기", systemImage: "folder.badge.plus")
+                            }
+                            .accessibilityIdentifier("share.addFolder")
                         }
                         ForEach(groups) { group in
                             candidateSection(group)
@@ -94,11 +107,24 @@ struct ShareIntakeView: View {
                             .padding(.vertical, 12)
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled(selected.isEmpty)
+                    .disabled(selected.isEmpty || destinationGroupID == nil)
                     .padding(.horizontal)
                     .padding(.vertical, 8)
                     .background(.regularMaterial)
                     .accessibilityIdentifier("share.saveSelected")
+                }
+            }
+        }
+        .sheet(isPresented: $showingFolderCreator) {
+            ShareFolderCreator { group in
+                do {
+                    guard try groupStore.add(group) else {
+                        storageError = "같은 이름의 폴더가 이미 있습니다."
+                        return
+                    }
+                    try reloadDestinationGroups(selecting: group.id)
+                } catch {
+                    storageError = error.localizedDescription
                 }
             }
         }
@@ -115,7 +141,7 @@ struct ShareIntakeView: View {
         }
         .task {
             do {
-                destinationGroups = try groupStore.all()
+                try reloadDestinationGroups()
             } catch {
                 storageError = error.localizedDescription
             }
@@ -211,6 +237,10 @@ struct ShareIntakeView: View {
     }
 
     private func save(_ groups: [ShareIntake.Group]) {
+        guard let destinationGroupID else {
+            storageError = "장소를 담을 폴더를 선택해 주세요."
+            return
+        }
         let candidates: [ShareIntake.Candidate] = groups.compactMap { group -> ShareIntake.Candidate? in
             guard let selectedID = selected[group.id] else { return nil }
             return group.places.first { $0.id == selectedID }
@@ -230,5 +260,122 @@ struct ShareIntakeView: View {
             // 저장 공간을 확인하고 다시 누를 수 있어야 한다.
             storageError = error.localizedDescription
         }
+    }
+
+    private func reloadDestinationGroups(selecting preferredID: String? = nil) throws {
+        // 예전 버전의 고정 수신함은 새 공유 목적지로 쓰지 않는다. 사용자가 만든 폴더를
+        // 직접 고르게 해 공유 순간부터 분류가 끝나도록 한다.
+        let loaded = try groupStore.all().filter { $0.id != SavedPlaceGroup.inboxID }
+        destinationGroups = loaded
+        if let preferredID, loaded.contains(where: { $0.id == preferredID }) {
+            destinationGroupID = preferredID
+        } else if let currentID = destinationGroupID,
+                  loaded.contains(where: { $0.id == currentID }) {
+            destinationGroupID = currentID
+        } else {
+            destinationGroupID = nil
+        }
+    }
+}
+
+/// 앱을 열지 않고도 공유 화면에서 목적 폴더를 바로 만들 수 있게 하는 간단한 편집기.
+private struct ShareFolderCreator: View {
+    let onSave: (SavedPlaceGroup) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var name = ""
+    @State private var marker: SavedPlaceMarker = .star
+    @State private var colorHex = "#E24B4A"
+
+    private let colors: [(hex: String, color: Color)] = [
+        ("#E24B4A", Color(red: 0.89, green: 0.29, blue: 0.29)),
+        ("#E58A2B", Color(red: 0.90, green: 0.54, blue: 0.17)),
+        ("#2FA35B", Color(red: 0.18, green: 0.64, blue: 0.36)),
+        ("#2D6BE4", Color(red: 0.18, green: 0.42, blue: 0.89)),
+        ("#7A55C7", Color(red: 0.48, green: 0.33, blue: 0.78)),
+        ("#D34F8B", Color(red: 0.83, green: 0.31, blue: 0.55)),
+        ("#5D6470", Color(red: 0.36, green: 0.39, blue: 0.44)),
+    ]
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("폴더 이름") {
+                    TextField("예: 가고 싶은 카페", text: $name)
+                        .accessibilityIdentifier("share.folder.name")
+                }
+
+                Section("마크") {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: 14) {
+                        ForEach(SavedPlaceMarker.allCases) { choice in
+                            Button { marker = choice } label: {
+                                VStack(spacing: 6) {
+                                    Image(systemName: choice.symbolName)
+                                        .font(.title3)
+                                        .frame(width: 36, height: 36)
+                                        .background(
+                                            marker == choice ? selectedColor.opacity(0.18) : Color.clear,
+                                            in: Circle()
+                                        )
+                                    Text(choice.title).font(.caption2)
+                                }
+                                .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(marker == choice ? selectedColor : Color.secondary)
+                        }
+                    }
+                    .padding(.vertical, 5)
+                }
+
+                Section("색상") {
+                    HStack(spacing: 13) {
+                        ForEach(colors.indices, id: \.self) { index in
+                            let option = colors[index]
+                            Button { colorHex = option.hex } label: {
+                                Circle()
+                                    .fill(option.color)
+                                    .frame(width: 30, height: 30)
+                                    .overlay {
+                                        if colorHex == option.hex {
+                                            Image(systemName: "checkmark")
+                                                .font(.caption.bold())
+                                                .foregroundStyle(.white)
+                                        }
+                                    }
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("폴더 색상")
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+            .navigationTitle("새 폴더")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("취소") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("저장") {
+                        onSave(
+                            SavedPlaceGroup(
+                                name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+                                marker: marker,
+                                colorHex: colorHex
+                            )
+                        )
+                        dismiss()
+                    }
+                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .accessibilityIdentifier("share.folder.save")
+                }
+            }
+        }
+    }
+
+    private var selectedColor: Color {
+        colors.first { $0.hex == colorHex }?.color ?? .accentColor
     }
 }

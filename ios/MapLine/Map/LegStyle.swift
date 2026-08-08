@@ -25,6 +25,8 @@ struct LegStyle {
             return LegStyle(name: "transit", color: UIColor(hex: "#2D6BE4") ?? .systemBlue, width: 9, dash: nil)
         case .bicycle:
             return LegStyle(name: "bicycle", color: UIColor(hex: "#2FA35B") ?? .systemGreen, width: 8, dash: (8, 5))
+        case .car:
+            return LegStyle(name: "car", color: UIColor(hex: "#E66A2C") ?? .systemOrange, width: 9, dash: nil)
         }
     }
 

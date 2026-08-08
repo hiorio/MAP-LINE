@@ -74,6 +74,11 @@ final class ScreenshotUITests: XCTestCase {
         // 3. 사람 둘 추가
         addPerson(app, query: "강남역", step: "4")
         addPerson(app, query: "홍대입구역", step: "5")
+        XCTAssertTrue(
+            app.descendants(matching: .any)
+                .matching(identifier: "midpoint.mode.car").firstMatch.exists,
+            "중간지점 참가자 이동수단에 자동차가 없다"
+        )
         shot(app, "6-사람둘")
 
         // 4. 찾기. 참가자 수만큼 길찾기가 나가므로 넉넉히 기다린다.

@@ -84,7 +84,7 @@ struct SavedPlaceStore {
     }
 
     /// 앱 안 검색으로 장소를 특정 폴더에 담는다. 이미 다른 폴더에 있으면 복제하지 않고
-    /// 그 항목을 옮긴다. 공유 익스텐션의 `add`는 기존 분류를 받은 장소로 되돌리지 않는다.
+    /// 그 항목을 옮긴다. 공유 익스텐션의 `add`는 기존 분류를 미분류로 되돌리지 않는다.
     @discardableResult
     func addOrMove(_ place: SavedPlace, to groupID: String) throws -> Bool {
         var changed = false
@@ -153,7 +153,7 @@ struct SavedPlaceGroupStore {
         }
     }
 
-    /// 받은 장소는 항상 맨 위에 고정하고 사용자 폴더만 원하는 순서로 저장한다.
+    /// 복구용 미분류 ID는 파일에 쓰지 않고 사용자 폴더만 원하는 순서로 저장한다.
     func reorder(customGroupIDs: [String]) throws {
         try storage.update { groups in
             let current = groups.filter { $0.id != SavedPlaceGroup.inboxID }

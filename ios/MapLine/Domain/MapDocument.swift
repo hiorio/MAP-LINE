@@ -209,6 +209,50 @@ extension Array where Element == Stop {
     }
 }
 
+/// 한 동선에서 고른 단계들만 떼어 새 동선 문서로 만든다.
+///
+/// 원본 단계의 순서는 유지한다. 원래도 서로 이웃하던 단계 사이 경로만 보존하고,
+/// 중간 단계를 건너뛰어 새로 이웃하게 된 곳은 직선 구간으로 시작한다. 지도 전체에
+/// 속한 손그림과 자유 메모는 어느 단계 소유인지 알 수 없으므로 함께 복제하지 않는다.
+func extractedRouteDocument(
+    from source: MapDocument,
+    selectedStopIDs: Set<String>,
+    title: String
+) -> MapDocument? {
+    let selectedStops = source.stops.filter { selectedStopIDs.contains($0.id) }
+    guard !selectedStops.isEmpty else { return nil }
+
+    let reorderedLegs = LegRules.reordered(
+        oldStops: source.stops,
+        newStops: selectedStops,
+        oldLegs: source.legs
+    )
+    let points = selectedStops.flatMap { $0.candidates.map(\.location) }
+    let center: GeoPoint
+    if points.isEmpty {
+        center = source.center
+    } else {
+        let count = Double(points.count)
+        center = GeoPoint(
+            lat: points.reduce(0) { $0 + $1.lat } / count,
+            lng: points.reduce(0) { $0 + $1.lng } / count
+        )
+    }
+    let normalizedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+
+    return MapDocument(
+        title: normalizedTitle.isEmpty ? "새 동선" : normalizedTitle,
+        center: center,
+        zoomLevel: source.zoomLevel,
+        stops: selectedStops,
+        legs: LegRules.persistable(stops: selectedStops, legs: reorderedLegs),
+        strokes: [],
+        labels: [],
+        showCandidateLinks: source.showCandidateLinks,
+        showStopArrows: source.showStopArrows
+    )
+}
+
 extension Array where Element == MapLabel {
     /// 메모의 내용과 위치를 id로 고친다. 없는 id는 아무것도 바꾸지 않는다.
     @discardableResult

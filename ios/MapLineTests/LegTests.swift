@@ -98,6 +98,31 @@ final class LegTests: XCTestCase {
         XCTAssertTrue(LegRules.isStale(broken))
     }
 
+    func test_자동차경로는현재교통을위해한시간뒤갱신한다() {
+        let now = Date()
+        var old = route(from: "a", to: "b", points: [])
+        old.fetchedAt = ISO8601DateFormatter().string(from: now.addingTimeInterval(-90 * 60))
+
+        XCTAssertTrue(LegRules.isStale(old, now: now, mode: .car))
+        XCTAssertFalse(LegRules.isStale(old, now: now, mode: .walk))
+    }
+
+    func test_자동차선택만저장하고실시간경로는제거한다() {
+        let stops = [Stop(candidates: [place("a")]), Stop(candidates: [place("b")])]
+        let liveRoute = route(
+            from: "a",
+            to: "b",
+            points: [GeoPoint(lat: 1, lng: 1), GeoPoint(lat: 2, lng: 2)]
+        )
+
+        let stored = LegRules.persistable(
+            stops: stops,
+            legs: [StopLeg(mode: .car, route: liveRoute)]
+        )
+
+        XCTAssertEqual(stored, [StopLeg(mode: .car)])
+    }
+
     func test_대표를정하면그단계와맞닿은선택수단을다시찾는다() {
         let a = Stop(candidates: [place("a")])
         let b1 = place("b1")

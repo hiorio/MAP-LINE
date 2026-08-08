@@ -3,7 +3,7 @@ import SwiftUI
 /// 이 기기에서 만든 지도들.
 ///
 /// 저장만 되고 다시 열 길이 없으면 앱을 끄는 순간 그 지도는 사라진 것과 같다.
-/// 로그인이 없는 제품이라 "내 지도"는 이 기기가 편집 토큰을 갖고 있는 지도를 뜻한다.
+/// 로그인이 없는 제품이라 "내 동선"은 이 기기가 편집 토큰을 갖고 있는 지도를 뜻한다.
 struct MyMapsView: View {
     /// 고른 지도를 화면에 올린다.
     let onOpen: (String) -> Void
@@ -143,7 +143,7 @@ struct MyMapsView: View {
                     }
                 }
             }
-            .navigationTitle("내 지도")
+            .navigationTitle("내 동선")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -166,7 +166,7 @@ struct MyMapsView: View {
             Text("서버의 지도와 공유 링크가 함께 사라지며 되돌릴 수 없습니다.")
         }
         .alert(
-            "내 지도",
+            "내 동선",
             isPresented: Binding(
                 get: { resultMessage != nil },
                 set: { if !$0 { resultMessage = nil } }

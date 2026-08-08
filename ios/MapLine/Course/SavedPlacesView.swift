@@ -4,6 +4,7 @@ import UIKit
 /// 개인 장소 보관함. 공유로 받은 곳뿐 아니라 직접 찾은 장소도 폴더별로 모아 둔다.
 struct SavedPlacesView: View {
     let stops: [Stop]
+    let onOpenRoutes: () -> Void
     let onAdd: (_ stopID: String?, _ places: [MapPlace]) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -21,21 +22,45 @@ struct SavedPlacesView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section {
-                    Text("장소를 직접 모으거나 다른 앱에서 공유해 폴더별로 정리할 수 있습니다.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-
                 if normalizedQuery.isEmpty {
-                    Section("내 폴더") {
-                        if let inbox = groups.first(where: { $0.id == SavedPlaceGroup.inboxID }) {
-                            groupLink(inbox)
+                    Section("동선") {
+                        Button(action: onOpenRoutes) {
+                            HStack(spacing: 12) {
+                                Image(systemName: "map.fill")
+                                    .font(.body.weight(.semibold))
+                                    .foregroundStyle(.tint)
+                                    .frame(width: 38, height: 38)
+                                    .background(Color.accentColor.opacity(0.14), in: Circle())
+                                Text("내 동선")
+                                    .font(.body.weight(.medium))
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .contentShape(Rectangle())
                         }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("saved.myRoutes")
+                    }
+
+                    Section("내 폴더") {
                         ForEach(customGroups) { group in
                             groupLink(group)
                         }
                         .onMove(perform: moveGroups)
+
+                        // 예전 버전에서 폴더를 고르지 않고 담은 장소가 실제로 남아 있을
+                        // 때만 복구용 폴더를 보여 준다. 빈 `받은 장소` 항목은 만들지 않는다.
+                        if let uncategorizedGroup {
+                            groupLink(uncategorizedGroup)
+                        }
+
+                        if customGroups.isEmpty && uncategorizedGroup == nil {
+                            Text("폴더가 없습니다")
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 } else {
                     Section("전체 검색 결과 \(searchResults.count)곳") {
@@ -123,7 +148,7 @@ struct SavedPlacesView: View {
             Button("삭제", role: .destructive) { delete(group) }
             Button("취소", role: .cancel) { deletingGroup = nil }
         } message: { group in
-            Text("‘\(group.name)’의 장소는 삭제되지 않고 ‘받은 장소’로 이동합니다.")
+            Text("‘\(group.name)’의 장소는 삭제되지 않고 ‘미분류’로 이동합니다.")
         }
         .alert(
             "보관함을 저장하지 못했습니다",
@@ -142,14 +167,7 @@ struct SavedPlacesView: View {
     private func groupRow(_ group: SavedPlaceGroup) -> some View {
         HStack(spacing: 12) {
             groupMark(group, size: 38)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(group.name).font(.body.weight(.medium))
-                Text(group.id == SavedPlaceGroup.inboxID
-                     ? "다른 앱 공유와 미분류 장소"
-                     : "직접 모아 둔 장소")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            Text(group.name).font(.body.weight(.medium))
             Spacer()
             Text("\(places.filter { $0.groupID == group.id }.count)")
                 .font(.callout.monospacedDigit())
@@ -164,6 +182,11 @@ struct SavedPlacesView: View {
 
     private var customGroups: [SavedPlaceGroup] {
         groups.filter { $0.id != SavedPlaceGroup.inboxID }
+    }
+
+    private var uncategorizedGroup: SavedPlaceGroup? {
+        guard places.contains(where: { $0.groupID == SavedPlaceGroup.inboxID }) else { return nil }
+        return groups.first { $0.id == SavedPlaceGroup.inboxID }
     }
 
     private var searchResults: [SavedPlace] {
@@ -390,7 +413,7 @@ private struct SavedPlaceGroupView: View {
             SavedPlaceMoveSheet(
                 placeCount: request.places.count,
                 sourceGroupID: group.id,
-                groups: groups
+                groups: groups.filter { $0.id != SavedPlaceGroup.inboxID }
             ) { targetID in
                 do {
                     try store.move(ids: Set(request.places.map(\.id)), to: targetID)
@@ -569,7 +592,7 @@ private struct GroupEditorTarget: Identifiable {
     let group: SavedPlaceGroup?
 }
 
-private struct SavedPlaceGroupEditor: View {
+struct SavedPlaceGroupEditor: View {
     let group: SavedPlaceGroup?
     let onSave: (SavedPlaceGroup) -> Void
 

@@ -21,7 +21,7 @@ enum Midpoint {
         }
 
         enum Mode: String, Codable, CaseIterable, Identifiable {
-            case walk, transit, bicycle
+            case walk, transit, bicycle, car
             var id: String { rawValue }
 
             var label: String {
@@ -29,6 +29,7 @@ enum Midpoint {
                 case .walk: return "도보"
                 case .transit: return "대중교통"
                 case .bicycle: return "자전거"
+                case .car: return "자동차"
                 }
             }
 
@@ -37,6 +38,7 @@ enum Midpoint {
                 case .walk: return "figure.walk"
                 case .transit: return "tram.fill"
                 case .bicycle: return "bicycle"
+                case .car: return "car.fill"
                 }
             }
         }
@@ -57,8 +59,9 @@ enum Midpoint {
         let place: Place
         let legs: [Leg]
         /// 가장 오래 걸리는 사람의 시간. 순위의 기준이다.
-        let maxDurationS: Int
-        let totalDurationS: Int
+        /// 실시간 결과에는 항상 있고, 저장 정책상 자동차 경로를 제거한 기록에는 없다.
+        let maxDurationS: Int?
+        let totalDurationS: Int?
         /// 모두의 경로를 구했을 때만 있다. 한 명이라도 빠지면 알 수 없는 값이다.
         let spreadS: Int?
         let complete: Bool
@@ -125,6 +128,44 @@ enum Midpoint {
             throw AppError.message(message ?? "중간지점을 찾지 못했습니다 (\(http.statusCode))")
         }
         return try JSONDecoder().decode(Result.self, from: data)
+    }
+}
+
+extension Midpoint.Result {
+    /// 기기에 남겨도 되는 중간지점 기록.
+    ///
+    /// 자동차 길찾기 좌표·거리·시간은 제공자 저장 조건에 따라 현재 검색 세션에서만 쓴다.
+    /// 참가자의 `car` 선택과 후보 순서는 사용자 데이터이므로 남기되, 자동차 leg와 그 시간에서
+    /// 계산된 후보 요약값은 제거한다. 기록을 다시 열면 사용자가 직접 재계산할 수 있다.
+    func historySnapshot() -> Midpoint.Result {
+        Midpoint.Result(
+            center: center,
+            searchRadiusM: searchRadiusM,
+            candidates: candidates.map { candidate in
+                guard candidate.legs.contains(where: {
+                    $0.mode == Midpoint.Participant.Mode.car.rawValue
+                }) else { return candidate }
+
+                return Midpoint.Candidate(
+                    place: candidate.place,
+                    legs: candidate.legs.map { leg in
+                        guard leg.mode == Midpoint.Participant.Mode.car.rawValue else { return leg }
+                        return Midpoint.Candidate.Leg(
+                            participantId: leg.participantId,
+                            mode: leg.mode,
+                            durationS: nil,
+                            distanceM: nil,
+                            points: nil,
+                            transitLegs: nil
+                        )
+                    },
+                    maxDurationS: nil,
+                    totalDurationS: nil,
+                    spreadS: nil,
+                    complete: false
+                )
+            }
+        )
     }
 }
 

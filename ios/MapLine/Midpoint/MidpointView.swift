@@ -139,16 +139,36 @@ struct MidpointView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
-                    Picker("오는 방법", selection: $person.mode) {
-                        ForEach(Midpoint.Participant.Mode.allCases) { mode in
-                            Label(mode.label, systemImage: mode.symbol).tag(mode)
+                    // 네 수단을 segmented picker에 넣으면 작은 화면에서 대중교통·자동차가
+                    // 잘린다. 일반 동선과 같은 가로 칩으로 이름과 아이콘을 온전히 보인다.
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 7) {
+                            ForEach(Midpoint.Participant.Mode.allCases) { mode in
+                                Button {
+                                    guard person.mode != mode else { return }
+                                    $person.mode.wrappedValue = mode
+                                    result = nil
+                                    selectedCandidateIDs = []
+                                } label: {
+                                    Label(mode.label, systemImage: mode.symbol)
+                                        .font(.caption.weight(.medium))
+                                        .padding(.horizontal, 10)
+                                        .frame(height: 32)
+                                        .foregroundStyle(person.mode == mode ? Color.white : Color.primary)
+                                        .background(
+                                            person.mode == mode
+                                                ? Color.accentColor
+                                                : Color.secondary.opacity(0.12),
+                                            in: Capsule()
+                                        )
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityValue(person.mode == mode ? "선택됨" : "")
+                                .accessibilityIdentifier("midpoint.mode.\(mode.rawValue)")
+                            }
                         }
                     }
-                    .pickerStyle(.segmented)
-                    .onChange(of: person.mode) { _ in
-                        result = nil
-                        selectedCandidateIDs = []
-                    }
+                    .accessibilityLabel("오는 방법")
                 }
                 .padding(.vertical, 4)
             }
@@ -200,8 +220,12 @@ struct MidpointView: View {
         } header: {
             Text("모이기 좋은 곳")
         } footer: {
-            // 무엇을 기준으로 줄 세웠는지 밝힌다. 1등이 왜 1등인지 모르면 못 믿는다.
-            Text("가장 오래 걸리는 사람의 시간이 짧은 순입니다.")
+            if result.candidates.contains(where: { $0.maxDurationS == nil }) {
+                Text("자동차 경로는 기록에 저장하지 않습니다. 현재 교통량으로 보려면 중간지점 찾기를 다시 누르세요.")
+            } else {
+                // 무엇을 기준으로 줄 세웠는지 밝힌다. 1등이 왜 1등인지 모르면 못 믿는다.
+                Text("가장 오래 걸리는 사람의 시간이 짧은 순입니다.")
+            }
         }
     }
 
@@ -222,9 +246,18 @@ struct MidpointView: View {
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 1) {
-                    Text("최대 \(formatDuration(candidate.maxDurationS))")
-                        .font(.caption.weight(.medium))
-                    if let spread = candidate.spreadS {
+                    if let maxDuration = candidate.maxDurationS {
+                        Text("최대 \(formatDuration(maxDuration))")
+                            .font(.caption.weight(.medium))
+                    } else {
+                        Text("다시 계산 필요")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.orange)
+                    }
+                    if candidate.maxDurationS == nil {
+                        Text("자동차 경로 미저장")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    } else if let spread = candidate.spreadS {
                         Text("편차 \(formatDuration(spread))")
                             .font(.caption2).foregroundStyle(.secondary)
                     } else {

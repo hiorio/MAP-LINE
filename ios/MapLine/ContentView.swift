@@ -26,9 +26,15 @@ struct ContentView: View {
     @State private var showCandidateLinks = true
     @State private var showStopArrows = true
     @State private var showCourse = false
+    /// 동선 시트에서 여러 단계를 고르는 동안 지도 핀도 같은 선택 상태를 보여 준다.
+    @State private var isSelectingCourseStops = false
+    @State private var selectedCourseStopIDs: Set<String> = []
     @State private var showPlacePicker = false
     @State private var showSaved = false
     @State private var showMyMaps = false
+    /// 보관함 안의 `내 동선`을 누르면 먼저 현재 시트를 완전히 닫고 목록을 연다.
+    /// 두 시트를 같은 표시 주기에 겹치면 iOS가 다음 시트를 무시할 수 있다.
+    @State private var openMyMapsAfterSaved = false
     /// 보관한 지도 행을 누른 뒤 시트가 완전히 내려가면 이 지도를 연다. 지도 엔진이
     /// 시트 전환 중에 멈춘 상태에서 카메라 요청을 삼키지 않게 하기 위한 대기열이다.
     @State private var pendingMapSlug: String?
@@ -171,12 +177,14 @@ struct ContentView: View {
                     plot: plot,
                     stops: stops,
                     legs: legs,
+                    highlightedStopIDs: selectedCourseStopIDs,
                     showCandidateLinks: showCandidateLinks,
                     strokes: strokes,
                     labels: labels,
                     savedPins: savedPins,
                     currentLocation: currentLocationPoint,
                     onLongPress: { coordinate in
+                        guard !isSelectingCourseStops else { return }
                         if let id = movingMemoID {
                             labels.updateLabel(id: id, location: coordinate)
                             movingMemoID = nil
@@ -187,19 +195,26 @@ struct ContentView: View {
                             )
                         }
                     },
-                    onTapStopPin: { id in openedPin = resolvePin(id) },
+                    onTapStopPin: { id in
+                        if isSelectingCourseStops {
+                            toggleCourseStopSelection(candidateID: id)
+                        } else {
+                            openedPin = resolvePin(id)
+                        }
+                    },
                     onTapSavedPin: { id in
+                        guard !isSelectingCourseStops else { return }
                         openedSavedPin = savedPins.first { $0.id == id }
                     },
                     onTapMapPoi: { coordinate, poiID in
-                        guard movingMemoID == nil else { return }
+                        guard movingMemoID == nil, !isSelectingCourseStops else { return }
                         pendingPin = PendingPin(
                             coordinate: coordinate,
                             preferredKakaoPlaceId: poiID
                         )
                     },
                     onTapMemo: { id in
-                        guard movingMemoID == nil else { return }
+                        guard movingMemoID == nil, !isSelectingCourseStops else { return }
                         openedMemo = labels.first { $0.id == id }
                     },
                     onMoveMemo: { id, location in
@@ -237,8 +252,7 @@ struct ContentView: View {
                         onNewMap: { confirmingNewMap = true },
                         onRenameMap: { showTitleEditor = true },
                         onFindMidpoint: { showMidpoint = true },
-                        onOpenSaved: { showSaved = true },
-                        onOpenMyMaps: { showMyMaps = true }
+                        onOpenSaved: { showSaved = true }
                     )
                 }
             }
@@ -270,13 +284,28 @@ struct ContentView: View {
                 )
                 .presentationDetents([.medium, .large])
             }
-            .sheet(isPresented: $showCourse) {
+            .sheet(isPresented: $showCourse, onDismiss: {
+                isSelectingCourseStops = false
+                selectedCourseStopIDs = []
+                guard let picked = pendingMapSlug else { return }
+                pendingMapSlug = nil
+                Task { await open(slug: picked) }
+            }) {
                 CourseSheet(
                     stops: $stops,
                     legs: $legs,
+                    isSelectingStops: $isSelectingCourseStops,
+                    selectedStopIDs: $selectedCourseStopIDs,
+                    currentTitle: title,
                     searchCenter: placeSearchCenter,
                     savedPins: savedPins,
-                    onSaveToLibrary: saveToLibrary
+                    onSaveToLibrary: saveToLibrary,
+                    onCreateRoute: createRouteFromSelectedStops
+                )
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .modifier(
+                    CourseMapSelectionBackgroundInteraction(enabled: isSelectingCourseStops)
                 )
             }
             .sheet(isPresented: $showPlacePicker) {
@@ -292,10 +321,20 @@ struct ContentView: View {
             .sheet(isPresented: $showSaved, onDismiss: {
                 // 보관함 안에서 폴더를 바꾸거나 장소를 지운 결과를 지도에도 즉시 반영한다.
                 reloadSavedPins()
+                guard openMyMapsAfterSaved else { return }
+                openMyMapsAfterSaved = false
+                DispatchQueue.main.async { showMyMaps = true }
             }) {
-                SavedPlacesView(stops: stops) { stopID, places in
-                    addCoursePlaces(places, toStopID: stopID)
-                }
+                SavedPlacesView(
+                    stops: stops,
+                    onOpenRoutes: {
+                        openMyMapsAfterSaved = true
+                        showSaved = false
+                    },
+                    onAdd: { stopID, places in
+                        addCoursePlaces(places, toStopID: stopID)
+                    }
+                )
             }
             .sheet(isPresented: $showMyMaps, onDismiss: {
                 guard let picked = pendingMapSlug else { return }
@@ -417,7 +456,7 @@ struct ContentView: View {
             center: camera?.center ?? pendingCamera?.center ?? MapPalette.defaultCenter,
             zoomLevel: camera?.zoomLevel ?? pendingCamera?.zoomLevel ?? 3,
             stops: stops,
-            legs: LegRules.synced(stops: stops, legs: legs),
+            legs: LegRules.persistable(stops: stops, legs: legs),
             strokes: strokes,
             labels: labels,
             showCandidateLinks: showCandidateLinks,
@@ -775,7 +814,7 @@ struct ContentView: View {
         _ = persistDraft(reportError: true)
     }
 
-    /// 내 지도 화면에서 지금 열려 있던 서버 지도를 완전 삭제한 경우, 사라진 편집 토큰으로
+    /// 내 동선 화면에서 지금 열려 있던 서버 지도를 완전 삭제한 경우, 사라진 편집 토큰으로
     /// 자동 저장을 반복하지 않도록 편집 화면도 새 로컬 지도로 전환한다.
     private func resetAfterDeletedMap(slug deletedSlug: String) {
         guard slug == deletedSlug else { return }
@@ -807,6 +846,46 @@ struct ContentView: View {
     }
 
     // MARK: - 단계 고치기
+
+    /// 중간 크기 동선 시트 뒤의 지도 핀을 눌러도 목록과 같은 단계 선택으로 처리한다.
+    private func toggleCourseStopSelection(candidateID: String) {
+        guard let stopID = stops.first(where: {
+            $0.candidates.contains { $0.id == candidateID }
+        })?.id else { return }
+
+        if selectedCourseStopIDs.contains(stopID) {
+            selectedCourseStopIDs.remove(stopID)
+        } else {
+            selectedCourseStopIDs.insert(stopID)
+        }
+    }
+
+    /// 현재 문서에서 고른 단계만 새 서버 동선으로 복제한다. 원본은 바꾸지 않으며,
+    /// 성공한 뒤 시트가 내려가면 새 동선을 열어 사람이 바로 결과를 확인하게 한다.
+    private func createRouteFromSelectedStops(
+        _ selectedStopIDs: Set<String>,
+        title: String
+    ) async throws {
+        guard let document = extractedRouteDocument(
+            from: currentDocument(),
+            selectedStopIDs: selectedStopIDs,
+            title: title
+        ) else {
+            throw AppError.message("새 동선으로 만들 단계를 선택해 주세요.")
+        }
+
+        let newSlug = try await MapStore.create(
+            title: document.title,
+            center: document.center,
+            zoomLevel: document.zoomLevel
+        )
+        _ = try await MapStore.save(
+            slug: newSlug,
+            document: document,
+            expectedUpdatedAt: nil
+        )
+        pendingMapSlug = newSlug
+    }
 
     private var placeSearchCenter: PlaceCandidate.Coordinate? {
         guard let center = mapController?.cameraSnapshot()?.center else { return nil }
@@ -975,6 +1054,25 @@ struct ContentView: View {
                 .accessibilityLabel("지도 이름 \(title), \(persistenceStatus.text)")
             }
 
+            Button { showPlacePicker = true } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 16, weight: .semibold))
+                    Text("장소나 주소 검색")
+                        .font(.subheadline)
+                    Spacer()
+                }
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 14)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+                .shadow(color: .black.opacity(0.1), radius: 5, y: 2)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("map.searchBar")
+            .accessibilityLabel("장소나 주소 검색")
+            .padding(.top, 8)
+
             if persistenceStatus.needsAttention {
                 HStack {
                     Spacer()
@@ -1058,19 +1156,16 @@ struct ContentView: View {
                     label: currentLocation.isRequesting ? "현재 위치 확인 중" : "현재 위치로 이동",
                     active: currentLocation.isRequesting
                 ) { moveToCurrentLocation() }
-                    .disabled(currentLocation.isRequesting)
                     .accessibilityIdentifier("map.currentLocation")
                     .accessibilityValue(currentLocationPoint == nil ? "" : "현재 위치 표시됨")
+                    .accessibilityHint(
+                        currentLocationPoint == nil
+                            ? "현재 위치를 확인합니다"
+                            : "다시 누르면 현재 위치로 지도를 이동합니다"
+                    )
 
                 Spacer()
                 VStack(spacing: 10) {
-                    mapPrimaryIconButton(
-                        "mappin.and.ellipse",
-                        label: "장소 추가",
-                        background: .blue
-                    ) { showPlacePicker = true }
-                        .accessibilityIdentifier("map.addPlace")
-
                     mapPrimaryIconButton(
                         "scribble.variable",
                         label: "손그림",
@@ -1246,6 +1341,19 @@ struct ContentView: View {
     }
 
     private func moveToCurrentLocation() {
+        // 첫 요청 뒤 지도를 움직였거나 지도 엔진보다 위치 응답이 먼저 왔더라도, 두 번째
+        // 탭은 GPS를 다시 기다리지 않고 마지막 위치로 즉시 포커스를 되돌린다.
+        if let point = currentLocationPoint {
+            if let mapController {
+                mapController.focusOnCurrentLocation(point)
+            } else {
+                pendingCamera = PendingCamera(center: point, zoomLevel: 5)
+            }
+            return
+        }
+
+        // 첫 요청이 아직 진행 중일 때 반복 탭해도 CLLocationManager 요청을 중첩하지 않는다.
+        guard !currentLocation.isRequesting else { return }
         currentLocation.request { result in
             switch result {
             case .success(let point):
@@ -1310,6 +1418,21 @@ struct ContentView: View {
     }
 }
 
+/// iOS 16.4 이상에서는 중간 크기 동선 시트를 유지한 채 뒤의 지도 핀도 선택할 수 있다.
+/// 더 낮은 버전은 목록 선택만 제공한다.
+private struct CourseMapSelectionBackgroundInteraction: ViewModifier {
+    let enabled: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 16.4, *), enabled {
+            content.presentationBackgroundInteraction(.enabled(upThrough: .medium))
+        } else {
+            content
+        }
+    }
+}
+
 /// 옆에서 나오는 메뉴.
 ///
 /// 예전 첫 화면이 그대로 여기로 들어왔다. 자주 쓰는 것은 지도 위 버튼으로 꺼내 두고,
@@ -1321,7 +1444,6 @@ struct SideMenu: View {
     let onRenameMap: () -> Void
     let onFindMidpoint: () -> Void
     let onOpenSaved: () -> Void
-    let onOpenMyMaps: () -> Void
 
     private let width: CGFloat = 280
 
@@ -1405,7 +1527,7 @@ struct SideMenu: View {
                 }
                 .accessibilityIdentifier("menu.newMap")
 
-                item("pencil", "지도 이름 변경", "내 지도에서 알아보기 쉽게 이름을 붙입니다") {
+                item("pencil", "지도 이름 변경", "내 동선에서 알아보기 쉽게 이름을 붙입니다") {
                     close()
                     onRenameMap()
                 }
@@ -1432,12 +1554,6 @@ struct SideMenu: View {
                     onOpenSaved()
                 }
                 .accessibilityIdentifier("menu.saved")
-
-                item("map", "내 지도", "이 기기에서 만든 지도") {
-                    close()
-                    onOpenMyMaps()
-                }
-                .accessibilityIdentifier("menu.myMaps")
 
                 Spacer()
             }

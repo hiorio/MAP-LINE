@@ -55,7 +55,7 @@ final class KakaoMapViewController: UIViewController {
     private static let memoLayerID = "memos"
     private static let savedPlaceLabelLayerID = "savedPlaces"
     private static let currentLocationLabelLayerID = "currentLocation"
-    private static let currentLocationStyleID = "currentLocation-v1"
+    private static let currentLocationStyleID = "currentLocation-v2"
     /// UIKit 기본값(0.5초)보다 아주 조금만 빠르게 메뉴를 연다.
     private static let longPressMinimumDuration: TimeInterval = 0.45
 
@@ -66,6 +66,15 @@ final class KakaoMapViewController: UIViewController {
             renderStops(on: map)
             renderCandidateLinks(on: map)
             renderLegs(on: map)
+        }
+    }
+
+    /// 단계 분리 선택 중인 id. 선택이 있으면 나머지 핀을 회색으로 낮춰 지도와 목록이
+    /// 같은 선택 상태를 보여 준다.
+    var highlightedStopIDs: Set<String> = [] {
+        didSet {
+            guard highlightedStopIDs != oldValue, let map = kakaoMap else { return }
+            renderStops(on: map)
         }
     }
 
@@ -761,26 +770,33 @@ private extension KakaoMapViewController {
         // 핀을 눌러야 상세를 볼 수 있다. 레이어 단위로 켜 둔다.
         layer.setClickable(true)
 
-        for (place, number) in stops.flattened() {
-            let options = PoiOptions(
-                styleID: numberedPinStyleID(
-                    prefix: "stop",
-                    number: number,
-                    color: UIColor(hex: place.pinColor) ?? .systemRed,
-                    diameter: 20,
-                    fontSize: 16
-                ),
-                // 눌렸을 때 무엇인지 알아야 하므로 후보 id를 그대로 쓴다.
-                poiID: place.id
-            )
-            // 번호가 클수록 위로. 겹쳤을 때 나중 단계가 가려지면 순서를 못 읽는다.
-            options.rank = number
-            options.clickable = true
-            options.addText(PoiText(text: place.name, styleIndex: 0))
-            layer.addPoi(
-                option: options,
-                at: MapPoint(longitude: place.location.lng, latitude: place.location.lat)
-            )?.show()
+        let hasSelection = !highlightedStopIDs.isEmpty
+        for (index, stop) in stops.enumerated() {
+            let number = index + 1
+            let dimmed = hasSelection && !highlightedStopIDs.contains(stop.id)
+            for place in stop.candidates {
+                let options = PoiOptions(
+                    styleID: numberedPinStyleID(
+                        prefix: dimmed ? "stop-dimmed" : "stop",
+                        number: number,
+                        color: dimmed
+                            ? UIColor.systemGray3
+                            : (UIColor(hex: place.pinColor) ?? .systemRed),
+                        diameter: 20,
+                        fontSize: 16
+                    ),
+                    // 눌렸을 때 무엇인지 알아야 하므로 후보 id를 그대로 쓴다.
+                    poiID: place.id
+                )
+                // 번호가 클수록 위로. 겹쳤을 때 나중 단계가 가려지면 순서를 못 읽는다.
+                options.rank = number
+                options.clickable = true
+                options.addText(PoiText(text: place.name, styleIndex: 0))
+                layer.addPoi(
+                    option: options,
+                    at: MapPoint(longitude: place.location.lng, latitude: place.location.lat)
+                )?.show()
+            }
         }
     }
 
@@ -1371,7 +1387,7 @@ private extension KakaoMapViewController {
                 styles: [
                     PerLevelPoiStyle(
                         iconStyle: PoiIconStyle(
-                            symbol: currentLocationIcon(diameter: 28),
+                            symbol: currentLocationIcon(diameter: 23),
                             anchorPoint: CGPoint(x: 0.5, y: 0.5)
                         ),
                         level: 0
@@ -1386,7 +1402,7 @@ private extension KakaoMapViewController {
         let colorToken = colorHex
             .replacingOccurrences(of: "#", with: "")
             .lowercased()
-        let styleID = "saved-v1-\(marker.rawValue)-\(colorToken)"
+        let styleID = "saved-v2-\(marker.rawValue)-\(colorToken)"
         guard !registeredPinStyles.contains(styleID) else { return styleID }
 
         map.getLabelManager().addPoiStyle(
@@ -1396,7 +1412,7 @@ private extension KakaoMapViewController {
                     PerLevelPoiStyle(
                         iconStyle: PoiIconStyle(
                             symbol: savedPlaceIcon(
-                                diameter: 22,
+                                diameter: 19,
                                 fill: UIColor(hex: colorHex) ?? .systemBlue,
                                 systemName: marker.symbolName
                             ),

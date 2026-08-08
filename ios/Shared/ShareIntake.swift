@@ -101,7 +101,12 @@ enum ShareIntake {
             throw IntakeError.server("응답을 읽지 못했습니다.")
         }
         // 422는 "이름을 못 찾았다"는 답이다. 통신 실패와 구별해서 안내해야 고칠 수 있다.
-        if http.statusCode == 422 { throw IntakeError.noName }
+        if http.statusCode == 422 {
+            if let message = decoded?.error, !message.isEmpty {
+                throw IntakeError.server(message)
+            }
+            throw IntakeError.noName
+        }
         guard http.statusCode == 200 else {
             throw IntakeError.server(decoded?.error ?? "검색에 실패했습니다 (\(http.statusCode))")
         }

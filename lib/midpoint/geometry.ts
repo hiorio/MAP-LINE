@@ -1,5 +1,5 @@
 import type { LatLng } from '@/lib/geo/projection';
-import type { TransitLeg } from '@/lib/map/types';
+import type { TransitLeg, TravelMode } from '@/lib/map/types';
 
 /**
  * 중간지점 계산의 순수 부분.
@@ -74,12 +74,25 @@ export function dedupeStations<T extends { name: string }>(places: readonly T[])
   });
 }
 
+export type ParticipantMode = Exclude<TravelMode, 'straight'>;
+
+export const PARTICIPANT_MODES: readonly ParticipantMode[] = [
+  'walk',
+  'transit',
+  'bicycle',
+  'car',
+];
+
+export function isParticipantMode(value: unknown): value is ParticipantMode {
+  return typeof value === 'string' && (PARTICIPANT_MODES as readonly string[]).includes(value);
+}
+
 export interface Participant {
   id: string;
   name?: string;
   location: LatLng;
   /** 이 사람이 오는 방법. 사람마다 다를 수 있다. */
-  mode: 'walk' | 'transit' | 'bicycle';
+  mode: ParticipantMode;
 }
 
 /**
@@ -94,6 +107,9 @@ export function travelWeightedCenter(participants: readonly Participant[]): LatL
     walk: 4,
     bicycle: 1.5,
     transit: 1,
+    // 도심 자동차는 빠르지만 정체 영향을 받는다. 최종 순위는 실제 경로 시간으로 다시
+    // 계산하므로 여기서는 후보 중심을 자동차 출발지 쪽으로 과하게 끌지 않는 정도만 둔다.
+    car: 0.75,
   };
   const sum = participants.reduce(
     (acc, person) => {
@@ -119,14 +135,18 @@ export function estimatedDurationS(distance: number, mode: Participant['mode']):
     case 'transit':
       // 접근·대기 시간을 더해야 가까운 거리에서 대중교통이 지나치게 유리해지지 않는다.
       return distance / 7 + 5 * 60; // 주행 약 25km/h + 5분
+    case 'car':
+      // 후보는 주로 역이므로 주행 외에 하차·접근 시간을 조금 더한다. 최종 비교는
+      // Kakao Mobility가 교통량을 반영해 돌려준 실제 운전 시간으로 다시 수행한다.
+      return distance / 9 + 5 * 60; // 도심 약 32km/h + 5분
   }
 }
 
 /**
  * 실제 경로를 물어볼 결선 후보를 고른다.
  *
- * 길찾기는 하루 1,000건이고 한 번 계산에 `참가자 수 × 후보 수`만큼 나간다. 후보를
- * 그대로 다 부르면 몇 번 만에 바닥난다. 직선거리를 각자의 이동수단별 예상 시간으로
+ * 한 번 계산에 길찾기가 `참가자 수 × 후보 수`만큼 나간다. 후보를 그대로 다 부르면
+ * 외부 API 쿼터를 빠르게 소모한다. 직선거리를 각자의 이동수단별 예상 시간으로
  * 바꿔 미리 줄을 세운 뒤 앞의 몇 개만 남긴다.
  *
  * 이 값은 후보를 싸게 압축하기 위한 근사치일 뿐이다. 지하철 노선과 실제 보행로는

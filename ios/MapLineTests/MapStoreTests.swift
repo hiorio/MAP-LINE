@@ -114,4 +114,62 @@ final class MapStoreTests: XCTestCase {
         XCTAssertEqual(copy.labels, source.labels)
         XCTAssertEqual(copy.center, source.center)
     }
+
+    func test_선택한단계만원래순서대로새동선으로분리한다() throws {
+        let first = Stop(
+            id: "first",
+            candidates: [MapPlace(name: "강남", location: GeoPoint(lat: 37.50, lng: 127.02))]
+        )
+        let second = Stop(
+            id: "second",
+            candidates: [MapPlace(name: "신도림역", location: GeoPoint(lat: 37.51, lng: 126.89))]
+        )
+        let third = Stop(
+            id: "third",
+            candidates: [MapPlace(name: "공연장", location: GeoPoint(lat: 37.52, lng: 126.90))]
+        )
+        let source = MapDocument(
+            title: "서울 하루",
+            stops: [first, second, third],
+            legs: [StopLeg(mode: .walk), StopLeg(mode: .transit)],
+            strokes: [GeoStroke(path: [first.candidates[0].location], zoomCreated: 3)],
+            labels: [MapLabel(location: first.candidates[0].location, text: "강남 메모")]
+        )
+
+        let extracted = try XCTUnwrap(
+            extractedRouteDocument(
+                from: source,
+                selectedStopIDs: ["second", "third"],
+                title: "신도림 동선"
+            )
+        )
+
+        XCTAssertEqual(extracted.title, "신도림 동선")
+        XCTAssertEqual(extracted.stops.map(\.id), ["second", "third"])
+        XCTAssertEqual(extracted.legs.map(\.mode), [.transit])
+        XCTAssertTrue(extracted.strokes.isEmpty)
+        XCTAssertTrue(extracted.labels.isEmpty)
+        XCTAssertEqual(extracted.center.lat, 37.515, accuracy: 0.000_001)
+        XCTAssertEqual(extracted.center.lng, 126.895, accuracy: 0.000_001)
+    }
+
+    func test_떨어진단계끼리분리하면옛경로를잘못재사용하지않는다() throws {
+        let stops = [
+            Stop(id: "a", candidates: [MapPlace(name: "A", location: GeoPoint(lat: 1, lng: 1))]),
+            Stop(id: "b", candidates: [MapPlace(name: "B", location: GeoPoint(lat: 2, lng: 2))]),
+            Stop(id: "c", candidates: [MapPlace(name: "C", location: GeoPoint(lat: 3, lng: 3))]),
+        ]
+        let source = MapDocument(
+            stops: stops,
+            legs: [StopLeg(mode: .walk), StopLeg(mode: .transit)]
+        )
+
+        let extracted = try XCTUnwrap(
+            extractedRouteDocument(from: source, selectedStopIDs: ["a", "c"], title: "새 동선")
+        )
+
+        XCTAssertEqual(extracted.legs.count, 1)
+        XCTAssertEqual(extracted.legs.first?.mode, .straight)
+        XCTAssertNil(extracted.legs.first?.route)
+    }
 }

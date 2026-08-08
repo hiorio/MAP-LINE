@@ -20,15 +20,23 @@ final class MapControlsUITests: XCTestCase {
         let map = app.descendants(matching: .any).matching(identifier: "mapReady").firstMatch
         XCTAssertTrue(map.waitForExistence(timeout: 30), "지도가 준비되지 않았다")
 
-        let add = element("map.addPlace", in: app)
+        let search = element("map.searchBar", in: app)
         let draw = element("map.draw", in: app)
         let share = element("map.share", in: app)
-        XCTAssertTrue(add.waitForExistence(timeout: 10), "장소 추가 아이콘이 없다")
+        XCTAssertTrue(search.waitForExistence(timeout: 10), "지도 상단 검색바가 없다")
         XCTAssertTrue(draw.exists, "손그림 아이콘이 없다")
         XCTAssertTrue(share.exists, "공유 아이콘이 없다")
-        assertCircularIcon(add)
+        XCTAssertGreaterThan(search.frame.width, search.frame.height * 3, "검색 진입점이 검색바 모양이 아니다")
         assertCircularIcon(draw)
         assertCircularIcon(share)
+
+        search.tap()
+        XCTAssertTrue(
+            app.searchFields["장소나 주소"].waitForExistence(timeout: 5),
+            "상단 검색바가 장소 검색 화면을 열지 못했다"
+        )
+        app.buttons["취소"].firstMatch.tap()
+        XCTAssertTrue(search.waitForExistence(timeout: 5), "장소 검색을 닫은 뒤 지도로 돌아오지 못했다")
 
         Thread.sleep(forTimeInterval: 3)
         attach(app, name: "지도-아이콘-보관장소마커")
@@ -49,6 +57,9 @@ final class MapControlsUITests: XCTestCase {
             object: location
         )
         XCTAssertEqual(XCTWaiter.wait(for: [moved], timeout: 5), .completed)
+        // 한 번 찾은 뒤에는 다시 위치를 요청하지 않고 저장된 좌표로 즉시 재포커스한다.
+        location.tap()
+        XCTAssertEqual(location.value as? String, "현재 위치 표시됨")
         Thread.sleep(forTimeInterval: 1)
         attach(app, name: "현재위치-이동-파란점")
     }

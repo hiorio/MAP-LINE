@@ -125,7 +125,7 @@ final class SavedPlaceStoreTests: XCTestCase {
         XCTAssertEqual(try store.all().first?.groupID, "cafe")
     }
 
-    func test_폴더를지우기전에장소를받은장소로모두옮긴다() throws {
+    func test_폴더를지우기전에장소를미분류로모두옮긴다() throws {
         try store.add(place("A", groupID: "trip"))
         try store.add(place("B", lat: 37.6, groupID: "trip"))
 
@@ -146,8 +146,15 @@ final class SavedPlaceGroupStoreTests: XCTestCase {
         store = SavedPlaceGroupStore(storage: storage)
     }
 
-    func test_받은장소기본폴더가항상첫번째다() throws {
+    func test_복구용미분류폴더가저장데이터와호환된다() throws {
         XCTAssertEqual(try store.all(), [SavedPlaceGroup.inbox])
+        XCTAssertEqual(SavedPlaceGroup.inbox.name, "미분류")
+    }
+
+    func test_폴더마크선택지가18종이다() {
+        XCTAssertEqual(SavedPlaceMarker.allCases.count, 18)
+        XCTAssertEqual(SavedPlaceMarker.nature.symbolName, "leaf.fill")
+        XCTAssertEqual(SavedPlaceMarker.stay.title, "숙소")
     }
 
     func test_마크와색을가진폴더를만든다() throws {

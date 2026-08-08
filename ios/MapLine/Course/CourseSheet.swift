@@ -7,9 +7,13 @@ import SwiftUI
 struct CourseSheet: View {
     @Binding var stops: [Stop]
     @Binding var legs: [StopLeg]
+    @Binding var isSelectingStops: Bool
+    @Binding var selectedStopIDs: Set<String>
+    var currentTitle: String
     var searchCenter: PlaceCandidate.Coordinate?
     var savedPins: [SavedPlacePin]
     let onSaveToLibrary: (MapPlace, SavedPlaceGroup) -> String?
+    let onCreateRoute: (Set<String>, String) async throws -> Void
 
     @Environment(\.dismiss) private var dismiss
     /// 지금 길찾기를 부르고 있는 구간들. 여러 구간을 동시에 바꿀 수 있다.
@@ -22,6 +26,10 @@ struct CourseSheet: View {
     @State private var undoTask: Task<Void, Never>?
     @State private var routeRevision = 0
     @State private var openedCandidate: OpenedCandidate?
+    @State private var proposedRouteTitle = "새 동선"
+    @State private var askingForRouteTitle = false
+    @State private var creatingRoute = false
+    @State private var createRouteError: String?
 
     private struct CandidateTarget: Identifiable {
         let stopID: String
@@ -56,9 +64,13 @@ struct CourseSheet: View {
 
                 ForEach(Array(stops.enumerated()), id: \.element.id) { index, stop in
                     Section {
-                        stopRow(index: index, stop: stop)
-                        // 마지막 단계 뒤에는 갈 곳이 없다.
-                        if index < stops.count - 1 { legRow(index: index) }
+                        if isSelectingStops {
+                            selectableStopRow(index: index, stop: stop)
+                        } else {
+                            stopRow(index: index, stop: stop)
+                            // 마지막 단계 뒤에는 갈 곳이 없다.
+                            if index < stops.count - 1 { legRow(index: index) }
+                        }
                     }
                 }
                 .onMove(perform: moveStops)
@@ -67,14 +79,22 @@ struct CourseSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(editMode == .active ? "완료" : "순서 변경") {
-                        withAnimation { editMode = editMode == .active ? .inactive : .active }
+                    Button(isSelectingStops ? "취소" : "선택") {
+                        toggleSelectionMode()
                     }
-                    .disabled(stops.count < 2)
-                    .accessibilityIdentifier("course.reorder")
+                    .disabled(stops.isEmpty || creatingRoute)
+                    .accessibilityIdentifier("course.select")
                 }
-                ToolbarItem(placement: .confirmationAction) {
+                ToolbarItemGroup(placement: .confirmationAction) {
+                    if !isSelectingStops {
+                        Button(editMode == .active ? "완료" : "순서 변경") {
+                            withAnimation { editMode = editMode == .active ? .inactive : .active }
+                        }
+                        .disabled(stops.count < 2)
+                        .accessibilityIdentifier("course.reorder")
+                    }
                     Button("닫기") { dismiss() }
+                        .disabled(creatingRoute)
                 }
             }
             .sheet(item: $candidateTarget) { target in
@@ -109,17 +129,159 @@ struct CourseSheet: View {
             }
             .environment(\.editMode, $editMode)
             .safeAreaInset(edge: .bottom) {
-                if let undoRemoval {
-                    UndoBanner(message: undoRemoval.message) { restoreRemoval() }
-                        .padding(.bottom, 8)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                VStack(spacing: 0) {
+                    if isSelectingStops {
+                        selectionActionBar
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    } else if let undoRemoval {
+                        UndoBanner(message: undoRemoval.message) { restoreRemoval() }
+                            .padding(.bottom, 8)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
                 }
             }
+            .alert("선택한 단계로 새 동선 만들기", isPresented: $askingForRouteTitle) {
+                TextField("동선 이름", text: $proposedRouteTitle)
+                Button("취소", role: .cancel) {}
+                Button("만들기") { createRouteFromSelection() }
+                    .disabled(proposedRouteTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            } message: {
+                Text("원본 동선은 그대로 두고 선택한 단계만 복제합니다.")
+            }
+            .alert(
+                "새 동선을 만들지 못했습니다",
+                isPresented: Binding(
+                    get: { createRouteError != nil },
+                    set: { if !$0 { createRouteError = nil } }
+                )
+            ) {
+                Button("확인", role: .cancel) { createRouteError = nil }
+            } message: {
+                Text(createRouteError ?? "")
+            }
+            .onAppear { refreshMissingRoutes() }
             .onDisappear { undoTask?.cancel() }
+            .interactiveDismissDisabled(creatingRoute)
         }
     }
 
     // MARK: - 단계
+
+    private func selectableStopRow(index: Int, stop: Stop) -> some View {
+        let selected = selectedStopIDs.contains(stop.id)
+        let names = stop.candidates.map(\.name).joined(separator: ", ")
+
+        return Button {
+            toggleStopSelection(stop.id)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                    .font(.title3)
+                    .foregroundStyle(selected ? Color.accentColor : Color.secondary)
+
+                Text("\(index + 1)")
+                    .font(.caption.weight(.bold))
+                    .frame(width: 22, height: 22)
+                    .background(selected ? Color.accentColor : Color.secondary.opacity(0.22))
+                    .foregroundStyle(selected ? Color.white : Color.primary)
+                    .clipShape(Circle())
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(index + 1)단계")
+                        .font(.body.weight(.semibold))
+                    Text(names.isEmpty ? "장소 없음" : names)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Text("\(stop.candidates.count)곳")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .contentShape(Rectangle())
+            .padding(.vertical, 4)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(index + 1)단계, \(names)")
+        .accessibilityValue(selected ? "선택됨" : "선택 안 됨")
+        .accessibilityIdentifier("course.selectStop.\(index)")
+    }
+
+    private var selectionActionBar: some View {
+        VStack(spacing: 10) {
+            Text("\(selectedStopIDs.count)개 단계 선택됨")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+
+            Button {
+                let baseTitle = currentTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                proposedRouteTitle = baseTitle.isEmpty || baseTitle == "새 지도"
+                    ? "새 동선"
+                    : "\(baseTitle) 일부"
+                askingForRouteTitle = true
+            } label: {
+                HStack(spacing: 8) {
+                    if creatingRoute { ProgressView().tint(.white) }
+                    Image(systemName: "square.on.square")
+                    Text(creatingRoute ? "새 동선을 만드는 중…" : "선택한 단계로 새 동선 만들기")
+                        .font(.body.weight(.semibold))
+                }
+                .frame(maxWidth: .infinity, minHeight: 48)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(selectedStopIDs.isEmpty || creatingRoute)
+            .accessibilityIdentifier("course.createFromSelection")
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 12)
+        .padding(.bottom, 8)
+        .background(.regularMaterial)
+    }
+
+    private func toggleSelectionMode() {
+        withAnimation {
+            editMode = .inactive
+            if isSelectingStops {
+                selectedStopIDs = []
+                isSelectingStops = false
+            } else {
+                selectedStopIDs = []
+                isSelectingStops = true
+            }
+        }
+    }
+
+    private func toggleStopSelection(_ stopID: String) {
+        withAnimation {
+            if selectedStopIDs.contains(stopID) {
+                selectedStopIDs.remove(stopID)
+            } else {
+                selectedStopIDs.insert(stopID)
+            }
+        }
+    }
+
+    private func createRouteFromSelection() {
+        let selected = selectedStopIDs
+        let requestedTitle = proposedRouteTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !selected.isEmpty, !requestedTitle.isEmpty, !creatingRoute else { return }
+
+        creatingRoute = true
+        Task { @MainActor in
+            do {
+                try await onCreateRoute(selected, requestedTitle)
+                creatingRoute = false
+                isSelectingStops = false
+                selectedStopIDs = []
+                dismiss()
+            } catch {
+                creatingRoute = false
+                createRouteError = error.localizedDescription
+            }
+        }
+    }
 
     private func stopRow(index: Int, stop: Stop) -> some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -313,12 +475,30 @@ struct CourseSheet: View {
         let leg = legs.indices.contains(index) ? legs[index] : StopLeg()
 
         VStack(alignment: .leading, spacing: 6) {
-            Picker("이동수단", selection: modeBinding(index)) {
-                ForEach(TravelMode.allCases) { mode in
-                    Label(mode.label, systemImage: mode.symbol).tag(mode)
+            // 다섯 수단을 segmented picker에 넣으면 작은 iPhone에서 "대중교통"과
+            // "자동차"가 잘린다. 가로로 넘길 수 있는 칩으로 모든 선택지를 온전히 보인다.
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 7) {
+                    ForEach(TravelMode.allCases) { mode in
+                        Button {
+                            modeBinding(index).wrappedValue = mode
+                        } label: {
+                            Label(mode.label, systemImage: mode.symbol)
+                                .font(.caption.weight(.medium))
+                                .padding(.horizontal, 10)
+                                .frame(height: 32)
+                                .foregroundStyle(leg.mode == mode ? Color.white : Color.primary)
+                                .background(
+                                    leg.mode == mode ? Color.accentColor : Color.secondary.opacity(0.12),
+                                    in: Capsule()
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityValue(leg.mode == mode ? "선택됨" : "")
+                    }
                 }
             }
-            .pickerStyle(.segmented)
+            .accessibilityLabel("이동수단")
 
             if loading.contains(index) {
                 HStack(spacing: 6) {
@@ -406,6 +586,13 @@ struct CourseSheet: View {
             legs: legs
         )
         for index in targets {
+            Task { await fetchRoute(index) }
+        }
+    }
+
+    /// 저장하지 않는 자동차 경로와 오래된 캐시는 동선 화면을 열 때 실시간으로 채운다.
+    private func refreshMissingRoutes() {
+        for index in LegRules.needingRoute(stops: stops, legs: legs) {
             Task { await fetchRoute(index) }
         }
     }

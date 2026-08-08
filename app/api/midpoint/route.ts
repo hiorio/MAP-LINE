@@ -5,7 +5,7 @@ import {
   NotEnoughParticipantsError,
   findMidpoint,
 } from '@/lib/midpoint/findMidpoint';
-import type { Participant } from '@/lib/midpoint/geometry';
+import { isParticipantMode, type Participant } from '@/lib/midpoint/geometry';
 import { MIDPOINT_LIMIT, checkRateLimit, tooManyRequests } from '@/lib/rateLimit';
 
 /**
@@ -69,9 +69,7 @@ function readParticipants(value: unknown): Participant[] | null {
     const { id, name, location, mode } = raw as Record<string, unknown>;
 
     if (typeof id !== 'string' || id.trim() === '') return null;
-    // 동선의 TravelMode에는 자동차도 있지만, 모임 중간지점 참가자 화면은 아직
-    // 도보·대중교통·자전거만 받는다. 공용 타입이 늘었다고 몰래 허용하지 않는다.
-    if (mode !== 'walk' && mode !== 'transit' && mode !== 'bicycle') return null;
+    if (!isParticipantMode(mode)) return null;
     if (typeof location !== 'object' || location === null) return null;
 
     const { lat, lng } = location as Record<string, unknown>;

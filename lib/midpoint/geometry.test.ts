@@ -8,6 +8,7 @@ import {
   searchRadiusM,
   shortlist,
   estimatedDurationS,
+  isParticipantMode,
   travelWeightedCenter,
   type Leg,
   type Participant,
@@ -118,7 +119,7 @@ describe('shortlist', () => {
   });
 
   it('요청한 개수만큼만 남긴다', () => {
-    // 길찾기는 하루 1,000건이고 참가자 수만큼 곱해 나간다. 여기서 줄이지 않으면 바닥난다.
+    // 참가자 수만큼 외부 길찾기 호출이 곱해진다. 여기서 줄이지 않으면 쿼터를 빠르게 소모한다.
     const candidates = Array.from({ length: 15 }, (_, i) => ({
       id: String(i),
       location: { lat: 37.5 + i * 0.001, lng: 127.0 },
@@ -157,6 +158,29 @@ describe('travelWeightedCenter / estimatedDurationS', () => {
     expect(estimatedDurationS(5_000, 'walk')).toBeGreaterThan(
       estimatedDurationS(5_000, 'transit'),
     );
+  });
+
+  it('자동차 참가자는 실제 경로 전 후보 압축에도 빠른 수단으로 반영한다', () => {
+    expect(estimatedDurationS(10_000, 'car')).toBeLessThan(
+      estimatedDurationS(10_000, 'transit'),
+    );
+  });
+
+  it('걷는 사람보다 자동차 참가자 쪽으로 중심을 덜 끌어간다', () => {
+    const center = travelWeightedCenter([
+      { id: 'walk', location: { lat: 0, lng: 0 }, mode: 'walk' },
+      { id: 'car', location: { lat: 0, lng: 10 }, mode: 'car' },
+    ]);
+    expect(center?.lng).toBeCloseTo(1.5789, 4);
+  });
+});
+
+describe('isParticipantMode', () => {
+  it('자동차를 허용하고 직선은 거절한다', () => {
+    expect(isParticipantMode('car')).toBe(true);
+    expect(isParticipantMode('walk')).toBe(true);
+    expect(isParticipantMode('straight')).toBe(false);
+    expect(isParticipantMode('airplane')).toBe(false);
   });
 });
 

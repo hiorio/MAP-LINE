@@ -5,10 +5,8 @@ import Foundation
 /// `straight`가 기본이다. 후보가 아직 여럿이라 어디로 갈지 안 정한 단계에까지 정확한
 /// 경로를 그리면 정해진 것처럼 보인다. 웹 `TravelMode`와 같은 값이어야 한다.
 ///
-/// 자동차는 없다. 카카오모빌리티의 자동차 길찾기는 결과를 저장할 수 없어, 링크를
-/// 나중에 여는 이 제품과 맞지 않는다.
 enum TravelMode: String, Codable, CaseIterable, Identifiable {
-    case straight, walk, transit, bicycle
+    case straight, walk, transit, bicycle, car
 
     var id: String { rawValue }
 
@@ -18,6 +16,7 @@ enum TravelMode: String, Codable, CaseIterable, Identifiable {
         case .walk: return "도보"
         case .transit: return "대중교통"
         case .bicycle: return "자전거"
+        case .car: return "자동차"
         }
     }
 
@@ -27,6 +26,7 @@ enum TravelMode: String, Codable, CaseIterable, Identifiable {
         case .walk: return "figure.walk"
         case .transit: return "tram.fill"
         case .bicycle: return "bicycle"
+        case .car: return "car.fill"
         }
     }
 
@@ -78,12 +78,25 @@ struct StopLeg: Codable, Equatable {
 enum LegRules {
     /// 카카오 운영정책이 요구하는 "캐시 후 최신 데이터로 유지"의 기한.
     static let routeTTLDays = 7.0
+    /// 자동차 소요 시간은 현재 교통량을 반영하므로 더 빨리 갱신한다.
+    static let carRouteTTLHours = 1.0
 
     /// 구간 배열을 단계 수에 맞춘다. 길이는 항상 max(0, 단계 수 - 1)이다.
     static func synced(stops: [Stop], legs: [StopLeg]) -> [StopLeg] {
         let wanted = max(0, stops.count - 1)
         if legs.count == wanted { return legs }
         return (0..<wanted).map { legs.indices.contains($0) ? legs[$0] : StopLeg() }
+    }
+
+    /// 외부 데이터 저장 조건에 맞춰 파일·서버에 남길 구간만 만든다.
+    ///
+    /// 자동차를 골랐다는 사용자의 의도는 보존하지만 Kakao Mobility가 돌려준 도로 좌표,
+    /// 거리와 시간은 자체 저장하지 않는다. 화면의 원본 배열은 바꾸지 않아 현재 세션에서는
+    /// 실시간 경로를 계속 그릴 수 있다.
+    static func persistable(stops: [Stop], legs: [StopLeg]) -> [StopLeg] {
+        synced(stops: stops, legs: legs).map { leg in
+            leg.mode == .car ? StopLeg(mode: .car) : leg
+        }
     }
 
     /// 단계 순서를 바꾼 뒤에도 그대로 남은 인접 구간은 이동수단과 경로를 보존한다.
@@ -117,12 +130,19 @@ enum LegRules {
         route.fromPlaceId == from.id && route.toPlaceId == to.id
     }
 
-    static func isStale(_ route: RoutePath, now: Date = Date()) -> Bool {
+    static func isStale(
+        _ route: RoutePath,
+        now: Date = Date(),
+        mode: TravelMode = .straight
+    ) -> Bool {
         guard let fetched = ISO8601DateFormatter().date(from: route.fetchedAt) else {
             // 시각을 못 읽으면 낡은 것으로 본다. 다시 받는 편이 틀린 그림을 두는 것보다 낫다.
             return true
         }
-        return now.timeIntervalSince(fetched) > routeTTLDays * 24 * 60 * 60
+        let ttl = mode == .car
+            ? carRouteTTLHours * 60 * 60
+            : routeTTLDays * 24 * 60 * 60
+        return now.timeIntervalSince(fetched) > ttl
     }
 
     /// 지금 그려도 되는 경로. 없으면 직선으로 되돌린다는 뜻이다.
@@ -142,7 +162,7 @@ enum LegRules {
             guard leg.mode.needsRoute else { return false }
             guard endpoints(stops: stops, index: index) != nil else { return false }
             guard let route = drawableRoute(stops: stops, index: index, leg: leg) else { return true }
-            return isStale(route)
+            return isStale(route, mode: leg.mode)
         }
     }
 

@@ -13,7 +13,7 @@ struct SavedPlace: Codable, Equatable, Identifiable {
     let lat: Double
     let lng: Double
     let savedAt: String
-    /// 어느 보관함 폴더에 속하는지. 예전 파일에는 없으므로 디코딩할 때 받은 장소로 보낸다.
+    /// 어느 보관함 폴더에 속하는지. 예전 파일에는 없으므로 복구용 미분류 ID로 읽는다.
     let groupID: String
 
     init(

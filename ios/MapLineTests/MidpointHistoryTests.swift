@@ -77,6 +77,33 @@ final class MidpointHistoryTests: XCTestCase {
         XCTAssertEqual(decoded.result.candidates.first?.legs.first?.points?.last?.lng, 127.01)
     }
 
+    func test_자동차검색은_선택과후보만남기고_실시간경로는저장하지않는다() throws {
+        let people = [participant(id: "a", mode: .walk), participant(id: "b", mode: .car)]
+        let live = result(name: "자동차 후보", participants: people)
+        try store.add(participants: people, result: live)
+
+        let entry = try XCTUnwrap(try store.all().first)
+        let candidate = try XCTUnwrap(entry.result.candidates.first)
+        let savedCar = try XCTUnwrap(candidate.legs.first { $0.mode == "car" })
+        let savedWalk = try XCTUnwrap(candidate.legs.first { $0.mode == "walk" })
+
+        XCTAssertEqual(entry.participants.map(\.mode), [.walk, .car])
+        XCTAssertNil(savedCar.durationS)
+        XCTAssertNil(savedCar.distanceM)
+        XCTAssertNil(savedCar.points)
+        XCTAssertNotNil(savedWalk.points)
+        XCTAssertNil(candidate.maxDurationS)
+        XCTAssertNil(candidate.totalDurationS)
+        XCTAssertNil(candidate.spreadS)
+        XCTAssertFalse(candidate.complete)
+
+        // 저장용 사본을 만들 뿐 현재 결과는 바꾸지 않아 지도에는 자동차 경로가 계속 보인다.
+        let liveCandidate = try XCTUnwrap(live.candidates.first)
+        let liveCar = try XCTUnwrap(liveCandidate.legs.first { $0.mode == "car" })
+        XCTAssertNotNil(liveCar.points)
+        XCTAssertNotNil(liveCandidate.maxDurationS)
+    }
+
     private var participants: [Midpoint.Participant] {
         [participant(id: "a", mode: .walk), participant(id: "b", mode: .transit)]
     }
@@ -90,12 +117,16 @@ final class MidpointHistoryTests: XCTestCase {
         )
     }
 
-    private func result(name: String) -> Midpoint.Result {
+    private func result(
+        name: String,
+        participants suppliedParticipants: [Midpoint.Participant]? = nil
+    ) -> Midpoint.Result {
+        let sourceParticipants = suppliedParticipants ?? participants
         let points = [
             PlaceCandidate.Coordinate(lat: 37.5, lng: 127.0),
             PlaceCandidate.Coordinate(lat: 37.51, lng: 127.01),
         ]
-        let legs = participants.map { person in
+        let legs = sourceParticipants.map { person in
             Midpoint.Candidate.Leg(
                 participantId: person.id,
                 mode: person.mode.rawValue,
@@ -118,7 +149,7 @@ final class MidpointHistoryTests: XCTestCase {
                     ),
                     legs: legs,
                     maxDurationS: 600,
-                    totalDurationS: 1_200,
+                    totalDurationS: 600 * sourceParticipants.count,
                     spreadS: 0,
                     complete: true
                 ),

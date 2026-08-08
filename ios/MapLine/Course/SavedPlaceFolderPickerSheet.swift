@@ -11,7 +11,8 @@ struct SavedPlaceFolderPickerSheet: View {
     let onPick: (SavedPlaceGroup) -> String?
 
     @Environment(\.dismiss) private var dismiss
-    @State private var groups: [SavedPlaceGroup] = [SavedPlaceGroup.inbox]
+    @State private var groups: [SavedPlaceGroup] = []
+    @State private var creatingFolder = false
     @State private var storageError: String?
 
     private let groupStore = SavedPlaceGroupStore(storage: AppGroupSavedPlaceGroupStorage())
@@ -20,6 +21,10 @@ struct SavedPlaceFolderPickerSheet: View {
         NavigationStack {
             List {
                 Section {
+                    if groups.isEmpty {
+                        Text("저장할 폴더를 먼저 만들어 주세요.")
+                            .foregroundStyle(.secondary)
+                    }
                     ForEach(groups) { group in
                         Button {
                             if let error = onPick(group) {
@@ -59,7 +64,7 @@ struct SavedPlaceFolderPickerSheet: View {
                 } header: {
                     Text("‘\(placeName)’ 저장 위치")
                 } footer: {
-                    Text("새 폴더가 필요하면 보관함에서 만든 뒤 다시 선택할 수 있습니다.")
+                    Text("장소는 선택한 폴더의 마크와 색으로 지도에 표시됩니다.")
                 }
             }
             .navigationTitle("보관함에 저장")
@@ -67,6 +72,25 @@ struct SavedPlaceFolderPickerSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("취소") { dismiss() }
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Button { creatingFolder = true } label: {
+                        Label("새 폴더", systemImage: "folder.badge.plus")
+                    }
+                    .accessibilityIdentifier("stop.save.addFolder")
+                }
+            }
+        }
+        .sheet(isPresented: $creatingFolder) {
+            SavedPlaceGroupEditor(group: nil) { group in
+                do {
+                    guard try groupStore.add(group) else {
+                        storageError = "같은 이름의 폴더가 이미 있습니다."
+                        return
+                    }
+                    reload()
+                } catch {
+                    storageError = error.localizedDescription
                 }
             }
         }
@@ -86,7 +110,8 @@ struct SavedPlaceFolderPickerSheet: View {
 
     private func reload() {
         do {
-            groups = try groupStore.all()
+            // `inbox`는 예전 데이터 복구용이다. 새 장소는 사용자가 만든 폴더에만 담는다.
+            groups = try groupStore.all().filter { $0.id != SavedPlaceGroup.inboxID }
         } catch {
             storageError = error.localizedDescription
         }

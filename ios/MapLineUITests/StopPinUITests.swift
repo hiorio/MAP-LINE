@@ -21,8 +21,8 @@ final class StopPinUITests: XCTestCase {
         XCTAssertTrue(draw.waitForExistence(timeout: 30), "지도 화면이 뜨지 않았다")
         try waitForMap(app)
         XCTAssertTrue(
-            app.descendants(matching: .any).matching(identifier: "map.addPlace").firstMatch.exists,
-            "지도 첫 화면에 장소 추가 진입점이 없다"
+            app.descendants(matching: .any).matching(identifier: "map.searchBar").firstMatch.exists,
+            "지도 첫 화면에 장소 검색 진입점이 없다"
         )
         // 타일이 올라올 틈을 준다. 빈 지도를 찍으면 핀이 붙었는지 알아볼 수 없다.
         Thread.sleep(forTimeInterval: 3)
@@ -219,10 +219,27 @@ final class StopPinUITests: XCTestCase {
             XCTFail("동선 화면에 이동수단 선택이 없다")
             return
         }
+        XCTAssertTrue(app.buttons["자동차"].exists, "동선 이동수단에 자동차가 없다")
         XCTAssertTrue(
             app.descendants(matching: .any).matching(identifier: "course.reorder").firstMatch.exists,
             "동선 화면에서 단계 순서를 바꿀 수 없다"
         )
+        let selectStages = app.descendants(matching: .any)
+            .matching(identifier: "course.select").firstMatch
+        XCTAssertTrue(selectStages.exists, "동선 화면에서 여러 단계를 선택할 수 없다")
+        selectStages.tap()
+        let firstSelectableStage = app.descendants(matching: .any)
+            .matching(identifier: "course.selectStop.0").firstMatch
+        XCTAssertTrue(firstSelectableStage.waitForExistence(timeout: 5), "선택할 단계 행이 나타나지 않는다")
+        firstSelectableStage.tap()
+        XCTAssertEqual(firstSelectableStage.value as? String, "선택됨")
+        XCTAssertTrue(
+            app.descendants(matching: .any)
+                .matching(identifier: "course.createFromSelection").firstMatch.isEnabled,
+            "선택한 단계로 새 동선을 만드는 버튼이 활성화되지 않는다"
+        )
+        // 이 테스트에서는 서버에 실제 복제본을 만들지 않고 기존 경로 선택 검증으로 돌아간다.
+        selectStages.tap()
         walk.tap()
 
         // 길찾기가 서버를 거쳐 온다. 넉넉히 기다린 뒤 결과를 찍는다.

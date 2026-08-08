@@ -14,6 +14,8 @@ struct KakaoMapView: UIViewControllerRepresentable {
     var stops: [Stop]
     /// 단계 사이 구간.
     var legs: [StopLeg]
+    /// 비어 있지 않으면 이 단계들만 선명하게 보이고 나머지 핀은 흐리게 그린다.
+    var highlightedStopIDs: Set<String>
     /// 같은 단계에 후보가 여럿일 때 후보끼리 묶어 보이는 회색 보조선.
     var showCandidateLinks: Bool
     /// 손으로 그린 획들.
@@ -80,6 +82,7 @@ struct KakaoMapView: UIViewControllerRepresentable {
         // 단계를 먼저 넣는다. 구간은 단계를 근거로 그려지므로 순서가 뒤바뀌면
         // 아직 없는 단계를 가리키는 구간을 한 번 그리게 된다.
         controller.stops = stops
+        controller.highlightedStopIDs = highlightedStopIDs
         controller.legs = legs
         controller.strokes = strokes
         controller.labels = labels
